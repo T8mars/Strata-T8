@@ -224,3 +224,18 @@ class WindowsApply(unittest.TestCase):
             process.terminate()
             process.wait(timeout=10)
             process.stdin.close()
+
+    @unittest.skipUnless((SOURCE/'runtime/python/python.exe').exists(), 'bundled runtime available in packaging job')
+    def test_batch_entry_preserves_preparation_error_exit_status(self):
+        root = self.base/'batch'
+        runtime = root/'runtime/python'
+        runtime.mkdir(parents=True)
+        for file in (SOURCE/'runtime/python').iterdir():
+            if file.is_file() and file.suffix.lower() in ('.exe', '.dll', '.zip', '._pth'):
+                shutil.copy2(file, runtime/file.name)
+        (root/'tools').mkdir()
+        shutil.copy2(SOURCE/'UPDATE-PORTABLE.bat', root/'UPDATE-PORTABLE.bat')
+        shutil.copy2(SOURCE/'tools/run_portable_update.ps1', root/'tools/run_portable_update.ps1')
+        (root/'tools/portable_update.py').write_text('raise SystemExit(2)\n', encoding='utf-8')
+        result = subprocess.run(['cmd', '/d', '/c', 'UPDATE-PORTABLE.bat'], cwd=root, input='\n', capture_output=True, text=True, timeout=45)
+        self.assertEqual(result.returncode, 2, result.stdout+result.stderr)
