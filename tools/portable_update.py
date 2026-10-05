@@ -96,7 +96,9 @@ def running_processes(root=ROOT):
     running = []
     for process in psutil.process_iter(['pid', 'exe']):
         try:
-            if process.pid != os.getpid() and process.info['exe'] and Path(process.info['exe']).resolve().is_relative_to(root.resolve()):
+            executable = Path(process.info['exe']) if process.info['exe'] else None
+            # Windows pseudo-processes such as Registry report a name rather than a file path.
+            if process.pid != os.getpid() and executable and executable.is_absolute() and executable.resolve().is_relative_to(root.resolve()):
                 running.append(process.pid)
         except (OSError, psutil.Error):
             continue

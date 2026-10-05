@@ -7,9 +7,10 @@ set PYTHONPATH=
 set PYTHONNOUSERSITE=1
 set PYTHONDONTWRITEBYTECODE=1
 "%~dp0runtime\python\python.exe" -X utf8 -u "%~dp0tools\portable_update.py" %*
+set "T8_UPDATE_RC=%ERRORLEVEL%"
 rem Parse this block before the updater can replace this batch file.
 (
-  if errorlevel 1 (
+  if not "%T8_UPDATE_RC%"=="0" (
     pause
     exit /b 1
   )

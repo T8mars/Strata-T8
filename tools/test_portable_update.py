@@ -139,6 +139,12 @@ class ReleaseValidation(unittest.TestCase):
         with mock.patch.object(update, 'latest_release', side_effect=TimeoutError):
             self.assertIsNone(update.check_update(root))
 
+    def test_windows_pseudo_process_is_not_application_process(self):
+        pseudo = mock.Mock(pid=424, info={'exe': 'Registry'})
+        real = mock.Mock(pid=999, info={'exe': str(self.base/'runtime/python.exe')})
+        with mock.patch('psutil.process_iter', return_value=[pseudo, real]):
+            self.assertEqual(update.running_processes(self.base), [999])
+
 
 @unittest.skipUnless(os.name == 'nt', 'real PowerShell replacement needs Windows')
 class WindowsApply(unittest.TestCase):
