@@ -49,3 +49,9 @@ Windows 10 1903+ 的原生引擎采用应用 UTF-8 manifest，保留已有权限
 升级后安装目录和独立模型路径均含中文与空格。在禁止外网访问的代理设置下完成启动；OpenAI Chat、Anthropic Messages、Responses 均返回算术结果 42。两次图片问答均识别红圆、蓝方块和 STRATA VISION TEST，中间卸载并重新载入，两类引擎退出已确认。
 
 新增 7 项 manifest 回归及 1 项旧 Windows 拒绝测试通过，连同既有 530 项回归共 538 项；已覆盖签名程序禁止修改、已有 UTF-8 时保持字节不变、真实 Win32 资源写入、原权限/依赖/资源语言保留及重复构建。
+
+## 正式发行
+
+[t8.6 Release](https://github.com/T8mars/Strata-T8/releases/tag/v0.1.39-t8.6) 发布六个资产：两种 Windows 整合包、节点 ZIP 及各自 SHA256。源提交为 2b58a24e077a43aaa517020d28ef44b3b7c88ac4；VisionReady 为 1,922,392,794 字节，NoModels 为 1,208,706,263 字节。六个资产均核对 GitHub 官方 digest 与本地 SHA256，主模型和 MTP 未包含。
+
+本机完整回归 280+258 项通过；[GitHub CI](https://github.com/T8mars/Strata-T8/actions/runs/37368043450) 通过，1 项真实解释器签名检查因 runner 解释器未签名而跳过，可控签名拒绝与实际资源更新测试运行。Windows Release 任务未取得 hosted runner，本版由同一源码提交在本机打包、校验和发布，后续自动发行工作流保留。
