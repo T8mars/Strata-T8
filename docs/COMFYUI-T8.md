@@ -59,11 +59,11 @@ Strata 输出文字，绘图由下游模型完成；抽帧图片分析不称为�
 
 默认空闲门槛 12GiB VRAM、60GiB RAM。本机因其他常驻程序设为 8GiB VRAM 并实测通过；降低门槛须依据实际占用。存活 GPU tensor、第三方后台任务和其他异步分支无法保证释放，发现冲突报错；示例用依赖线保持串行，多 GPU 调度尚未验收。
 
-端口占用时换端口。缺主模型/MTP 时导入完整数据，mmproj 校验失败时重装已校验的 VisionReady 包。原生图像协议要求无空格路径，程序选择 Windows 短路径或包内临时目录；无法找到时设置可写 ASCII TEMP/TMP 后重启。
+端口占用时换端口。缺主模型/MTP 时导入完整数据，mmproj 校验失败时重装已校验的 VisionReady 包。Windows 需要 10 1903+ 或 11，内置引擎使用应用 UTF-8 manifest 支持中文安装与模型路径。原生图像协议要求无空格路径，程序选择 Windows 短路径或包内临时目录；无法找到时设置可写 ASCII TEMP/TMP 后重启。
 
 ## 版本与更新
 
-节点与运行包同版本，协议为 1，节点 ID 保持稳定。运行包退出后用 UPDATE-PORTABLE 自动获取正式版；旧无权重包先更新后用 INSTALL-VISION 切换，模型目录及视觉编码方式/token 设置保留。
+节点与运行包同版本，协议为 1，节点 ID 保持稳定。运行包退出后用 UPDATE-PORTABLE 自动获取正式版；旧无权重包先更新后用 INSTALL-VISION 切换，模型目录及视觉编码方式/token 设置保留。旧文字配置首次启用视觉可运行 START-HERE.bat --vision gpu，或在托管档案选择 vision:gpu。
 
 节点更新：退出 ComfyUI，使用新 Release 节点目录覆盖旧程序文件并重启；本机档案位于独立目录，会保留。已验证 ComfyUI 0.38.0 V3 执行器、前端 1.53.10；旧 API 有适配，其他版本未做完整绘图验收。
 

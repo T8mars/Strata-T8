@@ -27,3 +27,19 @@ ComfyUI 0.38.0、前端 1.53.10、Python 3.11.6、Torch 2.7.0+cu128，复用本�
 发行只允许指定路径、大小、SHA256 的 mmproj；主模型、MTP、用户路径、key、聊天与日志排除。每个 ZIP 构建核对文件清单、CRC、SHA256，并强制小于 2GiB。
 
 AMD 无实机验收，Windows AMD 视觉不支持。旧 ComfyUI 适配未做完整 GPU 工作流验收；第三方异步 GPU 分支不在串行示例保证范围内。
+
+## 取消、崩溃与自动检查
+
+本机真实 ComfyUI 队列取消：模型加载阶段 0.42 秒、生成阶段 2.11 秒、批量第二项 1.64 秒内完成清理，两类引擎均确认不运行。视觉编码取消另以真实子进程回归覆盖。
+
+实际结束托管实例的语言引擎后，状态仍识别视觉驻留，unload 成功清理；结束自有 HTTP 服务后两类子进程退出，按记录启动新实例成功。没有结束其他用户进程。
+
+本机应用/服务器/节点/更新回归 272 项通过，安装回归 258 项通过。GitHub [发行工作流](https://github.com/T8mars/Strata-T8/actions/runs/37363072650) 已通过相同测试并构建资产。
+
+前端实际导入 API 示例为节点图；Strata 侧栏能按需启动懒加载服务，并隐藏 API key。
+
+## 0.1.39-t8.6 中文路径修复
+
+Windows 10 1903+ 的原生引擎采用应用 UTF-8 manifest，保留已有权限、依赖及资源语言；不修改系统 locale。构建拒绝修改有签名的二进制，记录修改前后 SHA256。[Microsoft 兼容说明](https://learn.microsoft.com/en-us/windows/apps/design/globalizing/use-utf8-code-page)
+
+本机将 BF16 mmproj 放在含中文和空格的目录，真实 helper 启动及图片编码通过，返回 192 个视觉 token。前述三类 ComfyUI 工作流测量保持基于 t8.5 功能实现；整包升级后继续验证。

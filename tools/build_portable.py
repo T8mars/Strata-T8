@@ -12,6 +12,7 @@ import zipfile
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from portable_version import metadata, source_version, archive_name
 from portable_weights import weight_declaration, MODEL_SUFFIXES, allowed_weight
+from windows_utf8_manifest import patch_engine
 
 ROOT = Path(__file__).resolve().parents[1]
 META = metadata()
@@ -45,6 +46,9 @@ def main():
     TARGET.mkdir(parents=True)
     for name in ['runtime', 'engine', 'engine-hip', 'serve', 'tools']:
         copy_tree(name, shutil.ignore_patterns('__pycache__', '*.pyc', 'test_*.py', '*_test.py', '*.log', 'stop_local.ps1'))
+    # Patch staged copies too: locally cached vendor engines may predate bootstrap.
+    for backend in ['engine', 'engine-hip']:
+        patch_engine(TARGET/backend)
     copy_tree('data', shutil.ignore_patterns('experimental-speed-projection'))
     copy_tree('vision', shutil.ignore_patterns('weights', '__pycache__'))
     if weights['vision']:
@@ -73,7 +77,7 @@ def main():
     versions = {d.metadata['Name']: d.version for d in importlib.metadata.distributions()}
     save = {'version': META['version'], 'upstream_version': source_version(), 'source_commit': subprocess.check_output(['git','rev-parse','HEAD'], cwd=ROOT, text=True).strip(),
             'python': sys.version, 'edition': edition, 'weights': weights, 'models_included': weights['vision'], 'dependencies': versions,
-            'engines': {backend: json.loads((ROOT/f'{backend}/BUILD.json').read_text()) for backend in ['engine', 'engine-hip']},
+            'engines': {backend: json.loads((TARGET/f'{backend}/BUILD.json').read_text()) for backend in ['engine', 'engine-hip']},
             'files': []}
     for file in sorted(TARGET.rglob('*')):
         if not file.is_file():

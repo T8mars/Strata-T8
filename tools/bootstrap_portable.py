@@ -12,6 +12,7 @@ import zipfile
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from portable_version import ROOT, metadata, source_version
+from windows_utf8_manifest import patch_engine
 sys.path.insert(0, str(ROOT))
 import setup
 
@@ -80,6 +81,7 @@ def main():
         build = json.loads((target/'BUILD.json').read_text())
         if build['version'] != version:
             raise ValueError(f'Mismatched upstream engine: {directory}')
+        patch_engine(target)
     llama = ROOT/'third_party/llama.cpp'
     if not (llama/'gguf-py/gguf').exists():
         archive = cache/f'llama-{setup.LLAMA_CPP_COMMIT}.zip'

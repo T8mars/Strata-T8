@@ -32,7 +32,7 @@ Git 克隆副本使用上游 START-HERE.bat / UPDATE.bat 安装更新；整合�
 
 ## 自动打包与发布
 
-`Build portable release` 可由同步工作流调用，也可手动对指定提交运行。Windows x64 runner 读取 meta.json 和 CMakeLists.txt 的版本，下载固定 SHA256 的嵌入式 Python，安装锁定依赖与 CUDA wheels，获取同版本上游 CUDA/HIP 引擎，核对资产 SHA256 与 BUILD.json。
+`Build portable release` 可由同步工作流调用，也可手动对指定提交运行。Windows x64 runner 读取 meta.json 和 CMakeLists.txt 的版本，下载固定 SHA256 的嵌入式 Python，安装锁定依赖与 CUDA wheels，获取同版本上游 CUDA/HIP 引擎，核对资产 SHA256 与 BUILD.json。为未签名的 strata.exe 与 strata-vision.exe 添加应用 UTF-8 manifest，保留其他资源及权限；记录原始/分发二进制 SHA256，并在打包清单中记录实际修改后的引擎。已签名资产需要由上游构建支持后再发行。
 
 缺少匹配引擎、依赖不兼容或测试失败均停止发布。打包采用明确文件列表，只允许固定视觉权重，禁止主模型、MTP 和用户模型目录；生成文件清单、ZIP 和 SHA256，完成 CRC 检查后上传草稿，资产完整后发布。已有正式 Release 不替换资产。
 

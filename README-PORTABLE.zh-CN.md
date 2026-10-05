@@ -48,7 +48,7 @@ PREPARE-MODEL.bat --data-dir "D:\模型\Strata-data"
 
 ## 兼容与完整性
 
-Windows 10/11 x64、AVX2 CPU、兼容显卡与驱动。NVIDIA 建议 12GB 以上显存、驱动 580+；IQ3_S 建议 96GB 以上内存。AMD 兼容列表见 `docs/AMD_HIP.md`。VisionReady 在导入兼容 Qwen 主模型后自动配置视觉，NoModels 默认为文本模式；Windows AMD 视觉暂不支持。RTX 4060 Ti 16GB / 128GB 内存已验收；AMD 实机推理尚未验收。
+Windows 10 1903+/11 x64、AVX2 CPU、兼容显卡与驱动。NVIDIA 建议 12GB 以上显存、驱动 580+；IQ3_S 建议 96GB 以上内存。AMD 兼容列表见 `docs/AMD_HIP.md`。VisionReady 在导入兼容 Qwen 主模型后自动配置视觉，NoModels 默认为文本模式；Windows AMD 视觉暂不支持。RTX 4060 Ti 16GB / 128GB 内存已验收；AMD 实机推理尚未验收。
 
 OpenAI API：`http://127.0.0.1:8080/v1`；默认仅监听本机。
 

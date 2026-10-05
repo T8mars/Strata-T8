@@ -28,6 +28,8 @@ def save_json(path, value):
 
 
 def environment_check():
+    if os.name == 'nt' and sys.getwindowsversion().build < 18362:
+        raise RuntimeError('Windows 10 1903 (build 18362) or later is required for UTF-8 model paths')
     modules = ['numpy', 'jinja2', 'regex', 'yaml', 'tqdm', 'requests', 'PIL', 'psutil']
     for name in modules:
         __import__(name)

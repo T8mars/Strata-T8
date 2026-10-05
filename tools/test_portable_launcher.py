@@ -7,6 +7,12 @@ import portable
 
 
 class OfflineLauncher(unittest.TestCase):
+    def test_older_windows_is_rejected_before_runtime_or_model_loading(self):
+        with mock.patch.object(portable.os, 'name', 'nt'), \
+             mock.patch.object(portable.sys, 'getwindowsversion', return_value=mock.Mock(build=17763), create=True):
+            with self.assertRaisesRegex(RuntimeError, 'Windows 10 1903'):
+                portable.environment_check()
+
     def guards(self):
         names = ['settings_path', 'other_installs', 'data_folder', 'get_llama_cpp', 'pip_install', 'download', 'get_prebuilt_hip', 'run']
         return mock.patch.multiple(portable.upstream, **{name: mock.DEFAULT for name in names})
