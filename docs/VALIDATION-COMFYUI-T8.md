@@ -42,4 +42,10 @@ AMD 无实机验收，Windows AMD 视觉不支持。旧 ComfyUI 适配未做完�
 
 Windows 10 1903+ 的原生引擎采用应用 UTF-8 manifest，保留已有权限、依赖及资源语言；不修改系统 locale。构建拒绝修改有签名的二进制，记录修改前后 SHA256。[Microsoft 兼容说明](https://learn.microsoft.com/en-us/windows/apps/design/globalizing/use-utf8-code-page)
 
-本机将 BF16 mmproj 放在含中文和空格的目录，真实 helper 启动及图片编码通过，返回 192 个视觉 token。前述三类 ComfyUI 工作流测量保持基于 t8.5 功能实现；整包升级后继续验证。
+本机将 BF16 mmproj 放在含中文和空格的目录，真实 helper 启动及图片编码通过，返回 192 个视觉 token。前述三类 ComfyUI 工作流测量基于 t8.5 功能实现。
+
+实际用旧版更新器完成 t8.4 NoModels → t8.5 NoModels → 同版本 VisionReady，再从 t8.5 VisionReady 更新到 t8.6；8015 个发行文件全部通过 SHA256。端口、API key、手动采样、GPU 视觉模式和 384 token 设置保留，用户自建文件、日志也保留。
+
+升级后安装目录和独立模型路径均含中文与空格。在禁止外网访问的代理设置下完成启动；OpenAI Chat、Anthropic Messages、Responses 均返回算术结果 42。两次图片问答均识别红圆、蓝方块和 STRATA VISION TEST，中间卸载并重新载入，两类引擎退出已确认。
+
+新增 7 项 manifest 回归及 1 项旧 Windows 拒绝测试通过，连同既有 530 项回归共 538 项；已覆盖签名程序禁止修改、已有 UTF-8 时保持字节不变、真实 Win32 资源写入、原权限/依赖/资源语言保留及重复构建。
