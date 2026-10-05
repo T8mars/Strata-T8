@@ -1,0 +1,16 @@
+{
+  "mode": "external",
+  "url": "http://127.0.0.1:8080",
+  "api_key": "",
+  "allow_lifecycle": false,
+  "same_gpu": false,
+  "timeout_s": 1800,
+  "cleanup_timeout_s": 90,
+  "runtime": "",
+  "data_dir": "",
+  "port": 8082,
+  "vision": "gpu",
+  "context": 32768,
+  "min_free_vram_mib": 12288,
+  "min_free_ram_gib": 60
+}

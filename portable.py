@@ -127,6 +127,9 @@ def refresh_updated_config(cfg_path, state, current):
     config['exe'] = str(engine/'strata.exe')
     config['cwd'] = str(ROOT)
     config['lib_dirs'] = [str(p) for p in (upstream.hip_lib_dirs(engine) if config.get('backend') == 'hip' else upstream.cuda_lib_dirs())]
+    if config.get('vision') and config['vision'].get('bundled'):
+        config['vision']['exe'] = str(ROOT/'engine/strata-vision.exe')
+        config['vision']['mmproj'] = str(ROOT/'vision/weights'/read_json(ROOT/'vision/catalog.json')['file'])
     # Apply upstream compatibility migrations, retaining server settings and custom engine arguments.
     config = upstream.upgrade_config(cfg_path, config)
     save_json(cfg_path, config)
@@ -134,7 +137,33 @@ def refresh_updated_config(cfg_path, state, current):
     save_json(STATE, state)
 
 
-def configure(data, context=None, backend=None):
+def attach_vision(config, model, mode='gpu', tokens=None):
+    """Use only the shipped encoder. No setup downloads, absolute paths or keys in templates."""
+    from prepare_portable_vision import verify, catalog
+    if model['family'] != catalog(ROOT)['family'] or config.get('backend') == 'hip':
+        raise RuntimeError('This VisionReady encoder supports the Qwen NVIDIA profile. Windows AMD vision is not verified.')
+    weight = verify(ROOT)
+    helper = ROOT/'engine/strata-vision.exe'
+    if not helper.is_file():
+        raise RuntimeError('Bundled vision helper missing')
+    args = config['args']
+    if '--native' not in args:
+        raise RuntimeError('Vision requires the imported main-model GGUF shard')
+    template = read_json(ROOT/'vision/profile-template.json')['vision']
+    old = config.get('vision') or {}
+    config['vision'] = {**template, **old, 'exe': str(helper), 'mmproj': str(weight),
+                        'model': args[args.index('--native')+1], 'gpu': mode == 'gpu', 'bundled': True}
+    config['vision']['max_tokens'] = tokens or (old.get('max_tokens') if bool(old.get('gpu')) == (mode == 'gpu') else None) or (768 if mode == 'gpu' else 300)
+    if mode == 'cpu':
+        config['vision']['threads'] = old.get('threads') or max(1, (os.cpu_count() or 8)//2)
+    if '--vision' not in args:
+        args.append('--vision')
+    if '--vram-reserve-mib' not in args:
+        args += ['--vram-reserve-mib', str(upstream.VISION[mode]['reserve_mib'])]
+    return config
+
+
+def configure(data, context=None, backend=None, vision=None, vision_tokens=None):
     model = model_delivery(data)
     tag = upstream.FAMILIES[model['family']]['tag'] + model['model']
     cfg_path = ROOT/f'strata-{tag.lower()}.json'
@@ -149,6 +178,11 @@ def configure(data, context=None, backend=None):
     result = upstream.main()
     if result:
         return result, cfg_path
+    if vision == 'auto':
+        generated = read_json(cfg_path)
+        vision = 'gpu' if generated.get('backend') != 'hip' and model['family'] == 'qwen' else 'no'
+    if vision and vision != 'no':
+        save_json(cfg_path, attach_vision(read_json(cfg_path), model, vision, vision_tokens))
     # Paths in native_experts.txt are per-model shard names (no machine paths).
     state = read_json(STATE) if STATE.exists() else {}
     try:
@@ -169,8 +203,12 @@ def main():
     ap.add_argument('--context', type=int)
     ap.add_argument('--backend', choices=['cuda', 'hip'])
     ap.add_argument('--port', type=int)
+    ap.add_argument('--vision', choices=['no', 'gpu', 'cpu'], help='use the bundled vision encoder (offline)')
+    ap.add_argument('--vision-tokens', type=int)
     ap.add_argument('--no-browser', action='store_true')
     args = ap.parse_args()
+    if args.vision_tokens is not None and args.vision_tokens < 1:
+        ap.error('--vision-tokens must be positive')
     os.chdir(ROOT)
     environment_check()
     if args.action == 'start':
@@ -191,12 +229,23 @@ def main():
     current = fingerprint(data)
     previous = state.get('portable_fingerprint')
     if args.action in ('configure', 'import') or not cfg.is_file() or not same_machine(previous, current) or args.context or args.backend:
-        result, cfg = configure(data, args.context, args.backend)
+        vision = args.vision
+        if vision is None and (ROOT/'vision/catalog.json').is_file() and (ROOT/'vision/weights'/read_json(ROOT/'vision/catalog.json')['file']).is_file():
+            vision = 'auto'
+        result, cfg = configure(data, args.context, args.backend, vision, args.vision_tokens)
         if result or args.action in ('configure', 'import'):
             return result
     elif previous.get('version') != current['version']:
         refresh_updated_config(cfg, state, current)
     config = read_json(cfg)
+    if args.vision is not None or args.vision_tokens is not None:
+        if args.vision == 'no':
+            config.pop('vision', None)
+            config['args'] = [arg for arg in config['args'] if arg != '--vision']
+        else:
+            mode = args.vision or ('gpu' if (config.get('vision') or {}).get('gpu') else 'cpu')
+            config = attach_vision(config, model_delivery(data), mode, args.vision_tokens)
+        save_json(cfg, config)
     port = args.port or config.get('port', 8080)
     command = [sys.executable, '-X', 'utf8', '-u', str(ROOT/'serve/server.py'), '--engine', 'strata', '--config', str(cfg), '--port', str(port)]
     if not args.no_browser:

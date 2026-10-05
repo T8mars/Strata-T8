@@ -14,6 +14,7 @@ import zipfile
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from portable_version import ROOT, metadata, version_key, archive_name
+from portable_weights import validate_weights, allowed_weight, MODEL_SUFFIXES
 urlopen = urllib.request.urlopen
 
 
@@ -40,8 +41,7 @@ def safe_path(root, relative):
 
 
 def validate_manifest(root, manifest, verify=True):
-    if manifest.get('models_included') is not False:
-        raise ValueError('Release must explicitly exclude models')
+    edition = validate_weights(manifest)
     version_key(manifest['version'])
     seen = set()
     for entry in manifest['files']:
@@ -51,7 +51,7 @@ def validate_manifest(root, manifest, verify=True):
         if key in seen or key == 'package-manifest.json':
             raise ValueError(f'Duplicate package path: {rel}')
         seen.add(key)
-        if file.suffix.lower() in ('.gguf', '.safetensors', '.pt', '.pth', '.ckpt', '.onnx'):
+        if file.suffix.lower() in MODEL_SUFFIXES and not allowed_weight(entry, edition):
             raise ValueError(f'Model in release: {rel}')
         if not re.fullmatch('[0-9a-f]{64}', entry['sha256']) or not isinstance(entry['size'], int) or entry['size'] < 0:
             raise ValueError(f'Invalid file digest or size: {rel}')
@@ -158,7 +158,7 @@ def extract_release(archive, destination):
     return manifest
 
 
-def prepare(root=ROOT, release=None):
+def prepare(root=ROOT, release=None, edition=None):
     plan_dir = root/'.portable-update'
     plan_dir.mkdir(exist_ok=True)
     (plan_dir/'plan.json').unlink(missing_ok=True)
@@ -167,10 +167,13 @@ def prepare(root=ROOT, release=None):
     if running := running_processes(root):
         raise RuntimeError(f'Exit Strata before updating. Running processes: {running}')
     release = release or latest_release(metadata(root)['repository'])
-    if version_key(release['tag_name']) <= version_key(metadata(root)['version']):
+    current_edition = metadata(root).get('edition', 'Portable-NoModels')
+    edition = edition or current_edition
+    release_version, current_version = version_key(release['tag_name']), version_key(metadata(root)['version'])
+    if release_version < current_version or (release_version == current_version and edition == current_edition):
         print('Already up to date.', flush=True)
         return None
-    name = archive_name(release['tag_name'].removeprefix('v'))
+    name = archive_name(release['tag_name'].removeprefix('v'), edition)
     assets = {a['name']: a for a in release['assets']}
     if name not in assets or name+'.sha256' not in assets:
         raise ValueError('Release lacks the portable ZIP or SHA256 asset')
@@ -189,6 +192,8 @@ def prepare(root=ROOT, release=None):
     incoming = stage/'incoming'
     incoming.mkdir()
     manifest = extract_release(archive, incoming)
+    if manifest.get('edition', 'Portable-NoModels') != edition:
+        raise ValueError('Release edition differs from the requested edition')
     if manifest['version'] != release['tag_name'].removeprefix('v') or metadata(incoming)['version'] != manifest['version']:
         raise ValueError('Release, manifest and application versions differ')
     old = json.loads((root/'PACKAGE-MANIFEST.json').read_text(encoding='utf-8'))
@@ -209,12 +214,13 @@ def prepare(root=ROOT, release=None):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--check', action='store_true')
+    parser.add_argument('--edition', choices=['Portable-NoModels', 'VisionReady-NoMainModel'])
     args = parser.parse_args()
     if args.check:
         release = check_update()
         print(release['html_url'] if release else 'No new version found, or GitHub is unavailable.')
     else:
-        prepare()
+        prepare(edition=args.edition)
 
 
 if __name__ == '__main__':

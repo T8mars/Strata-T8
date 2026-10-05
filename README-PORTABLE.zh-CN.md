@@ -1,6 +1,6 @@
 # Strata-T8 Windows 整合包
 
-内置独立 Python、锁定 Python 依赖、NVIDIA CUDA / AMD HIP 引擎及运行库。无需安装 Python、Git、编译器或 CUDA Toolkit；显卡驱动由电脑提供。模型及 MTP 权重独立分发。
+内置独立 Python、锁定 Python 依赖、NVIDIA CUDA / AMD HIP 引擎及运行库。无需安装 Python、Git、编译器或 CUDA Toolkit；显卡驱动由电脑提供。VisionReady 包含视觉权重与配置模板，主模型和 MTP 独立分发。
 
 ## 开始使用
 
@@ -42,16 +42,22 @@ PREPARE-MODEL.bat --data-dir "D:\模型\Strata-data"
 
 退出 Strata 后运行 `UPDATE-PORTABLE.bat`（`UPDATE.bat` 同样可用）。它从 T8mars/Strata-T8 最新正式 Release 下载完整包，检查 SHA256 和文件清单，保留模型、配置、日志及浏览器聊天记录。新文件与自建文件重名时拒绝覆盖；替换失败回滚。
 
-结果保存在 `.portable-update/result.json`；其中记录备份路径。备份保存在系统临时目录，确认更新正常后可以自行删除。首次发布前或 GitHub 不可达时检查失败不影响本地启动。当前采用完整包更新，每次约 1.21GB。
+结果保存在 `.portable-update/result.json`；其中记录备份路径。备份保存在系统临时目录，确认更新正常后可以自行删除。首次发布前或 GitHub 不可达时检查失败不影响本地启动。当前采用完整包更新，下载大小按发行类型而定。旧 NoModels 包先更新，再运行 INSTALL-VISION.bat 切换至 VisionReady。
 
 聊天记录由上游网页保存在浏览器；继续使用相同的浏览器、地址和端口即可。异步检查不会强制升级或打断推理。
 
 ## 兼容与完整性
 
-Windows 10/11 x64、AVX2 CPU、兼容显卡与驱动。NVIDIA 建议 12GB 以上显存、驱动 580+；IQ3_S 建议 96GB 以上内存。AMD 兼容列表见 `docs/AMD_HIP.md`。默认文本模式，视觉模型不包含。RTX 4060 Ti 16GB / 128GB 内存已验收；AMD 实机推理尚未验收。
+Windows 10/11 x64、AVX2 CPU、兼容显卡与驱动。NVIDIA 建议 12GB 以上显存、驱动 580+；IQ3_S 建议 96GB 以上内存。AMD 兼容列表见 `docs/AMD_HIP.md`。VisionReady 在导入兼容 Qwen 主模型后自动配置视觉，NoModels 默认为文本模式；Windows AMD 视觉暂不支持。RTX 4060 Ti 16GB / 128GB 内存已验收；AMD 实机推理尚未验收。
 
 OpenAI API：`http://127.0.0.1:8080/v1`；默认仅监听本机。
 
 `PACKAGE-MANIFEST.json` 记录每个程序文件的大小与 SHA256；运行 `VERIFY-PACKAGE.bat` 可检查。包内保留 Strata、Python、gguf-py、Python 依赖和 CUDA/ROCm 的随附许可证。模型另遵循自己的许可证。
 
 [项目与最新 Release](https://github.com/T8mars/Strata-T8) · [上游 Strata](https://github.com/Niko1221/Strata)
+
+## 视觉与 ComfyUI
+
+VisionReady 内置固定 BF16 mmproj、模板、来源和许可证；主模型/MTP 不包含。可用 START-HERE.bat --vision gpu、--vision cpu、--vision no 切换，--vision-tokens 指定图片 token 预算。更新保留用户编码方式和 token 设置。
+
+ComfyUI 使用单独的小型节点 ZIP；[安装与工作流](docs/COMFYUI-T8.md)。

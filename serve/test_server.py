@@ -223,7 +223,7 @@ class ImageMarkers(unittest.TestCase):
             self.rows = self.dir / "img.sve"
             self.rows.write_bytes(b"rows")
 
-        def encode(self, source):
+        def encode(self, source, cancel=None):
             return self.rows, 3
 
     def test_literal_marker_with_an_image(self):
@@ -2008,7 +2008,7 @@ class SharingTheGpu(unittest.TestCase):
             def unload(self):
                 self.running = False
 
-            def restart(self):
+            def restart(self, cancel=None):
                 order.append("vision")
                 self.running = True
 
@@ -2188,8 +2188,8 @@ class StatusHandover(unittest.TestCase):
             def __init__(self):
                 self.lock, self.armed = threading.Lock(), False
 
-            def acquire(self, blocking=True):
-                return self.lock.acquire(blocking)
+            def acquire(self, blocking=True, timeout=-1):
+                return self.lock.acquire(blocking, timeout)
 
             def __enter__(self):
                 self.lock.acquire()
@@ -2202,6 +2202,9 @@ class StatusHandover(unittest.TestCase):
 
             def release(self):
                 self.lock.release()
+                if self.armed:
+                    self.armed = False
+                    second_running.wait(5)
 
         svc = Service(Engine(tok, "</think>\n\n" + "y" * 40, max_context=CTX), tok,
                       ChatTemplate(ROOT / "serve/chat_template.jinja"))

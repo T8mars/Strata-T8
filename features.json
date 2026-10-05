@@ -9,5 +9,13 @@
   "upstream_sync": true,
   "automatic_release": true,
   "default_host": "127.0.0.1",
+  "bundled_vision_weights": true,
+  "vision_config_template": true,
+  "vision_lazy_load": true,
+  "comfyui_text": true,
+  "comfyui_vision": true,
+  "comfyui_managed_service": true,
+  "comfyui_same_gpu_handoff": true,
+  "amd_vision_supported": false,
   "amd_hardware_verified": false
 }

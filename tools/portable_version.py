@@ -22,6 +22,8 @@ def version_key(value):
     return tuple(map(int, match.groups()))
 
 
-def archive_name(version):
+def archive_name(version, edition='Portable-NoModels'):
     version_key(version)
-    return f'Strata-T8-{version}-Windows-x64-Portable-NoModels.zip'
+    if edition not in ('Portable-NoModels', 'VisionReady-NoMainModel'):
+        raise ValueError(f'Unsupported package edition: {edition}')
+    return f'Strata-T8-{version}-Windows-x64-{edition}.zip'

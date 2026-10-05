@@ -1,15 +1,11 @@
-Windows x64 整合版，基于对应版本的 Niko1221/Strata。
+## Strata-T8 0.1.39-t8.5
 
-- 内置独立 Python、锁定依赖、NVIDIA CUDA 与 AMD HIP 引擎及运行库。
-- 不含 GGUF、MTP 或其他模型权重；模型独立分发。
-- 解压运行 START-HERE.bat，完整模型目录用 IMPORT-MODEL.bat 导入。
-- PREPARE-MODEL.bat 支持 ModelScope 优先、国内镜像及 Hugging Face 兜底。
-- UPDATE-PORTABLE.bat 自动更新正式版，保留模型和配置，失败回滚。
-- 修复升级后首次启动重置手动设置的问题；保留端口、API key、上下文及引擎参数。
-- 仓库定时同步上游正式版本，通过测试后自动打包发布。
+新增 10 个 ComfyUI 节点，覆盖文本、提示词、分镜 JSON、字段提取、图片分析、批量处理和服务控制。托管模式使用独立 Python/引擎；同卡模式确认语言与视觉进程释放后继续采样，支持加载和编码阶段取消。
 
-下载 `Portable-NoModels.zip` 和对应 `.sha256`。Source code 压缩包不包含运行环境。
+新增 VisionReady-NoMainModel 整合包，包含固定 SHA256 的 BF16 视觉权重、配置模板与 Apache-2.0 许可证。主模型与 MTP 独立分发。内置 Python、锁定依赖及同版本 CUDA/HIP 引擎和运行库。
 
-Windows 10/11 x64、AVX2 CPU、兼容显卡和驱动。NVIDIA 驱动 580+，IQ3_S 建议 96GB 以上内存。AMD 引擎包含，尚未完成本机 AMD 硬件推理验收。
+保留 Portable-NoModels 资产供旧更新器升级，随后运行 INSTALL-VISION.bat 切换发行类型。运行包按类型自动更新，保留配置并支持失败回滚；节点更新后需重启 ComfyUI。仓库继续自动同步上游正式版，测试及匹配引擎检查通过后发布。
 
-[使用与模型下载](https://github.com/T8mars/Strata-T8#readme) · [上游项目](https://github.com/Niko1221/Strata)
+RTX 4060 Ti 16GB / 128GB RAM 已完成文本、图片反推及两镜头批量到 KSampler 的实际绘图。Windows AMD 视觉暂不支持，AMD 实机推理未验证。
+
+[安装与模型下载](https://github.com/T8mars/Strata-T8#模型下载) · [ComfyUI 说明](https://github.com/T8mars/Strata-T8/blob/main/docs/COMFYUI-T8.md)

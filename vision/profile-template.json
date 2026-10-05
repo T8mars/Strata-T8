@@ -1,0 +1,16 @@
+{
+  "schema": 1,
+  "description": "Portable vision defaults; machine paths and credentials are generated after model import.",
+  "vision": {
+    "exe": "engine/strata-vision.exe",
+    "mmproj": "vision/weights/mmproj-Qwen3.8-Flash-Next-BF16.gguf",
+    "model": "${MAIN_MODEL_FIRST_SHARD}",
+    "gpu": true,
+    "max_tokens": 768,
+    "start_timeout_s": 300,
+    "encode_timeout_s": 180
+  },
+  "lazy_load": true,
+  "host": "127.0.0.1",
+  "min_free_vram_mib": 12288
+}

@@ -1,0 +1,7 @@
+VisionReady redistributes the unmodified file mmproj-Qwen3.8-Flash-Next-BF16.gguf
+from ISTA-DASLab/Qwen3.8-Flash-Next-GSQ-RCO-GGUF, licensed under Apache-2.0.
+The model card attributes the base model to the Qwen team and the conversion
+to ISTA-DASLab. This distribution does not imply their endorsement.
+
+Source revision, file size and SHA256 are recorded in catalog.json.
+Main language-model and MTP weights are distributed separately.

@@ -36,6 +36,7 @@ td.log
 /run-*.sh
 /strata-*.json
 /strata-*.log
+/strata-*.json.bak
 /build-strata.bat
 /build-strata-cuda12.bat
 /build-cuda12/
@@ -68,3 +69,6 @@ build-vision-cuda12.bat
 /STOP-LOCAL.bat
 /tools/stop_local.ps1
 /.portable-update*/
+/vision/weights/
+/.portable-temp/
+/comfyui-strata-t8/.local/

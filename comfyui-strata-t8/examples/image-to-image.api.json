@@ -1,0 +1,139 @@
+{
+  "1": {
+    "class_type": "StrataT8Connection",
+    "inputs": {
+      "profile": "default"
+    }
+  },
+  "3": {
+    "class_type": "CheckpointLoaderSimple",
+    "inputs": {
+      "ckpt_name": "YOUR_SD15_CHECKPOINT.safetensors"
+    }
+  },
+  "4": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "text": [
+        "2",
+        0
+      ],
+      "clip": [
+        "3",
+        1
+      ]
+    }
+  },
+  "5": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "text": "blurry, distorted, watermark",
+      "clip": [
+        "3",
+        1
+      ]
+    }
+  },
+  "6": {
+    "class_type": "EmptyLatentImage",
+    "inputs": {
+      "width": 384,
+      "height": 384,
+      "batch_size": 1
+    }
+  },
+  "7": {
+    "class_type": "KSampler",
+    "inputs": {
+      "seed": 42,
+      "steps": 8,
+      "cfg": 7.0,
+      "sampler_name": "euler",
+      "scheduler": "normal",
+      "denoise": 1.0,
+      "model": [
+        "3",
+        0
+      ],
+      "positive": [
+        "4",
+        0
+      ],
+      "negative": [
+        "5",
+        0
+      ],
+      "latent_image": [
+        "6",
+        0
+      ]
+    }
+  },
+  "8": {
+    "class_type": "VAEDecode",
+    "inputs": {
+      "samples": [
+        "7",
+        0
+      ],
+      "vae": [
+        "3",
+        2
+      ]
+    }
+  },
+  "9": {
+    "class_type": "SaveImage",
+    "inputs": {
+      "images": [
+        "8",
+        0
+      ],
+      "filename_prefix": "Strata/vision"
+    }
+  },
+  "10": {
+    "class_type": "StrataT8Control",
+    "inputs": {
+      "connection": [
+        "1",
+        0
+      ],
+      "action": "status",
+      "text": [
+        "2",
+        0
+      ]
+    }
+  },
+  "2": {
+    "class_type": "StrataT8Image",
+    "inputs": {
+      "connection": [
+        "1",
+        0
+      ],
+      "images": [
+        "11",
+        0
+      ],
+      "task": "reverse_prompt",
+      "question": "Describe this image as a concise English prompt, including shapes, colors and text.",
+      "schema": "",
+      "max_pixels": 1048576,
+      "max_tokens": 192,
+      "temperature": 0.2,
+      "top_p": 0.95,
+      "top_k": 20,
+      "seed": 1,
+      "reasoning_effort": "none",
+      "refresh": 0
+    }
+  },
+  "11": {
+    "class_type": "LoadImage",
+    "inputs": {
+      "image": "strata-vision-fixture.png"
+    }
+  }
+}

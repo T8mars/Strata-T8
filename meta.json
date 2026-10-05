@@ -3,11 +3,14 @@
   "repository": "T8mars/Strata-T8",
   "upstream_repository": "Niko1221/Strata",
   "upstream_version": "0.1.39",
-  "revision": 4,
-  "version": "0.1.39-t8.4",
+  "revision": 5,
+  "version": "0.1.39-t8.5",
   "python_version": "3.12.10",
   "python_zip_sha256": "4acbed6dd1c744b0376e3b1cf57ce906f9dc9e95e68824584c8099a63025a3c3",
   "model_family": "qwen",
   "model_quantization": "IQ3_S",
-  "models_included": false
+  "edition": "VisionReady-NoMainModel",
+  "weights": {"main": false, "mtp": false, "vision": true},
+  "protocol_version": 1,
+  "models_included": true
 }

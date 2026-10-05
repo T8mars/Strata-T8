@@ -1,0 +1,13 @@
+{
+  "schema": 1,
+  "role": "vision_encoder",
+  "repository": "ISTA-DASLab/Qwen3.8-Flash-Next-GSQ-RCO-GGUF",
+  "official_revision": "ed59f92082b1e93c0e96d60a8b11aab089b52f09",
+  "modelscope_revision": "b488cd4eb3c100d846306cbc50cad7665a666ade",
+  "family": "qwen",
+  "file": "mmproj-Qwen3.8-Flash-Next-BF16.gguf",
+  "size": 907543008,
+  "sha256": "b1a82259702816a5330d7bd7607cd9676b11780e79ff7348c21103ff3ce49bd0",
+  "license": "Apache-2.0",
+  "model_card": "https://huggingface.co/ISTA-DASLab/Qwen3.8-Flash-Next-GSQ-RCO-GGUF/blob/ed59f92082b1e93c0e96d60a8b11aab089b52f09/README.md"
+}
