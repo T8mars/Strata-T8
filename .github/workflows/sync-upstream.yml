@@ -1,0 +1,78 @@
+name: Sync upstream
+on:
+  schedule:
+    - cron: '23 2 * * *'
+  workflow_dispatch:
+    inputs:
+      source:
+        description: Upstream branch to merge (main does not publish automatically)
+        type: choice
+        options: [release, main]
+        default: release
+permissions:
+  contents: write
+concurrency:
+  group: upstream-sync
+  cancel-in-progress: false
+jobs:
+  sync:
+    runs-on: windows-latest
+    outputs:
+      changed: ${{ steps.sync.outputs.changed }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Configure commit identity
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+      - name: Create preview branch for upstream main
+        if: inputs.source == 'main'
+        run: git switch -c codex/upstream-main-${{ github.run_id }}
+      - name: Merge upstream
+        id: sync
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SYNC_SOURCE: ${{ inputs.source || 'release' }}
+        run: python tools/sync_upstream.py --source $env:SYNC_SOURCE
+      - name: Install test dependencies
+        if: steps.sync.outputs.changed == 'true'
+        run: python -m pip install -r requirements.txt -r requirements-portable.txt
+      - name: Validate merged source
+        if: steps.sync.outputs.changed == 'true'
+        run: python -m unittest serve.test_server serve.test_security serve.test_responses serve.test_runconfig serve.test_lifecycle tools.test_portable_windows tools.test_portable_update tools.test_sync_upstream tools.test_model_sources tools.test_setup_update -q
+      - name: Setup regression tests
+        if: steps.sync.outputs.changed == 'true'
+        run: python -m unittest discover -s tools -p 'test_setup_*.py' -q
+      - name: Push tested merge
+        if: steps.sync.outputs.changed == 'true'
+        env:
+          SYNC_SOURCE: ${{ inputs.source || 'release' }}
+        run: |
+          if ($env:SYNC_SOURCE -eq 'main') { git push origin HEAD }
+          else { git push origin HEAD:main }
+      - name: Preserve conflict branch
+        if: failure()
+        shell: pwsh
+        run: |
+          if (Test-Path '.portable-build/upstream-conflict.json') {
+            $report = Get-Content '.portable-build/upstream-conflict.json' -Raw | ConvertFrom-Json
+            git push origin $report.branch
+          }
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: upstream-sync-diagnostics
+          path: .portable-build/upstream-conflict.json
+          if-no-files-found: ignore
+  release:
+    needs: sync
+    if: needs.sync.outputs.changed == 'true' && (github.event_name == 'schedule' || inputs.source == 'release')
+    uses: ./.github/workflows/release.yml
+    with:
+      ref: main
+    secrets: inherit

@@ -1,0 +1,11 @@
+{
+  "family": "qwen",
+  "model": "IQ3_S",
+  "repository": "ISTA-DASLab/Qwen3.8-Flash-Next-GSQ-RCO-GGUF",
+  "official_revision": "ed59f92082b1e93c0e96d60a8b11aab089b52f09",
+  "modelscope_revision": "6ac9406afe74db316b11a3865a3382c7bedbcf34",
+  "files": [
+    {"file": "Qwen3.8-Flash-Next-GSQ-RCO-IQ3_S-00001-of-00002.gguf", "size": 54817524224, "sha256": "4c1eb2ceb4915e1192f4f386021897bde56a97f40a0bb78bb86465e0f7d2aca3"},
+    {"file": "Qwen3.8-Flash-Next-GSQ-RCO-IQ3_S-00002-of-00002.gguf", "size": 28800138432, "sha256": "316b46f3a2dbd68c900f43136ab9449f9dcc3725dfd8c794847c204bc161e113"}
+  ]
+}

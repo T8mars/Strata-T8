@@ -56,3 +56,15 @@ build-vision-cuda12.bat
 
 /.ccache/
 /.rocm-win/
+
+# Portable Windows distribution and per-machine state
+/runtime/
+/engine-hip/
+/.portable-build/
+/portable-settings.json
+/Strata-data/
+/VERIFY-RESULTS.json
+/DEPLOYMENT.zh-CN.md
+/STOP-LOCAL.bat
+/tools/stop_local.ps1
+/.portable-update*/

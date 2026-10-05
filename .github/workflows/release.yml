@@ -1,0 +1,63 @@
+name: Build portable release
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Tested branch or commit to package
+        type: string
+        default: main
+  workflow_call:
+    inputs:
+      ref:
+        type: string
+        default: main
+permissions:
+  contents: write
+concurrency:
+  group: portable-release
+  cancel-in-progress: false
+jobs:
+  release:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || 'main' }}
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Build independent runtime with matching engines
+        run: python tools/bootstrap_portable.py
+      - name: Validate runtime and application
+        run: |
+          runtime/python/python.exe -X utf8 -m unittest serve.test_server serve.test_security serve.test_responses serve.test_runconfig serve.test_lifecycle tools.test_portable_windows tools.test_portable_update tools.test_sync_upstream tools.test_model_sources tools.test_setup_update -q
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          runtime/python/python.exe -X utf8 -m unittest discover -s tools -p 'test_setup_*.py' -q
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          runtime/python/python.exe -X utf8 -c "import portable; portable.environment_check()"
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+      - name: Package and audit
+        run: runtime/python/python.exe -X utf8 -u tools/build_portable.py
+      - name: Publish verified assets
+        shell: pwsh
+        run: |
+          $meta = Get-Content meta.json -Raw | ConvertFrom-Json
+          $tag = 'v' + $meta.version
+          $zip = Get-ChildItem dist -Filter '*.zip' | Select-Object -First 1
+          $existing = gh release view $tag --json isDraft --jq .isDraft 2>$null
+          if ($LASTEXITCODE -eq 0 -and $existing -eq 'false') {
+            Write-Host "Published release $tag already exists; preserving its assets."
+            exit 0
+          }
+          if ($LASTEXITCODE -ne 0) {
+            gh release create $tag --draft --target (git rev-parse HEAD) --title "Strata-T8 $($meta.version)" --notes-file RELEASE-NOTES.md
+            if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          }
+          gh release upload $tag $zip.FullName ($zip.FullName + '.sha256') --clobber
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          gh release edit $tag --draft=false --latest
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }

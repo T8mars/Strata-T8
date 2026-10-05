@@ -2844,7 +2844,7 @@ def make_handler(svc: Service):
             print(f"[strata] refused a request for Host {host!r} from {self.client_address[0]}: not a name this server "
                   f"answers to (add it to \"allowed_hosts\" in the config or STRATA_ALLOWED_HOSTS, or set an API key)",
                   flush=True)
-            self._json(403, {"error": {"type": "forbidden", "message":
+            self._reject_json(403, {"error": {"type": "forbidden", "message":
                              f"Host {host!r} is not allowed (DNS rebinding protection). Reaching Strata under this "
                              f"name on purpose? Add it to \"allowed_hosts\" in the config (strata-<model>.json) or to "
                              f"the STRATA_ALLOWED_HOSTS environment variable, or set an API key (\"api_key\"), which "
@@ -2862,13 +2862,13 @@ def make_handler(svc: Service):
                                   [*svc.trusted_origins, *svc.cors_origins]):
                 print(f"[strata] refused an API request from the web page {origin!r} (no API key; add its host to "
                       f"\"allowed_hosts\" or its origin to \"cors_origins\" in the config)", flush=True)
-                self._json(403, {"error": {"type": "forbidden", "message":
+                self._reject_json(403, {"error": {"type": "forbidden", "message":
                                  f"web pages of {origin} may not use this server without an API key; set \"api_key\", "
                                  f"or add the page's host to \"allowed_hosts\" (or its origin to \"cors_origins\") "
                                  f"in the config"}})
                 return True
             if not self.headers.get("Content-Type", "").startswith("application/json"):
-                self._json(415, {"error": {"message": "send application/json"}})
+                self._reject_json(415, {"error": {"message": "send application/json"}})
                 return True
             return False
 
@@ -2948,6 +2948,26 @@ def make_handler(svc: Service):
             self.end_headers()
             self.wfile.write(body)
 
+        def _reject_json(self, code, obj):
+            # Windows may reset a socket closed with an unread request body before the
+            # client sees its HTTP error. Drain only a small declared body, with a short
+            # timeout: refusing a slow or oversized request must still finish promptly.
+            if os.name == "nt" and self.command == "POST":
+                try:
+                    length = int(self.headers.get("Content-Length", 0))
+                except ValueError:
+                    length = 0
+                if 0 < length <= 65536:
+                    timeout = self.connection.gettimeout()
+                    try:
+                        self.connection.settimeout(0.1)
+                        self.rfile.read(length)
+                    except OSError:
+                        pass
+                    finally:
+                        self.connection.settimeout(timeout)
+            self._json(code, obj)
+
         def _authorized(self) -> bool:
             if not svc.api_key:
                 return True
@@ -2955,7 +2975,7 @@ def make_handler(svc: Service):
             given = auth[7:].strip() if auth.lower().startswith("bearer ") else self.headers.get("x-api-key", "")
             if hmac.compare_digest(given.encode(), svc.api_key.encode()):   # #213: constant-time
                 return True
-            self._json(401, {"error": {"type": "authentication_error", "message": "missing or wrong API key"}})
+            self._reject_json(401, {"error": {"type": "authentication_error", "message": "missing or wrong API key"}})
             return False
 
         def do_GET(self):

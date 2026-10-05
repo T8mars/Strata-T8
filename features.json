@@ -1,0 +1,13 @@
+{
+  "portable_windows": true,
+  "bundled_python": true,
+  "bundled_cuda": true,
+  "bundled_hip": true,
+  "offline_model_import": true,
+  "model_download_priority": ["modelscope", "hf-mirror", "huggingface"],
+  "release_update": true,
+  "upstream_sync": true,
+  "automatic_release": true,
+  "default_host": "127.0.0.1",
+  "amd_hardware_verified": false
+}
