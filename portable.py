@@ -116,6 +116,24 @@ def fingerprint(data):
             'ram': round(upstream.ram_gb()), 'cpu': platform.processor(), 'version': metadata()['version']}
 
 
+def same_machine(previous, current):
+    # A program update is not a hardware/model change and must not rerun setup defaults.
+    return isinstance(previous, dict) and {k: v for k, v in previous.items() if k != 'version'} == {k: v for k, v in current.items() if k != 'version'}
+
+
+def refresh_updated_config(cfg_path, state, current):
+    config = read_json(cfg_path)
+    engine = ROOT/('engine-hip' if config.get('backend') == 'hip' else 'engine')
+    config['exe'] = str(engine/'strata.exe')
+    config['cwd'] = str(ROOT)
+    config['lib_dirs'] = [str(p) for p in (upstream.hip_lib_dirs(engine) if config.get('backend') == 'hip' else upstream.cuda_lib_dirs())]
+    # Apply upstream compatibility migrations, retaining server settings and custom engine arguments.
+    config = upstream.upgrade_config(cfg_path, config)
+    save_json(cfg_path, config)
+    state['portable_fingerprint'] = current
+    save_json(STATE, state)
+
+
 def configure(data, context=None, backend=None):
     model = model_delivery(data)
     tag = upstream.FAMILIES[model['family']]['tag'] + model['model']
@@ -170,10 +188,14 @@ def main():
     model_delivery(data)
     state = read_json(STATE) if STATE.exists() else {}
     cfg = ROOT/state.get('portable_config', 'missing.json')
-    if args.action in ('configure', 'import') or not cfg.is_file() or state.get('portable_fingerprint') != fingerprint(data) or args.context or args.backend:
+    current = fingerprint(data)
+    previous = state.get('portable_fingerprint')
+    if args.action in ('configure', 'import') or not cfg.is_file() or not same_machine(previous, current) or args.context or args.backend:
         result, cfg = configure(data, args.context, args.backend)
         if result or args.action in ('configure', 'import'):
             return result
+    elif previous.get('version') != current['version']:
+        refresh_updated_config(cfg, state, current)
     config = read_json(cfg)
     port = args.port or config.get('port', 8080)
     command = [sys.executable, '-X', 'utf8', '-u', str(ROOT/'serve/server.py'), '--engine', 'strata', '--config', str(cfg), '--port', str(port)]

@@ -5,6 +5,7 @@ Windows x64 整合版，基于对应版本的 Niko1221/Strata。
 - 解压运行 START-HERE.bat，完整模型目录用 IMPORT-MODEL.bat 导入。
 - PREPARE-MODEL.bat 支持 ModelScope 优先、国内镜像及 Hugging Face 兜底。
 - UPDATE-PORTABLE.bat 自动更新正式版，保留模型和配置，失败回滚。
+- 修复升级后首次启动重置手动设置的问题；保留端口、API key、上下文及引擎参数。
 - 仓库定时同步上游正式版本，通过测试后自动打包发布。
 
 下载 `Portable-NoModels.zip` 和对应 `.sha256`。Source code 压缩包不包含运行环境。
