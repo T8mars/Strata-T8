@@ -56,6 +56,14 @@ def isolate_setup():
         raise RuntimeError('Offline package: missing model component. Copy the complete Strata-data folder from the model delivery.')
     upstream.download = deny_download
     urllib.request.urlopen = deny_download
+    original_run = upstream.run
+    def offline_run(command, *args, **kwargs):
+        # setup can fetch MTP in a child Python process when a delivery is corrupt or incompatible.
+        # A child process does not inherit the urlopen guard; only explicit model preparation may fetch it.
+        if any(str(part).replace('\\', '/').rsplit('/', 1)[-1].lower() == 'mtp_fetch.py' for part in command) and 'fetch' in command:
+            raise RuntimeError('Model data is missing or incompatible. Run PREPARE-MODEL.bat explicitly, then import it again.')
+        return original_run(command, *args, **kwargs)
+    upstream.run = offline_run
     def hip_engine(url_base, gpu, updating=False):
         engine = ROOT/'engine-hip'
         upstream.hip_runtime_beside_exe(engine)

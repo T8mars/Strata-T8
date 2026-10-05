@@ -236,6 +236,12 @@ class WindowsApply(unittest.TestCase):
         (root/'tools').mkdir()
         shutil.copy2(SOURCE/'UPDATE-PORTABLE.bat', root/'UPDATE-PORTABLE.bat')
         shutil.copy2(SOURCE/'tools/run_portable_update.ps1', root/'tools/run_portable_update.ps1')
+        shutil.copy2(SOURCE/'tools/update_worker.cmd', root/'tools/update_worker.cmd')
         (root/'tools/portable_update.py').write_text('raise SystemExit(2)\n', encoding='utf-8')
         result = subprocess.run(['cmd', '/d', '/c', 'UPDATE-PORTABLE.bat'], cwd=root, input='\n', capture_output=True, text=True, timeout=45)
         self.assertEqual(result.returncode, 2, result.stdout+result.stderr)
+        # Successful update replaces the original entry while its temporary worker is executing.
+        (root/'tools/portable_update.py').write_text("from pathlib import Path\nPath('UPDATE-PORTABLE.bat').write_text('this-is-not-a-command\\n')\n", encoding='utf-8')
+        result = subprocess.run(['cmd', '/d', '/c', 'UPDATE-PORTABLE.bat'], cwd=root, input='\n', capture_output=True, text=True, timeout=45)
+        self.assertEqual(result.returncode, 0, result.stdout+result.stderr)
+        self.assertNotIn('not recognized', result.stdout+result.stderr)
