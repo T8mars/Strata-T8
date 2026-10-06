@@ -224,14 +224,16 @@ class PreparedPack(unittest.TestCase):
                            'family': 'qwen', 'model': 'IQ3_S', 'files': [{'file': 'main.gguf', 'size': 1, 'sha256': '0'*64}]}
                 (root/'model-sources.json').write_text(json.dumps(catalog))
                 pack = data/'packs/iq3_s'
-                for name in ('native_experts.txt', 'tokenizer/vocab.json', 'tokenizer/chat_template.jinja'):
+                for name in ('native_experts.txt', 'index.txt', 'dense.bin', 'tokenizer/vocab.json', 'tokenizer/chat_template.jinja'):
                     p = pack/name; p.parent.mkdir(parents=True, exist_ok=True); p.write_text('fixture')
                 (pack/missing).write_bytes(b'')
                 for name in ('experts.bin', 'dense.bin', 'dense.txt'):
                     p = data/'mtp/rt'/name; p.parent.mkdir(parents=True, exist_ok=True); p.write_text('fixture')
+                def rebuild(command, **kwargs):
+                    (pack/missing).write_text('rebuilt')
                 with mock.patch.object(prepare_model, 'ROOT', root), \
                      mock.patch.object(prepare_model.setup, 'HF_REVISIONS', {'fixture/model': 'rev'}), \
-                     mock.patch.object(prepare_model, 'download'), mock.patch.object(prepare_model.subprocess, 'run') as run, \
+                     mock.patch.object(prepare_model, 'download'), mock.patch.object(prepare_model.subprocess, 'run', side_effect=rebuild) as run, \
                      mock.patch('sys.argv', ['prepare', '--yes', '--data-dir', str(data)]):
                     prepare_model.main()
                 self.assertEqual(len(run.call_args_list), 1)

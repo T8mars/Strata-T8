@@ -52,7 +52,8 @@ def main():
     def run(tool, *arguments):
         subprocess.run([sys.executable, '-X', 'utf8', str(ROOT/'tools'/tool), *map(str, arguments)], env=env, check=True)
     pack = data/'packs/iq3_s'
-    if not all((pack/name).is_file() and (pack/name).stat().st_size for name in ('native_experts.txt', 'tokenizer/vocab.json', 'tokenizer/chat_template.jinja')):
+    pack_files = ('native_experts.txt', 'index.txt', 'dense.bin', 'tokenizer/vocab.json', 'tokenizer/chat_template.jinja')
+    if not all((pack/name).is_file() and (pack/name).stat().st_size for name in pack_files):
         run('iq_pack.py', '--gguf', gguf/catalog['files'][0]['file'], '--out', pack)
     mtp = data/'mtp'
     if not all((mtp/'rt'/name).is_file() and (mtp/'rt'/name).stat().st_size for name in ('experts.bin', 'dense.bin', 'dense.txt')):
@@ -60,8 +61,13 @@ def main():
         run('mtp_fetch.py', 'verify', '--out', mtp)
         run('mtp_pack.py', '--src', mtp, '--experts', 'q2_0', '--out', mtp/'mtp-q2_0.gguf')
         run('mtp_rt.py', '--gguf', mtp/'mtp-q2_0.gguf', '--out', mtp/'rt')
+    required = ['models/IQ3_S/'+e['file'] for e in catalog['files']] + ['packs/iq3_s/'+name for name in pack_files] + ['mtp/rt/'+name for name in ('experts.bin', 'dense.bin', 'dense.txt')]
+    artifacts = required[len(catalog['files']):]
+    if not all((data/name).is_file() and (data/name).stat().st_size for name in artifacts):
+        raise RuntimeError('Prepared model artifacts are incomplete; model descriptor was not published')
     descriptor = {**catalog, 'gguf_dir': 'models/IQ3_S', 'required_files': ['models/IQ3_S/'+e['file'] for e in catalog['files']],
                   'mtp_official_revision': __import__('mtp_fetch').PINNED_REVISION}
+    descriptor['required_files'] = required
     atomic_json(data/'portable-model.json', descriptor)
     print(f'Model ready: {data}. Use IMPORT-MODEL.bat to configure this PC.', flush=True)
 

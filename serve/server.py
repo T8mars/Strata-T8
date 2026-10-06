@@ -3355,13 +3355,15 @@ def make_handler(svc: Service):
             path = self.path.split("?")[0].rstrip("/")   # issue #55: Claude Code posts /v1/messages?beta=true
             if path.startswith("/v1/") and self._foreign_page():
                 return
+            limit = 65536 if path in ('/settings', '/config', '/load', '/unload', '/v1/load', '/v1/unload', '/v1/vram') else 64*1024**2
+            self.request_body = self._read_body(limit)
+            if self.request_body is None:
+                return
             if path == "/settings":
                 self._settings()
                 return
             if path == "/config":
                 self._config_post()
-                return
-            if path in ("/unload", "/load") and not self._control_body():
                 return
             # JSON from Strata's own page only, as /settings: else a plain form POST from any site unloads the model
             if path in ("/unload", "/load") and not self._own_page("the model can be loaded or unloaded"):
@@ -3382,7 +3384,7 @@ def make_handler(svc: Service):
                     self._json(503, {"error": {"type": "server_error", "message": str(e)}})
                 return
             try:
-                req = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))) or b"{}")
+                req = self._request_json()
                 if not isinstance(req, dict):
                     raise ValueError("send a JSON object")
                 if path in ('/v1/load', '/v1/chat/completions', '/v1/messages', '/v1/responses'):
@@ -3428,6 +3430,11 @@ def make_handler(svc: Service):
                         self._json(503, {"error": {"type": "server_error", "message": str(e)}})
                     return
                 if path in ("/v1/chat/completions", "/v1/messages", "/v1/responses"):
+                    for key in ('max_tokens', 'max_completion_tokens', 'max_output_tokens'):
+                        value = req.get(key)
+                        if value is not None and (isinstance(value, bool) or not isinstance(value, (int, float))
+                                or not -1 <= value <= 2147483647 or value != int(value)):
+                            raise ValueError(f'{key}: expected a whole number of tokens (-1, 0: remaining context)')
                     self.record = svc.begin_request(path, req)
                 if path == "/v1/responses":
                     self._responses(req)
@@ -3500,27 +3507,53 @@ def make_handler(svc: Service):
                 props["build_info"] = "Strata " + str(version)
             self._json(200, props)
 
-        def _control_body(self) -> bool:
-            """Consume the unused control body before replying/closing (Windows otherwise sends a TCP reset)."""
+        def _read_body(self, limit):
+            """Reject ambiguous framing and consume a bounded body before any operation."""
+            lengths = self.headers.get_all('Content-Length', [])
+            if self.headers.get('Transfer-Encoding') is not None or len(lengths) > 1:
+                self._json(400, {'error': {'message': 'unsupported or ambiguous request framing'}})
+                return None
             try:
-                length = int(self.headers.get("Content-Length", "0"))
-            except ValueError:
+                raw = lengths[0] if lengths else '0'
+                if not re.fullmatch(r'[0-9]+', raw.strip()):
+                    raise ValueError('invalid length')
+                length = int(raw)
+            except (ValueError, TypeError):
                 self._json(400, {"error": {"message": "invalid Content-Length"}})
-                return False
-            if not 0 <= length <= 65536:
-                self._json(413, {"error": {"message": "control request body is limited to 64 KiB"}})
-                return False
+                return None
+            if length > limit:
+                self._json(413, {'error': {'message': f'request body is limited to {limit} bytes'}})
+                return None
             timeout = self.connection.gettimeout()
             try:
-                self.connection.settimeout(2.0)
-                complete = len(self.rfile.read(length)) == length
+                self.connection.settimeout(30.0)
+                body = self.rfile.read(length)
             except OSError:
-                complete = False
+                body = None
             finally:
                 self.connection.settimeout(timeout)
-            if not complete:
-                self._json(400, {"error": {"message": "incomplete control request body"}})
-            return complete
+            if body is None or len(body) != length:
+                self._json(400, {'error': {'message': 'incomplete request body'}})
+                return None
+            return body
+
+        def _request_json(self):
+            def pairs(items):
+                result = {}
+                for key, value in items:
+                    if key in result:
+                        raise ValueError('duplicate JSON member')
+                    result[key] = value
+                return result
+            def constant(value):
+                raise ValueError('nonfinite JSON number')
+            try:
+                value = json.loads(self.request_body or b'{}', object_pairs_hook=pairs, parse_constant=constant)
+                # Also reject overflowing exponent numbers and unpaired escaped UTF-16 surrogates.
+                json.dumps(value, ensure_ascii=False, allow_nan=False).encode('utf-8')
+                return value
+            except RecursionError:
+                raise ValueError('request JSON is too deeply nested') from None
 
         def _own_page(self, what) -> bool:
             """Only JSON (a form or a "simple" cross-site request can't send it without a CORS preflight, which this
@@ -3553,14 +3586,13 @@ def make_handler(svc: Service):
         def _config_post(self):
             """#564: change a few documented keys of the run config - JSON from Strata's own page only, as
             /settings (the key is checked before); every other key of the file stays as it is."""
-            body = self.rfile.read(int(self.headers.get("Content-Length", 0)))
             if not self._own_page("the run config can be changed"):
                 return
             if not svc.config_path:
                 self._json(404, {"error": {"message": "this server was started without a run config"}})
                 return
             try:
-                req = json.loads(body or b"{}")
+                req = self._request_json()
                 with svc.config_lock:
                     cfg = runconfig.load(svc.config_path)
                     new, changed = runconfig.apply(cfg, req.get("set") if isinstance(req, dict) else None)
@@ -3579,11 +3611,10 @@ def make_handler(svc: Service):
 
         def _settings(self):
             # They change what every client gets, so only the app's own page may set them
-            body = self.rfile.read(int(self.headers.get("Content-Length", 0)))
             if not self._own_page("settings can be changed"):
                 return
             try:
-                req = json.loads(body or b"{}")
+                req = self._request_json()
                 shared = svc.set_shared(req.get("defaults") if isinstance(req, dict) else None)
             except ValueError as e:
                 self._json(400, {"error": {"type": "invalid_request_error", "message": str(e)}})
@@ -3646,7 +3677,6 @@ def make_handler(svc: Service):
             messages, validator = prepare_format(req.get("response_format"), messages)
             if validator is not None and (tools or req.get("strata_mcp")):
                 raise ValueError("structured response_format with tools/MCP is not supported")
-            svc.load(self.cancel)
             max_req = max_new = int(req.get("max_completion_tokens") or req.get("max_tokens") or 0)   # 0/-1: the rest
             use_mcp = req.get("strata_mcp") is True and svc.mcp is not None      # the web app's opt-in (serve/mcp.py)
             own = {t.get("name") for t in tools or [] if isinstance(t, dict)}   # #592: a second line of defence
@@ -3658,6 +3688,7 @@ def make_handler(svc: Service):
                 use_mcp = bool(extra)
                 tools = (tools or []) + extra or None
             svc.reasoning_budget(req)                         # a bad value is a 400 before anything is sent
+            svc.load(self.cancel)
             ids, thinking, max_new = svc.prepare(messages, tools, kw, max_new, cancel=self.cancel)
             _debug_req("openai", req, messages, tools, max_new, thinking, len(ids))
             cancel = self.cancel
@@ -3826,11 +3857,11 @@ def make_handler(svc: Service):
             self._json(200, {"input_tokens": len(svc.encode_prompt(messages, tools, kw))})
 
         def _anthropic(self, req):
-            svc.load(self.cancel)
             req = svc.with_shared(req, "anthropic")
             messages, tools, kw = anthropic_to_messages(req, svc.anthropic_think_unasked)
             max_new = int(req.get("max_tokens") or 0)                  # 0/-1: the rest of the context
             svc.reasoning_budget(req)                         # a bad value is a 400 before anything is sent
+            svc.load(self.cancel)
             ids, thinking, max_new = svc.prepare(messages, tools, kw, max_new, cancel=self.cancel)
             _debug_req("anthropic", req, messages, tools, max_new, thinking, len(ids))
             cancel = self.cancel

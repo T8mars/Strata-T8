@@ -166,6 +166,30 @@ def same_machine(previous, current):
 
 
 def refresh_updated_config(cfg_path, state, current, *, enable_vision=False, vision_tokens=None):
+    previous = {path: path.read_bytes() if path.exists() else None for path in (cfg_path, STATE)}
+    original_state = dict(state)
+    completed = False
+    try:
+        _refresh_updated_config(cfg_path, state, current, enable_vision=enable_vision, vision_tokens=vision_tokens)
+        completed = True
+    finally:
+        if not completed:
+            state.clear()
+            state.update(original_state)
+            failed = []
+            for path, content in previous.items():
+                try:
+                    if content is None:
+                        path.unlink(missing_ok=True)
+                    else:
+                        atomic_bytes(path, content)
+                except OSError:
+                    failed.append(path.name)
+            if failed:
+                raise RuntimeError('Configuration rollback incomplete; could not restore: ' + ', '.join(failed))
+
+
+def _refresh_updated_config(cfg_path, state, current, *, enable_vision=False, vision_tokens=None):
     config = read_config(cfg_path)
     engine = ROOT/('engine-hip' if config.get('backend') == 'hip' else 'engine')
     config['exe'] = str(engine/'strata.exe')

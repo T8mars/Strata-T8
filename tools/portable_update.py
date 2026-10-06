@@ -14,7 +14,7 @@ import zipfile
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from portable_version import ROOT, metadata, version_key, archive_name
-from portable_weights import validate_weights, allowed_weight, allowed_runtime_data, MODEL_SUFFIXES
+from portable_weights import validate_weights, weight_declaration, allowed_weight, allowed_runtime_data, MODEL_SUFFIXES
 from portable_io import atomic_json
 urlopen = urllib.request.urlopen
 
@@ -79,6 +79,18 @@ def validate_manifest(root, manifest, verify=True):
         actual = {p.relative_to(root).as_posix().casefold() for p in root.rglob('*') if p.is_file()}
         if actual != seen | {'package-manifest.json'}:
             raise ValueError('Release has unlisted or missing files')
+        application = metadata(root)
+        if not isinstance(application, dict) or application.get('version') != manifest['version']:
+            raise ValueError('Application metadata version differs from package manifest')
+        if application.get('edition', 'Portable-NoModels') != edition:
+            raise ValueError('Application metadata edition differs from package manifest')
+        expected = weight_declaration(edition)
+        if ('models_included' in application and application['models_included'] is not expected['vision']):
+            raise ValueError('Application metadata models_included differs from package manifest')
+        if 'weights' in application:
+            roles = application['weights']
+            if not isinstance(roles, dict) or set(roles) != set(expected) or any(roles[k] is not expected[k] for k in expected):
+                raise ValueError('Application metadata weight roles differ from package manifest')
 
 
 def latest_release(repo=None, timeout=10):
@@ -140,26 +152,51 @@ def fetch(url, destination=None, limit=2*1024**3):
 
 def extract_release(archive, destination):
     with zipfile.ZipFile(archive) as z:
-        prefixes = {PurePosixPath(i.filename).parts[0] for i in z.infolist()}
+        infos = z.infolist()
+        if any(not i.filename or not PurePosixPath(i.filename).parts for i in infos):
+            raise ValueError('Invalid release ZIP member')
+        prefixes = {PurePosixPath(i.filename).parts[0] for i in infos}
         if len(prefixes) != 1:
             raise ValueError('Release must contain one application directory')
         prefix = prefixes.pop()
         safe_path(destination, prefix)
-        seen = set()
+        seen = {}
         total = 0
-        for info in z.infolist():
+        members = []
+        for info in infos:
             if (info.external_attr >> 16) & 0o170000 == 0o120000:
                 raise ValueError('Symlink in release ZIP')
-            relative = info.filename[len(prefix)+1:].rstrip('/')
+            if info.filename != prefix and not info.filename.startswith(prefix+'/'):
+                raise ValueError('Release ZIP member has a noncanonical application root')
+            relative = info.filename[len(prefix)+1:]
+            if info.is_dir():
+                relative = relative[:-1]
             if not relative:
+                if not info.is_dir() or info.filename != prefix+'/':
+                    raise ValueError('Release application root must be a directory')
                 continue
             target = safe_path(destination, relative)
             if relative.casefold() in seen:
                 raise ValueError('Duplicate ZIP member')
-            seen.add(relative.casefold())
+            seen[relative.casefold()] = info.is_dir()
             total += info.file_size
             if total > 8*1024**3:
                 raise ValueError('Release expands beyond 8 GiB')
+            members.append((info, target, relative))
+        if seen.get('package-manifest.json') is not False:
+            raise ValueError('Release ZIP lacks its package manifest')
+        # Validate all source and destination topology before creating the first file.
+        for _, target, relative in members:
+            if any(seen.get(parent.as_posix().casefold()) is False for parent in PurePosixPath(relative).parents):
+                raise ValueError(f'Conflicting release ZIP paths: {relative}')
+            if target.exists() and target.is_dir() != seen[relative.casefold()]:
+                raise ValueError(f'Conflicting release destination: {relative}')
+            for parent in target.parents:
+                if parent == destination.parent:
+                    break
+                if parent.exists() and not parent.is_dir():
+                    raise ValueError(f'Release destination parent is a file: {relative}')
+        for info, target, _ in members:
             if info.is_dir():
                 target.mkdir(parents=True, exist_ok=True)
             else:
@@ -169,6 +206,55 @@ def extract_release(archive, destination):
     manifest = json.loads((destination/'PACKAGE-MANIFEST.json').read_text(encoding='utf-8'))
     validate_manifest(destination, manifest)
     return manifest
+
+
+def check_installation_topology(root, new_entries, old_entries):
+    old_names = {e['path'].casefold() for e in old_entries}
+    old_directories = {p.as_posix().casefold() for e in old_entries for p in PurePosixPath(e['path']).parents if p.as_posix() != '.'}
+    for entry in new_entries:
+        relative = entry['path']
+        target = safe_path(root, relative)
+        if target.is_file() and relative.casefold() not in old_names:
+            raise ValueError(f'New release conflicts with user file: {relative}')
+        if target.is_dir():
+            if relative.casefold() not in old_directories:
+                raise ValueError(f'New release conflicts with user directory: {relative}')
+            for descendant in target.rglob('*'):
+                name = descendant.relative_to(root).as_posix()
+                safe_path(root, name)
+                allowed = old_directories if descendant.is_dir() else old_names
+                if name.casefold() not in allowed:
+                    raise ValueError(f'New release conflicts with user file or directory: {name}')
+        for parent in PurePosixPath(relative).parents:
+            if parent.as_posix() == '.':
+                continue
+            if safe_path(root, parent.as_posix()).is_file() and parent.as_posix().casefold() not in old_names:
+                raise ValueError(f'New release conflicts with user file parent: {parent}')
+
+
+def publish_control_pair(root, plan_dir, plan):
+    """Keep a previous verified plan paired with its executor on publication failure."""
+    executor = plan_dir/'apply.ps1'
+    previous = executor.read_bytes() if executor.exists() else None
+    descriptor, temporary = tempfile.mkstemp(prefix='.apply-', suffix='.ps1', dir=plan_dir)
+    os.close(descriptor)
+    temporary = Path(temporary)
+    replaced = False
+    try:
+        shutil.copy2(root/'tools/apply_portable_update.ps1', temporary)
+        os.replace(temporary, executor)
+        replaced = True
+        atomic_json(plan_dir/'plan.json', plan)
+    except Exception:
+        if replaced:
+            if previous is None:
+                executor.unlink(missing_ok=True)
+            else:
+                temporary.write_bytes(previous)
+                os.replace(temporary, executor)
+        raise
+    finally:
+        temporary.unlink(missing_ok=True)
 
 
 def prepare(root=ROOT, release=None, edition=None):
@@ -221,16 +307,12 @@ def prepare(root=ROOT, release=None, edition=None):
         old = json.loads((root/'PACKAGE-MANIFEST.json').read_text(encoding='utf-8'))
         validate_manifest(root, old, verify=False)
         # Never overwrite files a user created that were not managed by their old package.
-        old_names = {e['path'].casefold() for e in old['files']}
-        for entry in manifest['files']:
-            if entry['path'].casefold() not in old_names and safe_path(root, entry['path']).exists():
-                raise ValueError(f'New release conflicts with user file: {entry["path"]}')
+        check_installation_topology(root, manifest['files'], old['files'])
         plan = {'root': str(root.resolve()), 'stage': str(incoming), 'backup': str(stage/'backup'),
                 'new': manifest['files'], 'old': old['files'], 'version': manifest['version'],
                 'manifest_sha256': hashlib.sha256((incoming/'PACKAGE-MANIFEST.json').read_bytes()).hexdigest()}
-        shutil.copy2(root/'tools/apply_portable_update.ps1', plan_dir/'apply.ps1')
         archive.unlink()
-        atomic_json(plan_dir/'plan.json', plan)
+        publish_control_pair(root, plan_dir, plan)
     except Exception:
         # Delete only the fresh directory created by this invocation, never a redirected path.
         if stage.resolve() == owned_stage and not stage.is_symlink() and not getattr(stage, 'is_junction', lambda: False)():

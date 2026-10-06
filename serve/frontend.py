@@ -104,6 +104,8 @@ def _image_source(part: dict) -> str:
     "media_type": ..., "data": ...}} or {"source": {"type": "url", "url": ...}}."""
     if part.get("type") == "image":
         src = part.get("source") or {}
+        if not isinstance(src, dict):
+            raise ValueError('image source must be an object')
         if src.get("type") == "base64":
             return f"data:{src.get('media_type', 'image/png')};base64,{src.get('data', '')}"
         return src.get("url") or src.get("path") or ""
@@ -260,6 +262,9 @@ def _tool_list(value, wrapper: str | None) -> list[dict]:
 def openai_to_messages(req: dict) -> tuple[list[dict], list[dict] | None, dict]:
     """OpenAI Chat Completions -> (template messages, template tools, template kwargs)."""
     messages = []
+    template_kwargs = req.get('chat_template_kwargs') or {}
+    if not isinstance(template_kwargs, dict):
+        raise ValueError('chat_template_kwargs must be an object')
     for m in _object_list(req.get("messages"), "messages"):
         role = m.get("role")
         if role == "developer":
@@ -286,7 +291,7 @@ def openai_to_messages(req: dict) -> tuple[list[dict], list[dict] | None, dict]:
     reasoning = req.get("reasoning") if isinstance(req.get("reasoning"), dict) else {}
     kwargs.update(effort_kwargs(req.get("reasoning_effort") or reasoning.get("effort")))
     # the vLLM / llama.cpp convention: {"chat_template_kwargs": {"enable_thinking": false, "reasoning_effort": "low"}}
-    for k, v in (req.get("chat_template_kwargs") or {}).items():
+    for k, v in template_kwargs.items():
         if k == "enable_thinking" and not v:
             kwargs = {"enable_thinking": False}
         elif k == "reasoning_effort" and "enable_thinking" not in kwargs:
@@ -303,6 +308,8 @@ def anthropic_to_messages(req: dict, think_unasked: bool = True) -> tuple[list[d
     if system:
         messages.append({"role": "system", "content": _text_of(system)})
     for m in _object_list(req.get("messages"), "messages"):
+        if not isinstance(m.get('role'), str):
+            raise ValueError('messages need a string role')
         content = m.get("content")
         if isinstance(content, str):
             messages.append({"role": m["role"], "content": content})
@@ -312,7 +319,7 @@ def anthropic_to_messages(req: dict, think_unasked: bool = True) -> tuple[list[d
             messages.append({"role": "user", "content": _parts_of(content)})
             continue
         text, reasoning, calls = [], [], []
-        for block in content or []:
+        for block in _object_list(content or [], 'message content'):
             kind = block.get("type")
             if kind == "text":
                 text.append(block.get("text", ""))

@@ -175,6 +175,9 @@ def validated_json(text, validator, finish):
     try:
         value = json.loads(text or "", object_pairs_hook=pairs, parse_constant=constant)
         canonical = json.dumps(value, ensure_ascii=False, allow_nan=False, separators=(",", ":"))
+        canonical.encode('utf-8')
+    except RecursionError:
+        raise StructuredOutputError('model JSON is too deeply nested') from None
     except (ValueError, TypeError) as exc:
         raise StructuredOutputError(f"model did not return valid JSON: {exc}") from exc
     try:

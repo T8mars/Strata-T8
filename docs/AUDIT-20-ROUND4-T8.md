@@ -1,0 +1,40 @@
+# 第四组 20 轮联合检查（2026-10-06）
+
+整合包基线为 `0.1.39-t8.10`，主仓提交 `5c8e53c019d4d3fd45ce6aebefa8585cb5595f69`；节点基线为 `1.0.2`。本组新增 20 个不同检查目标，前三组及重复完整回归不计轮数。主审负责服务、配置与模型准备，两名独立子 Agent 分别审查节点和更新器，并交叉检查变更。
+
+| 轮次 | 新检查目标、发现及处理 | 验证 |
+| --- | --- | --- |
+| R01 | 负数、重复 Content-Length 和 Transfer-Encoding 可造成含糊请求；在任何操作前拒绝 | RequestBoundaries，实际 socket |
+| R02 | 有效 JSON 的实际字节少于声明长度仍执行；必须读到完整声明长度 | RequestBoundaries，半关闭 socket、load 未调用 |
+| R03 | 请求长度没有上限；生成限制 64MiB，设置和控制限制 64KiB，读取超时 30s | RequestBoundaries，仅请求头即可返回 413 |
+| R04 | NaN、指数溢出、重复 JSON 成员及过深 JSON 未受控拒绝；统一严格解析并返回 400 | RequestBoundaries，实际 HTTP；随后 health 正常 |
+| R05 | 转义的孤立 Unicode surrogate 到编码时才失败；加载前验证 UTF-8 | RequestBoundaries，load 未调用 |
+| R06 | 模型结构化输出含孤立 surrogate 或过深 JSON 时抛裸异常；转为受控 StructuredOutputError | OutputEncoding，直接验证模型输出，API 既有 502 映射 |
+| R07 | 错误 token 预算可先加载模型或抛类型异常；三个生成 API 提前检查整数与范围 | RequestBoundaries，20 个预算反例，load 未调用 |
+| R08 | 错误 Anthropic messages、role、block、image source 及模板 kwargs 先加载或裸异常；先验证形状 | RequestBoundaries，实际 HTTP 400 与未加载断言 |
+| R09 | 错误 reasoning_budget_tokens 在加载后才检查；两个聊天 API 均提前验证 | RequestBoundaries，OpenAI/Anthropic |
+| R10 | 更新后的版本/发行类型刷新在状态提交失败时留下改变的配置；恢复两份文件及内存状态 | RefreshTransaction，原字节快照 |
+| R11 | 创建不同模型的托管档案调用全局 configure，改动网页安装配置/状态/启动脚本；捕获 setup 结果到内存后只写目标档案 | ManagedProfiles，配置、状态、脚本保持原字节 |
+| R12 | 托管上下文超界到 setup 才处理；CLI 在环境检查前拒绝 1024..131072 以外的值 | ManagedProfiles，环境检查未调用 |
+| R13 | 重复 batch/slots/context 参数残留使串行档案含糊；移除所有受控参数后加入一个上下文值 | ManagedProfiles，分离值及等号形式 |
+| R14 | pack 缺少 dense/index 或工具成功但无产物仍发布完成描述；检查全部必要非空产物并写入 required_files | PreparedArtifacts，准备工具替身，禁止发布不完整描述 |
+| R15 | meta 与清单版本、发行类型、权重角色可矛盾；核对一致性，保留旧 NoModels 缺少新字段的兼容 | 更新器 MetadataBinding |
+| R16 | result.json 写失败后再次写失败掩盖回滚结果；原子写结果，报告失败仍明确输出恢复状态 | 真实 PowerShell、锁文件 |
+| R17 | 新计划发布失败覆盖旧 apply 执行器；失败恢复旧执行器，使旧计划仍能执行 | 旧计划实际 PowerShell 应用 |
+| R18 | 合法托管文件与目录互换无法更新；先备份旧文件、再安装新文件；保护用户文件和自建空目录，失败恢复目录拓扑 | 微型包、真实 PowerShell，两种迁移及失败回滚 |
+| R19 | ZIP 根文件、父文件/子文件冲突或缺少清单到解压中途才发现；全目录和目标拓扑预检后才写入 | 实际 ZIP，失败时无部分写入 |
+| R20 | 复制到别处的 plan 仍能修改原安装；执行前将计划路径绑定安装控制目录，兼容 Windows 长短路径 | 真实 PowerShell，修改前拒绝 |
+
+新增 `tools/test_portable_round4.py` 20 例、`tools/test_portable_update_round4.py` 22 例。独立结构化模块的既有 8 例也加入完整 CI、同步和发行测试列表，补足直接输出校验覆盖。42 个新增用例及 8 个既有用例均包含在完整测试数中，不重复累计。
+
+[节点第四组 20 轮报告](https://github.com/T8mars/Comfyui-Strata-T8/blob/main/docs/AUDIT-20-ROUND4-NODES.md) 记录 9 类修复、26 个新增用例及 131 例完整回归。20 个目标不等于 20 个 BUG；草案或同一事务的多个反例按根因合并。
+
+## 验证方法与范围
+
+本组用临时目录、实际 socket/HTTP、真实 CMD/PowerShell、微型 ZIP 和文件锁复现；下载、setup 产物和原生推理在单元回归中使用替身。整合包的首批 19 个新方法在修复前产生 38 个失败及 4 个错误（含 subtests）；更新器初始 15 个新方法产生 11 个失败及 3 个错误。节点选取 13 个缺陷方法对不可变基线执行，全部复现失败。这些失败日志用于证明反例存在，不计入最终通过数。
+
+额外选取深度 4000 的请求/输出及错误模板、Anthropic block 三个方法对不可变基线执行，均复现失败；与首批方法有重合，不另累计轮次或方法数。
+
+本机最终回归：服务/整合包 **399 例通过，180.507s**；独立节点 **131 例通过，15.484s**；setup **258 例通过，21.640s**，均无跳过。更新器相关组合的 106 例已包含在整合包测试中，不能另行累计。证据为忽略目录 `.portable-build/audit4-root-final-full.log`、`audit4-node-final-full.log`、`audit4-setup.log`、`audit4-extra-baseline.log` 及两个子 Agent 的复现日志。
+
+Windows 文件锁导致无法恢复时会明确报告未恢复的文件；配置和更新事务不保证断电时多文件同时提交。AMD 实机、多 GPU 及 Linux 托管原生引擎未验证。实际 GPU 与正式发行证据在最终核查后追加。
