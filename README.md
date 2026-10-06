@@ -21,7 +21,7 @@ Release 附 SHA256，VERIFY-PACKAGE.bat 检查解压文件。请下载发行资�
 
 ## ComfyUI
 
-通过 ComfyUI-Manager 安装独立 [Strata-T8 节点](https://github.com/T8mars/Comfyui-Strata-T8)，Publisher `t8star`，节点 ID `strata-t8`。节点仓库提供安装、模型路径、连接配置与三个示例工作流。
+独立 [Strata-T8 节点](https://github.com/T8mars/Comfyui-Strata-T8) 通过 Comfy Registry 发布，Publisher `t8star`，节点 ID `strata-t8`。版本审核通过后可在 ComfyUI-Manager 搜索安装；尚未显示时使用节点仓库的 Git 或 Release ZIP 安装。节点仓库提供模型路径、连接配置与三个示例工作流。
 
 支持文本生成、扩写/翻译、正负提示词、结构化分镜、JSON 提取、图片描述/反推/OCR、批量处理和服务控制。同卡推理结束后确认语言与视觉引擎释放，再返回下游采样；API key 保存在本机，工作流只存档案名称。
 
