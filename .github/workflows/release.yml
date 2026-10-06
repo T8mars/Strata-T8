@@ -31,7 +31,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: T8mars/Comfyui-Strata-T8
-          ref: 4203df3caef5495d998a8a9d6f9721c12a885cdc # Node 1.0.3
+          ref: 867e833db18eee3c8a85350d645124daef7a514f # Node 1.0.4
           path: .portable-build/node-regression
       - uses: actions/setup-python@v5
         with:

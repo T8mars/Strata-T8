@@ -38,3 +38,11 @@
 交叉审查又复现深层工具参数和旧配置 no-op 的遗漏；增加 3 个方法，其中 2 个在不可变基线失败/错误、1 个原已通过。`tools/test_portable_round5.py` 最终 24 个新方法、Schema 模块 17 个、更新器 21 个，共 62 个新增方法。原有端口传递测试的 setup 替身改为实际写出配置，保留原断言；前两次完整运行的 fixture 错误不计作通过。
 
 旧 Draft4/7 的混合 dependencies 在 schema 项排首位且使用本地 anchor 时，第三方引用库仍有兼容限制。现在提前受控拒绝，两个 API 返回 400 且不加载模型；可改用 `#/definitions/target` 等 JSON Pointer 引用。一般本地 pointer、anchor、2019 recursive 和 2020 dynamic 的既有回归继续执行，未宣称支持所有旧草案组合。
+
+## 最终本机验收
+
+冻结源码完整回归：服务/整合包 **461 例通过，209.454s**，新增 62 例；节点 **160 例通过，21.968s**，新增 29 例；setup **258 例通过，21.527s**，均无跳过。节点升版至 1.0.4 后全套再次通过，22.383s。证据为 `audit5-root-all-final.log`、`audit5-node-final.log`、`audit5-node-v104-final.log`、`audit5-setup.log`。组件测试已包含在完整数字中，不另累计。
+
+ComfyUI 0.38.0 / Torch 2.7.0+cu128 / RTX 4060 Ti 16GB / 128GB RAM，实际队列和 DreamShaper 8 采样：文字提示词 → CLIP/KSampler 输出 1 图，26.27s；图片理解 → 绘图输出 1 图，30.30s；结构化两镜头 → Batch → 下游绘图输出 2 图，56.48s。另验证队列 load 和重复缓存请求；每条流程结束检查文字/视觉引擎未运行，最终停止自有托管服务。
+
+先前源码的三图验收已完成，补强旧草案 anchor 拒绝后重新启动验证 ComfyUI，以上数字来自最终源码重跑；未把前次验收算作最终源码。`audit5-graph-results.json` 记录 8 份相关功能源码 SHA256，并与当前文件核对一致；辅助 ComfyUI 的 GLSL 节点缺少可选模块，未用于以上流程。没有停止用户的其它服务，没有重新下载模型。
