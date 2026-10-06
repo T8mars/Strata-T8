@@ -13,7 +13,8 @@
 | 独立节点回归 | 218 项通过，无跳过 |
 | 实际 tokenizer | 8 项通过，无跳过；使用现有 IQ3_S pack |
 | application 完整门槛 | 1,030 项通过，无跳过；433.891 秒 |
-| 真实整包升级、逐文件审计 | 构建完成后执行，尚未验收 |
+| 两版实际 ZIP 审计 | NoModels 8305、VisionReady 8306 文件逐 SHA/CRC 通过；版本和源码提交匹配 |
+| 真实整包升级 | t8.8 两版升级、同版本 NoModels 切换 VisionReady，三条路径全部通过 |
 | 新版 GPU 工作流与取消/重载 | 文本 → 384×384 实际绘图通过；视觉、批量、取消/重载等待空闲资源 |
 
 完整 CPU 门槛由 `tools/run_release_checks.py` 自动发现 serve/tools 新旧测试，独立运行 application、setup、tokenizer 三组。tokenizer 组必须指定已有 pack 路径；CI 不下载模型，也不把缺少 GPU 的检查算作推理验收。
@@ -23,6 +24,16 @@
 同步/分发新增热修复标签、精确历史连接、版本下限、无变化摘要验证、本地规划排除、发行资产与实际提交一致性回归。Windows 路径测试使用真实文件身份比较，工具 schema 测试保留新版合法别名。
 
 发布器另有 28 项真实 Git/ZIP 回归，已包含在 application 门槛中。实际只读 GitHub 查询也验证了 REST 404 → GraphQL 查草稿的流程，没有为此创建或发布 Release。
+
+[运行包检查](https://github.com/T8mars/Strata-T8/actions/runs/37515758414)已通过。轻量 CI 的 application 有 5 个因缺少 Windows 内嵌运行环境而跳过的启动入口测试；本机完整环境的 1,030 项无跳过。该次运行的旧节点固定提交执行 211 项；后续工作流固定到包含新版兼容测试的节点提交 `3dcf5fbd828437b0e11b5bab5ee7cd83dfbcf9d1`。[节点独立 CI](https://github.com/T8mars/Comfyui-Strata-T8/actions/runs/37515854351)的 Windows 218 项全部通过；Linux 217 项通过，跳过 1 个 Windows 文件系统大小写别名测试。
+
+## 实际运行包与升级
+
+完整功能源码冻结于 `be93eac4a1b3370a8e3eddf30645d80ed924322f` 后构建两版；正式发行的 PACKAGE-MANIFEST.json 另记录最终包含文档和工作流更新的提交。实际 ZIP 审计逐文件验证 SHA256、CRC、元数据、引擎来源、UTF-8 manifest 和权重分类；没有主模型、MTP、用户配置或 roadmap。
+
+从本地历史 t8.8 NoModels 和 VisionReady ZIP 实际解压，在中文、空格路径分别运行旧安装自己的内嵌 Python、真实 updater prepare 和 PowerShell apply，再用升级后的 Python 核对全部文件。第三条路径从新 NoModels 实际切换到同版本 VisionReady。传输仅改为已验证的本地 ZIP，不重新下载历史包或模型。
+
+三次升级逐 SHA 保留设置、端口/API key/采样/引擎参数、用户笔记、中文文本、日志及主模型/MTP 占位文件。历史包中的受管 ROADMAP 被删除，当前私人 roadmap 未被读取或复制。三次真实 API 在独立回环端口验证 401/200 认证、版本、Protocol 1、双后端和视觉路径，并正常退出。原生引擎启动次数均为零；这些升级检查不代替 GPU 推理。
 
 ## 来源与本机部署
 
@@ -41,6 +52,8 @@
 
 已有 [上一版验收](VALIDATION-COMFYUI-T8.md) 的文本、视觉和实际采样证据属于旧引擎。本版 GPU 验收使用独立 ComfyUI 端口和本轮托管实例，只停止本轮创建且身份核对一致的进程，不影响用户其他程序。
 
-首轮环境为 ComfyUI 0.38.0、前端 1.53.10、PyTorch 2.7.0+cu128、RTX 4060 Ti 16GB / 128GB RAM。实际观察到新语言和视觉进程；队列 load 和文本节点返回前均确认双进程退出，随后绘图生成一张 PNG。首图耗时 272.187 秒，不作为速度基准。下一图开始时其他程序重新占用内存，视觉节点在推理前正确拒绝低于 60GiB 的可用 RAM；本轮托管服务和独立 ComfyUI 已退出。此次部分验收不代表其余工作流已通过。
+两轮环境为 ComfyUI 0.38.0、前端 1.53.10、PyTorch 2.7.0+cu128、RTX 4060 Ti 16GB / 128GB RAM。实际观察到新语言和视觉进程；队列 load 和文本节点返回前均确认双进程退出，随后各生成一张 384×384 PNG。两次首图耗时 272.187 和 273.609 秒，不作为速度基准；同进程缓存下仅 SD 对照为 1.594 秒，尚不能据此确定冷启动延迟原因。两次视觉开始时其他程序重新占用内存，节点在推理前正确拒绝低于 60GiB 的可用 RAM；本轮托管服务和独立 ComfyUI 均已退出。此次部分验收不代表视觉、结构化批量或直接 API 取消/重载已通过。
+
+节点 1.0.6 已提交 Registry，Publisher `t8star` 和节点本身为 Active，但[版本状态](https://api.comfy.org/nodes/strata-t8/versions?include_status_reason=true)仍为 Flagged，不能称已通过安全审核。自动扫描记录 4 处进程启动、配置目录环境读取及网络操作，需要官方人工复核；当前可使用 Git 或节点 Release ZIP 安装。
 
 AMD 引擎随包分发，暂无 AMD 实机；Windows AMD 视觉暂不支持。上游新增实验开关维持 opt-in，没有扩大硬件性能声明。API 默认保持严格 JSON/工具检查，[兼容开关](../serve/API_COMPATIBILITY.md) 需要按请求显式启用。
