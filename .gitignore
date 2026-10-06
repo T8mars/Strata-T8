@@ -72,3 +72,6 @@ build-vision-cuda12.bat
 /vision/weights/
 /.portable-temp/
 /comfyui-strata-t8/.local/
+
+# Local planning only (case-insensitive spelling on Windows).
+/[Rr][Oo][Aa][Dd][Mm][Aa][Pp].[Mm][Dd]
