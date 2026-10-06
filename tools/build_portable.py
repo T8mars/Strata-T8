@@ -11,6 +11,7 @@ import sys
 import zipfile
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from portable_version import metadata, source_version, archive_name
+from portable_build_provenance import build_identity, validate_engine_build
 from portable_weights import weight_declaration, MODEL_SUFFIXES, allowed_weight, allowed_runtime_data
 from windows_utf8_manifest import patch_engine
 
@@ -20,17 +21,45 @@ NAME = archive_name(META['version']).removesuffix('.zip')
 OUT = ROOT/'dist'
 TARGET = OUT/NAME
 
+# These files are operational documentation, not local planning or benchmark data.
+DOCS = (
+    'INSTALL.md', 'AI_SETUP.md', 'MODELS.md', 'TROUBLESHOOTING.md', 'AMD_HIP.md',
+    'AMD_HIP_PERFORMANCE.md', 'STRIX_HALO.md', 'OLDER_GPUS.md', 'NVIDIA_V100.md',
+    'HOW_IT_WORKS.md', 'DETAILS.md', 'BATCHING.md', 'MULTI_GPU.md', 'SECOND_GPU.md',
+    'EXCHANGE_ROTATION.md', 'BATCHED_DMA.md', 'DISJOINT_EXPERT_CACHE.md',
+    'KV_PREFETCH.md', 'MESSAGE_BOUNDARY_CACHE.md', 'PROMPT_CACHE_TAIL.md',
+    'MCP_SERVER.md', 'UNSLOTH_Q4.md', 'UNSLOTH_Q6.md', 'ORCA.md', 'ORCA_Q4_K_S.md',
+    'COMMUNITY_BENCHMARKS.md', 'INTEL.md', 'INTEL_ARC.md',
+    'UPDATING-T8.md', 'COMFYUI-T8.md', 'VALIDATION-T8.md', 'VALIDATION-COMFYUI-T8.md', 'AUDIT-20-T8.md',
+    'AUDIT-20-ROUND2-T8.md', 'AUDIT-20-ROUND3-T8.md', 'AUDIT-20-ROUND4-T8.md',
+    'AUDIT-20-ROUND5-T8.md', 'AUDIT-20-ROUND6-T8.md', 'AUDIT-20-ROUND7-T8.md',
+    'VALIDATION-UPSTREAM-0140-T8.md',
+)
+
+
+def private_plan(path):
+    return any(part.casefold() == 'roadmap.md' for part in Path(path).parts)
+
+
+def shipping_ignore(original):
+    def ignore(directory, names):
+        return set(original(directory, names)) | {name for name in names if private_plan(name)}
+    return ignore
+
 
 def copy_tree(relative, ignore=None):
     src = ROOT/relative
-    shutil.copytree(src, TARGET/relative, dirs_exist_ok=True, ignore=ignore or shutil.ignore_patterns('__pycache__', '*.pyc'))
+    if private_plan(relative):
+        raise ValueError('Local roadmap is forbidden in distribution')
+    shutil.copytree(src, TARGET/relative, dirs_exist_ok=True,
+                    ignore=shipping_ignore(ignore or shutil.ignore_patterns('__pycache__', '*.pyc')))
 
 
 def copy_source(relative, excluded=()):
     """Ship tracked application files; local profiles and download state stay local."""
     paths = subprocess.check_output(['git', 'ls-files', '-z', '--', relative], cwd=ROOT).decode('utf-8').split('\0')
     for name in paths:
-        if not name:
+        if not name or private_plan(name):
             continue
         path = Path(name)
         if any(part in excluded or part == '__pycache__' for part in path.parts):
@@ -45,6 +74,15 @@ def copy_source(relative, excluded=()):
         shutil.copy2(source, destination)
 
 
+def package_files():
+    """Check the final tree before any manifest or ZIP can contain a local plan."""
+    files = sorted(path for path in TARGET.rglob('*') if path.is_file())
+    for path in files:
+        if private_plan(path.relative_to(TARGET)):
+            raise ValueError('Local roadmap is forbidden in distribution')
+    return files
+
+
 def main():
     global NAME, TARGET
     parser = argparse.ArgumentParser(description=__doc__)
@@ -53,11 +91,10 @@ def main():
     NAME = archive_name(META['version'], edition).removesuffix('.zip')
     TARGET = OUT/NAME
     weights = weight_declaration(edition)
-    if source_version() != META['upstream_version']:
-        raise SystemExit('Source and package version mismatch')
+    identity = build_identity(META, source_version())
     for backend in ['engine', 'engine-hip']:
-        if json.loads((ROOT/backend/'BUILD.json').read_text())['version'] != source_version():
-            raise SystemExit(f'{backend} does not match the source version')
+        validate_engine_build(json.loads((ROOT/backend/'BUILD.json').read_text(encoding='utf-8')),
+                              backend, META, identity['engine_version'])
     if TARGET.resolve().parent != OUT.resolve() or TARGET.name != NAME or TARGET.is_symlink():
         raise SystemExit('Refusing to rebuild outside the exact distribution directory')
     if TARGET.exists():
@@ -65,7 +102,7 @@ def main():
     TARGET.mkdir(parents=True)
     for name in ['runtime', 'engine', 'engine-hip']:
         copy_tree(name, shutil.ignore_patterns('__pycache__', '*.pyc', 'test_*.py', '*_test.py', '*.log', 'stop_local.ps1'))
-    for name in ['serve', 'tools']:
+    for name in ['serve', 'tools', 'ref']:
         copy_source(name)
     # Patch staged copies too: locally cached vendor engines may predate bootstrap.
     for backend in ['engine', 'engine-hip']:
@@ -85,24 +122,23 @@ def main():
     (TARGET/'features.json').write_text(json.dumps(features, indent=2), encoding='utf-8')
     shutil.copy2(ROOT/'START-PORTABLE.bat', TARGET/'START-HERE.bat')
     shutil.copy2(ROOT/'UPDATE-PORTABLE.bat', TARGET/'UPDATE.bat')
-    for file in ['ROADMAP.MD', 'README-UPSTREAM.md']:
+    for file in ['README-UPSTREAM.md']:
         shutil.copy2(ROOT/file, TARGET/file)
     # Only gguf-py is needed for preparing imported models. Never compile on recipients' PCs.
     copy_tree('third_party/llama.cpp/gguf-py', shutil.ignore_patterns('__pycache__', '*.pyc', 'tests', 'examples'))
-    for rel in ['third_party/llama.cpp/LICENSE']:
+    for rel in ['third_party/llama.cpp/LICENSE', 'third_party/llama.cpp/UPSTREAM.json']:
         shutil.copy2(ROOT/rel, TARGET/rel)
     (TARGET/'docs').mkdir()
-    for name in ['INSTALL.md', 'MODELS.md', 'TROUBLESHOOTING.md', 'AMD_HIP.md', 'HOW_IT_WORKS.md', 'DETAILS.md', 'BATCHING.md', 'UPDATING-T8.md', 'COMFYUI-T8.md', 'VALIDATION-COMFYUI-T8.md', 'AUDIT-20-T8.md', 'AUDIT-20-ROUND2-T8.md', 'AUDIT-20-ROUND3-T8.md', 'AUDIT-20-ROUND4-T8.md', 'AUDIT-20-ROUND5-T8.md', 'AUDIT-20-ROUND6-T8.md', 'AUDIT-20-ROUND7-T8.md']:
+    for name in DOCS:
         shutil.copy2(ROOT/'docs'/name, TARGET/'docs'/name)
     # Preserve third-party licensing; ROCm/wheels already carry their license directories.
     versions = {d.metadata['Name']: d.version for d in importlib.metadata.distributions()}
-    save = {'version': META['version'], 'upstream_version': source_version(), 'source_commit': subprocess.check_output(['git','rev-parse','HEAD'], cwd=ROOT, text=True).strip(),
+    save = {'version': META['version'], **identity, 'source_commit': subprocess.check_output(['git','rev-parse','HEAD'], cwd=ROOT, text=True).strip(),
             'python': sys.version, 'edition': edition, 'weights': weights, 'models_included': weights['vision'], 'dependencies': versions,
+            'gguf_source': json.loads((TARGET/'third_party/llama.cpp/UPSTREAM.json').read_text(encoding='utf-8')),
             'engines': {backend: json.loads((TARGET/f'{backend}/BUILD.json').read_text()) for backend in ['engine', 'engine-hip']},
             'files': []}
-    for file in sorted(TARGET.rglob('*')):
-        if not file.is_file():
-            continue
+    for file in package_files():
         rel = file.relative_to(TARGET).as_posix()
         if file.relative_to(TARGET).parts[0].lower() in ['strata-data', 'models', 'packs', 'mtp']:
             raise SystemExit(f'Model data directory forbidden: {rel}')
@@ -118,9 +154,8 @@ def main():
     archive = OUT/(NAME+'.zip')
     print(f'Writing {archive} ({len(save["files"])} files) ...', flush=True)
     with zipfile.ZipFile(archive, 'w', compression=zipfile.ZIP_DEFLATED, compresslevel=6, allowZip64=True) as z:
-        for file in sorted(TARGET.rglob('*')):
-            if file.is_file():
-                z.write(file, NAME+'/'+file.relative_to(TARGET).as_posix())
+        for file in package_files():
+            z.write(file, NAME+'/'+file.relative_to(TARGET).as_posix())
     with archive.open('rb') as stream:
         digest = hashlib.file_digest(stream, 'sha256').hexdigest()
     if archive.stat().st_size >= 2*1024**3:

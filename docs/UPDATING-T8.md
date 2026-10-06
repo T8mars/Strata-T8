@@ -28,13 +28,19 @@ python tools/sync_upstream.py --source release
 python tools/sync_upstream.py --source main
 ```
 
+上游 Release 可以使用四段热修复版本（例如 `v0.1.40.1`），源码及引擎仍使用三段 `0.1.40`，T8 发行版本为 `0.1.40-t8.1`。meta.json 分别记录 `upstream_release_tag`、真实 `upstream_commit`、`engine_version` 和官方引擎资产 SHA256；只有 Release 前三段与源码版本一致时才允许发布。正式版自动刷新资产摘要，没有源码变化时也核对摘要。main 验证分支不沿用旧资产摘要，同时保留 `upstream_stable_release_tag` 作为正式版下限；旧版本或旧于当前 main 的正式提交不能重新标记为新版。
+
+上游重写历史时，仅在已导入的上游提交仍属于本仓历史，且新历史包含完全相同的文件树时建立历史连接。找不到此锚点则停止并保留诊断，交由人工审查；不会清空或强制重置 T8 历史。v0.1.40.1 同步已连接新旧相同的 v0.1.39 基准。
+
 Git 克隆副本使用上游 START-HERE.bat / UPDATE.bat 安装更新；整合包的 UPDATE.bat 打包时映射到 UPDATE-PORTABLE.bat。整合包更新器拒绝覆盖 Git checkout。
 
 ## 自动打包与发布
 
-`Build portable release` 可由同步工作流调用，也可手动对指定提交运行。Windows x64 runner 读取 meta.json 和 CMakeLists.txt 的版本，下载固定 SHA256 的嵌入式 Python，安装锁定依赖与 CUDA wheels，获取同版本上游 CUDA/HIP 引擎，核对资产 SHA256 与 BUILD.json。为未签名的 strata.exe 与 strata-vision.exe 添加应用 UTF-8 manifest，保留其他资源及权限；记录原始/分发二进制 SHA256，并在打包清单中记录实际修改后的引擎。已签名资产需要由上游构建支持后再发行。
+`Build portable release` 可由同步工作流调用，也可手动对指定提交运行。同步工作流传入通过测试的完整提交 SHA。Windows x64 runner 读取 meta.json 和 CMakeLists.txt，下载固定 SHA256 的嵌入式 Python，安装锁定依赖与 CUDA wheels，从记录的上游 Release 标签获取 CUDA/HIP 引擎，核对资产 SHA256、来源提交与 BUILD.json。为未签名的 strata.exe 与 strata-vision.exe 添加应用 UTF-8 manifest，保留其他资源及权限；记录原始/分发二进制 SHA256，并在打包清单中记录实际修改后的引擎。已签名资产需要由上游构建支持后再发行。
 
-缺少匹配引擎、依赖不兼容或测试失败均停止发布。打包采用明确文件列表，只允许固定视觉权重，禁止主模型、MTP 和用户模型目录；生成文件清单、ZIP 和 SHA256，完成 CRC 检查后上传草稿，资产完整后发布。已有正式 Release 不替换资产。
+缺少匹配引擎、依赖不兼容或测试失败均停止发布。打包采用明确文件列表，只允许固定视觉权重，禁止主模型、MTP、用户模型目录和本地规划文件。清单记录 T8 源码 SHA、上游标签/提交、引擎版本、依赖来源及每个文件的摘要。
+
+发布器再次逐文件校验两版 ZIP、SHA256、清单和引擎来源，只上传本版本的四个资产。发布前确认远端标签指向实际测试 SHA；无标签的草稿须绑定此 SHA，已有标签则以其实际提交为准。上传后核对四个资产的名称、大小和 GitHub 摘要，再公开 Release。网络或鉴权失败不能当作“Release 不存在”；同标签的已发布资产保持不变，标签指向其他提交时拒绝发布。
 
 GitHub runner 没有目标 GPU，自动检查不代表所有 GPU 的推理验收。AMD 验证状态记录在 features.json。升级 Python 大版本时需同步路径配置并重新验收。
 

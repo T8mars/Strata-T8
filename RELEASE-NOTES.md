@@ -1,9 +1,11 @@
-## Strata-T8 0.1.39-t8.14
+## Strata-T8 0.1.40-t8.1
 
-完成第七组 20 轮联合检查。修复工具重名预检、生成函数名、缺外层标签时的最终参数丢失和关闭后参数混入；图片输入严格检查 base64 URI并限制为 64MiB，读取后取消不再转换。导入复核模型分片大小，启动脚本与最终端口保持一致并参加失败回滚，视觉 catalog 和下载 sidecar 限制在权重目录。
+完整同步 [上游 v0.1.40.1](https://github.com/Niko1221/Strata/releases/tag/v0.1.40.1)，使用 0.1.40 CUDA/HIP 引擎，保留 T8 Protocol 1、视觉按需加载、同卡资源交接和原有更新保护。现有主模型、MTP 与 BF16 视觉权重继续使用。
 
-更新器绑定安装清单和 metadata，延迟执行独立检查版本、edition及清单变化，备份和回滚使用精确文件目标。上游同步不再改写共享 merge driver 或依赖可被抢换的 FETCH_HEAD；失败先恢复本次 merge，诊断分支绑定真实 commit。新增 68 方法，596 例完整回归、258 例安装器测试通过。独立节点 1.0.6 新增 23 方法，211 例通过。
+修复引号、代码块和 thinking 示例被误识别为工具调用的问题；同步正常结束判断、stop、tool_choice、工具别名与 reasoning rescue。引擎重启唤醒等待请求，及时报告致命错误和长提示词失败。保留 T8 对 JSON、工具参数、图片预算、请求取消及进程归属的检查。宽松 JSON/历史兼容需要显式启用，见 [API 兼容说明](serve/API_COMPATIBILITY.md)。
 
-VisionReady 包含 Python、锁定依赖、CUDA/HIP 引擎和运行库、BF16 视觉权重及配置；两版均不含主模型和 MTP，Portable-NoModels 不含任何权重。模型地址、安装路径、来源和致谢见 README。每个 ZIP 附 SHA256 与完整清单，支持发行更新与上游同步。
+同步上游引擎、安装器与 pack 工具；补齐 pack 读取文件关闭和运行依赖。自动同步支持四段热修复标签，连接上游重写后的相同历史，记录准确的源码/引擎来源和固定 SHA256，阻止版本降级及摘要异常。自动发布核对实际测试提交、草稿标签和四个发行资产，避免发布错版本或旧文件。
 
-逐轮证据见 docs/AUDIT-20-ROUND7-T8.md，节点见 https://github.com/T8mars/Comfyui-Strata-T8 。AMD 实机尚未验证，Windows AMD 视觉暂不支持。
+VisionReady 包含独立 Python、锁定依赖、NVIDIA/AMD 引擎及运行库、907,543,008 字节 BF16 视觉权重和配置；Portable-NoModels 不含任何权重。两版均不含主模型、MTP 或用户配置，附 SHA256 和逐文件清单。下载、模型路径、来源和致谢见 [README](README.md)，更新策略见 [更新说明](docs/UPDATING-T8.md)。
+
+[独立 ComfyUI 节点 1.0.6](https://github.com/T8mars/Comfyui-Strata-T8) 保持兼容，新增新版 HTTP、批量、结构化修复及资源释放回归。验证范围见 [本版验收记录](docs/VALIDATION-UPSTREAM-0140-T8.md)。AMD 无本机硬件验收，Windows AMD 视觉暂不支持。

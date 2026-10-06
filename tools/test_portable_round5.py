@@ -156,7 +156,7 @@ class RequestPayloads(unittest.TestCase):
         self.rejected({'input':'q','tools':[{'type':'function','name':'n.f'},
             {'type':'namespace','name':'n','tools':[{'name':'f'}]}]},'/v1/responses')
         self.assertEqual(request_tools({'tools':[{'type':'namespace','name':'n','tools':[{'name':'f'}]}]})[1],
-                         {'n.f':('n','f','function')})
+                         {'n.f':('n','f','function'), 'n__f':('n','f','function')})
 
     def test_r12_stream_control_fields_have_explicit_types(self):
         for body in (self.body(stream='false'),self.body(stream_options=[1]),

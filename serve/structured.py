@@ -51,6 +51,42 @@ def jsonschema_modules():
         return _jsonschema or None
 
 
+def _only_objects(node, root, refs=(), dialect=None):
+    """True when every value `node` accepts is a JSON object, so "return one JSON object" stays true.
+
+    `type: object`, an anyOf/oneOf whose branches all qualify (e.g. a root union of object shapes, which llama.cpp's
+    grammar path accepts and apps send), an allOf with a qualifying member, or a local `$ref` to one of these.
+    Anything that can also be an array, string, number, boolean or null (including `type: ["object", "null"]`) is
+    not, and a `$ref` cycle never qualifies.
+    """
+    if not isinstance(node, dict):
+        return False
+    dialect = node.get('$schema', dialect)
+    ref = node.get("$ref")
+    # Draft 7 and earlier ignore siblings of $ref: an object assertion beside
+    # a reference to an array must not prove an object-only output contract.
+    legacy_ref = isinstance(ref, str) and isinstance(dialect, str) and any(
+        marker in dialect for marker in ('draft-03', 'draft-04', 'draft-06', 'draft-07'))
+    if not legacy_ref and node.get("type") == "object":
+        return True
+    if isinstance(ref, str) and ref.startswith("#") and ref not in refs:
+        target = root
+        for part in ref[1:].split("/")[1:]:
+            part = part.replace("~1", "/").replace("~0", "~")
+            if not isinstance(target, dict) or part not in target:
+                return False
+            target = target[part]
+        return _only_objects(target, root, refs + (ref,), dialect)
+    if legacy_ref:
+        return False
+    for key in ("anyOf", "oneOf"):
+        branches = node.get(key)
+        if isinstance(branches, list) and branches and all(_only_objects(b, root, refs, dialect) for b in branches):
+            return True
+    branches = node.get("allOf")
+    return isinstance(branches, list) and any(_only_objects(b, root, refs, dialect) for b in branches)
+
+
 def prepare_format(response_format, messages):
     if response_format is None:
         return messages, None
@@ -71,8 +107,9 @@ def prepare_format(response_format, messages):
         if "strict" in spec and not isinstance(spec["strict"], bool):
             raise ValueError("response_format.json_schema.strict must be boolean")
         schema = spec["schema"]
-        if schema.get("type") != "object":
-            raise ValueError("response_format schema must have type object at its root")
+        if not _only_objects(schema, schema):
+            raise ValueError("response_format schema must accept only JSON objects at its root "
+                             "(type object, or anyOf/oneOf of object schemas)")
         modules = jsonschema_modules()
     else:
         raise ValueError("response_format.type must be text, json_object or json_schema")
@@ -223,7 +260,44 @@ def prepare_format(response_format, messages):
     return messages, validator
 
 
-def validated_json(text, validator, finish):
+def _extract_json(text: str) -> str:
+    s = (text or "").strip()
+    if not s:
+        return ""
+    if s.startswith("```"):
+        first = s.find("\n")
+        if first != -1:
+            end = s.find("```", first + 1)
+            if end != -1:
+                s = s[first + 1:end].strip()
+    start = s.find("{")
+    if start == -1:
+        return s
+    depth = 0
+    in_str = False
+    esc = False
+    for i in range(start, len(s)):
+        ch = s[i]
+        if in_str:
+            if esc:
+                esc = False
+            elif ch == "\\":
+                esc = True
+            elif ch == "\"":
+                in_str = False
+        else:
+            if ch == "\"":
+                in_str = True
+            elif ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+                if depth == 0:
+                    return s[start:i + 1]
+    return s[start:]
+
+
+def validated_json(text, validator, finish, compatibility=False):
     def pairs(items):
         obj = {}
         for key, value in items:
@@ -238,7 +312,10 @@ def validated_json(text, validator, finish):
     if finish != "stop":
         raise StructuredOutputError(f"structured output was incomplete (finish_reason={finish}); increase the output budget")
     try:
-        value = json.loads(text or "", object_pairs_hook=pairs, parse_constant=constant)
+        value = json.loads(_extract_json(text) if compatibility else text,
+                           object_pairs_hook=pairs, parse_constant=constant)
+        if not isinstance(value, dict):
+            raise ValueError('the answer is not a JSON object')
         canonical = json.dumps(value, ensure_ascii=False, allow_nan=False, separators=(",", ":"))
         canonical.encode('utf-8')
     except RecursionError:

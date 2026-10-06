@@ -19,6 +19,7 @@ jobs:
     runs-on: windows-latest
     outputs:
       changed: ${{ steps.sync.outputs.changed }}
+      commit: ${{ steps.sync.outputs.commit }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -51,7 +52,10 @@ jobs:
         run: python -m pip install -r requirements.txt -r requirements-portable.txt
       - name: Validate merged source
         if: steps.sync.outputs.changed == 'true'
-        run: python -m unittest serve.test_server serve.test_security serve.test_responses serve.test_structured serve.test_runconfig serve.test_lifecycle serve.test_vision_lifecycle tools.test_portable_entries tools.test_portable_audit tools.test_portable_weights tools.test_portable_windows tools.test_windows_utf8_manifest tools.test_portable_launcher tools.test_portable_update tools.test_portable_round2 tools.test_portable_round3 tools.test_portable_round4 tools.test_portable_update_round4 tools.test_portable_round5 tools.test_portable_update_round5 tools.test_portable_schema_round5 tools.test_portable_round6 tools.test_portable_config_round6 tools.test_portable_update_round6 tools.test_portable_round7 tools.test_portable_delivery_round7 tools.test_portable_update_round7 tools.test_sync_upstream tools.test_model_sources tools.test_setup_update -q
+        run: |
+          python tools/bootstrap_portable.py --gguf-only
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          python tools/run_release_checks.py --group application
       - name: Independent node integration
         if: steps.sync.outputs.changed == 'true'
         env:
@@ -59,12 +63,14 @@ jobs:
         run: python -m unittest discover -s .portable-build/node-regression/tests -q
       - name: Setup regression tests
         if: steps.sync.outputs.changed == 'true'
-        run: python -m unittest discover -s tools -p 'test_setup_*.py' -q
+        run: python tools/run_release_checks.py --group setup
       - name: Push tested merge
         if: steps.sync.outputs.changed == 'true'
         env:
           SYNC_SOURCE: ${{ inputs.source || 'release' }}
         run: |
+          python tools/check_private_paths.py --ref HEAD
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
           if ($env:SYNC_SOURCE -eq 'main') { git push origin HEAD }
           else { git push origin HEAD:main }
       - name: Preserve conflict branch
@@ -73,6 +79,8 @@ jobs:
         run: |
           if (Test-Path '.portable-build/upstream-conflict.json') {
             $report = Get-Content '.portable-build/upstream-conflict.json' -Raw | ConvertFrom-Json
+            python tools/check_private_paths.py --ref $report.branch
+            if ($LASTEXITCODE) { exit $LASTEXITCODE }
             git push origin $report.branch
           }
       - uses: actions/upload-artifact@v4
@@ -86,5 +94,5 @@ jobs:
     if: needs.sync.outputs.changed == 'true' && (github.event_name == 'schedule' || inputs.source == 'release')
     uses: ./.github/workflows/release.yml
     with:
-      ref: main
+      ref: ${{ needs.sync.outputs.commit }}
     secrets: inherit

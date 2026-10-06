@@ -300,10 +300,11 @@ class UpstreamTransactions(unittest.TestCase):
 
 class StableSourceVersions(unittest.TestCase):
     def test_only_complete_stable_upstream_tags_are_selected(self):
-        for tag in ('v', 'vv', 'v.', 'v1', 'v1.2', 'v1.2.3.4', 'v01.2.3', 'v1.2.3-beta', 1):
+        for tag in ('v', 'vv', 'v.', 'v1', 'v1.2', 'v1.2.3.4.5', 'v01.2.3', 'v1.2.3-beta', 1):
             with self.subTest(tag=tag), self.assertRaises(ValueError):
                 upstream.select_ref('release', tag)
         self.assertEqual(upstream.select_ref('release', 'v0.1.39'), 'refs/tags/v0.1.39')
+        self.assertEqual(upstream.select_ref('release', 'v0.1.40.1'), 'refs/tags/v0.1.40.1')
 
 
 if __name__ == '__main__': unittest.main()

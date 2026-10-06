@@ -10,6 +10,7 @@ import tempfile
 import threading
 import time
 import unittest
+import urllib.error
 import urllib.request
 from pathlib import Path
 from unittest import mock
@@ -24,6 +25,7 @@ FAKE_BATCH = r'''import queue, sys, threading, time
 args = sys.argv[1:]
 slots = int(args[args.index("--batch") + 1]) if "--batch" in args else 0
 fit = int(args[args.index("--fit") + 1]) if "--fit" in args else slots
+fail = "--fail-window" in args        # #997: the first window over two slots fails
 STEP = 0.02
 CH = 32
 lines, stop = queue.Queue(), threading.Event()
@@ -49,6 +51,9 @@ def reply(ids):            # the rest of the reply after what the prompt already
 active = {}          # slot -> [tokens left, max_new, produced]
 stopped = set()      # BSTOPped slots: they end "cancel"
 def window():        # one batch window: every active slot one token
+    if fail and len(active) >= 2:     # as the engine: the reason on stdout, then exit code 1
+        print("ERR verify batch: layer 34 never rang (graph finished)", flush=True)
+        sys.exit(1)
     for b in sorted(active):
         left, max_new, produced = active[b]
         t = left.pop(0) if left else 257
@@ -149,6 +154,30 @@ class ParallelArgs(unittest.TestCase):
         self.assertEqual(parallel_args({"parallel": "4"}, []), [])                   # said and ignored
         self.assertEqual(parallel_args({"parallel": True}, []), [])
         self.assertEqual(parallel_args({"parallel": 12}, []), ["--batch", "12"])     # the engine warns and caps
+    def test_parallel_above_the_window_says_so_unless_batch_mtp(self):
+        import contextlib, io, os
+        def said(args, env):
+            buf = io.StringIO()
+            old = os.environ.get("STRATA_BATCH_MTP")
+            if env is None:
+                os.environ.pop("STRATA_BATCH_MTP", None)
+            else:
+                os.environ["STRATA_BATCH_MTP"] = env
+            try:
+                with contextlib.redirect_stdout(buf):
+                    r = parallel_args({"parallel": 12}, args)
+            finally:
+                if old is None:
+                    os.environ.pop("STRATA_BATCH_MTP", None)
+                else:
+                    os.environ["STRATA_BATCH_MTP"] = old
+            self.assertEqual(r, ["--batch", "12"])
+            return "at most" in buf.getvalue()
+        self.assertTrue(said([], None))                  # 0.1.39: the window holds 8 rows
+        self.assertTrue(said([], "0"))
+        self.assertFalse(said(["--batch-mtp"], None))    # --batch-mtp waves more through the window
+        self.assertFalse(said([], "1"))
+
         args = engine_args({"args": ["--pack", "p"], "parallel": 2})
         self.assertEqual(args[-2:], ["--batch", "2"])
 
@@ -192,7 +221,7 @@ class PickSlot(unittest.TestCase):
 class ParallelService(unittest.TestCase):
     """The real StrataEngine and Service over HTTP, the fake engine behind them."""
 
-    def start(self, slots, fit=None, slot_cache=False):
+    def start(self, slots, fit=None, slot_cache=False, fail=False):
         import serve.server as server
         self.tmp = tempfile.TemporaryDirectory()
         script = Path(self.tmp.name) / "fake_strata.py"
@@ -201,6 +230,7 @@ class ParallelService(unittest.TestCase):
         real = server.subprocess.Popen
         extra = ["--batch", str(slots)] + (["--fit", str(fit)] if fit is not None else []) + ["--log", str(self.log)]
         extra += ["--slotcache"] if slot_cache else []
+        extra += ["--fail-window"] if fail else []
         with mock.patch.object(server.subprocess, "Popen",
                                lambda cmd, **kw: real([sys.executable, str(script), *cmd[1:]], **kw)):
             self.engine = StrataEngine("strata", extra)
@@ -233,6 +263,18 @@ class ParallelService(unittest.TestCase):
         self.start(4, fit=2)
         self.assertEqual(self.engine.batch, 2)
         self.assertEqual(self.get("/v1/status")["concurrency"]["serving"], 2)
+
+    def test_stop_strings_in_a_batch_slot(self):
+        """#454: a stop string cuts the answer in --batch mode too, and the slot is freed for the next request."""
+        self.start(2)
+        body = {"messages": [{"role": "user", "content": "hi LONGREPLY"}], "max_tokens": 64, "reasoning_effort": "none",
+                "stop": ["la la"]}
+        req = urllib.request.Request(self.base + "/v1/chat/completions", data=json.dumps(body).encode(),
+                                     headers={"Content-Type": "application/json"})
+        with urllib.request.urlopen(req, timeout=60) as r:
+            c = json.loads(r.read().decode())["choices"][0]
+        self.assertEqual((c["message"]["content"], c["finish_reason"]), ("ok, ", "stop"))
+        self.assertEqual(self.chat("again")["choices"][0]["message"]["content"], "ok, done.")
 
     def test_engine_turns_batching_off(self):
         self.start(4, fit=0)
@@ -376,6 +418,29 @@ class ParallelService(unittest.TestCase):
         slot = self.engine.slot_held.index(mine[0])
         self.assertEqual(self.engine.pick_slot(mine[0] + [10, 11]), slot)
         self.assertEqual(first["choices"][0]["message"]["content"], "ok, done.")
+
+    def test_a_failed_window_names_its_error(self):
+        # #997 #890: a batch window fails while every request reads its own slot's lines, so no request reads the
+        # engine's ERR line before it exits; the server's note on the death gives it instead of a guess
+        self.start(2, fail=True)
+        errors = []
+
+        def go(t):
+            try:
+                self.chat(t)
+            except urllib.error.HTTPError as e:
+                errors.append(e.code)
+
+        threads = [threading.Thread(target=go, args=(t,)) for t in ("first question LONGREPLY", "second question")]
+        for th in threads:
+            th.start()
+            time.sleep(0.05)
+        for th in threads:
+            th.join(30)
+        self.assertEqual(len(errors), 2, errors)
+        note = self.engine.death_note()
+        self.assertIn("exited (code 1)", note)
+        self.assertIn("verify batch: layer 34 never rang (graph finished)", note)
 
 
 if __name__ == "__main__":

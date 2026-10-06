@@ -27,7 +27,7 @@ import json
 import time
 import uuid
 
-from serve.frontend import (Event, _late_system_to_user, _parts_of, _json_loads, _text, effort_kwargs,
+from serve.frontend import (Event, ToolDefinitions, _late_system_to_user, _parts_of, _json_loads, _text, effort_kwargs,
                             validate_tool_definition)
 
 ENCRYPTED_PREFIX = "strata.r1:"                   # our own reasoning replay strings; others' are ignored
@@ -261,7 +261,8 @@ def _order_tool_results(messages):
 
 def request_tools(req: dict):
     """-> (template tools or None, {template name: (namespace, name, kind)}, names of hosted tools left out)."""
-    tools, names, skipped = [], {}, []
+    tools, names, skipped = ToolDefinitions(), {}, []
+    aliases = []
     given = req.get("tools") or []
     if not isinstance(given, list):
         raise ResponsesError("tools must be an array", "tools")
@@ -295,6 +296,10 @@ def request_tools(req: dict):
                       "required": ["input"]}
         tools.append({"name": flat, "description": description, "parameters": params})
         names[flat] = (namespace, name, kind)
+        if namespace:
+            # Qwen writes Codex's MCP tools as `mcp__server__tool` (the flat name it
+            # learned), not `mcp__server.tool`: map that spelling back as well.
+            aliases.append((f"{namespace}__{name}", flat, tools[-1]))
 
     for i, tool in enumerate(given):
         param = f"tools[{i}]"
@@ -325,6 +330,17 @@ def request_tools(req: dict):
             skipped.append(kind)                     # the model cannot run OpenAI's hosted tools: left out
         else:
             raise ResponsesError("a tool needs a type", param + ".type")
+    # Real tool names win. Ambiguous aliases are refused instead of routing an
+    # output to whichever namespace appeared first; its canonical name still works.
+    candidates = {}
+    for alias, flat, definition in aliases:
+        candidates.setdefault(alias, []).append((flat, definition))
+    for alias, candidates_for_alias in candidates.items():
+        if alias in names or len(candidates_for_alias) != 1:
+            continue
+        flat, definition = candidates_for_alias[0]
+        names[alias] = names[flat]
+        tools.aliases[alias] = definition
     choice = req.get("tool_choice")
     if choice == "none":
         return None, names, skipped
