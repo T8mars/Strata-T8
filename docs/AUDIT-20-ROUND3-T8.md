@@ -11,7 +11,7 @@
 | R05 | setup 返回非零留下部分配置；保留错误码并恢复快照。回滚一份遭文件锁时仍尝试另一份，明确报告未恢复文件 | ConfigureTransactions，非零返回、sharing violation |
 | R06 | 状态数组、非字符串目录及外部配置路径导致异常或选择错误文件；启动前诊断 | ConfigurationPaths，类型和路径反例 |
 | R07 | 错误 engine args/vision 类型到启动时才失败；先拒绝错误配置 | ConfigurationPaths，类型反例 |
-| R08 | 换到 NoModels 后仍引用已删除的内置视觉权重；关闭内置视觉，保留用户外置配置 | ConfigurationPaths，两种视觉归属 |
+| R08 | 换到 NoModels 后仍引用已删除的内置权重；关闭内置视觉，保留外置配置。记录发行类型，修复同版本切换不刷新配置；安装视觉失败保留原类型供重试 | ConfigurationPaths、EditionTransitions，真实启动器路径 |
 | R09 | MTP 可经 junction 指向交付目录外；解析组件完整路径后检查范围 | LinkedDelivery，实际 Windows junction |
 | R10 | 索引存在但 chat template 缺失/为空时误认为准备完成；检查索引、词表、模板非空 | PreparedPack，离线准备替身 |
 | R11 | Bootstrap ZIP 允许大小写别名和父文件/子文件冲突；先检查全目录 | ArchivePreflight，实际 ZIP |

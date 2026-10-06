@@ -42,7 +42,7 @@ PREPARE-MODEL.bat --data-dir "D:\模型\Strata-data"
 
 退出 Strata 后运行 `UPDATE-PORTABLE.bat`（`UPDATE.bat` 同样可用）。它从 T8mars/Strata-T8 最新正式 Release 下载完整包，检查 SHA256 和文件清单，保留模型、配置、日志及浏览器聊天记录。新文件与自建文件重名时拒绝覆盖；替换失败回滚。
 
-结果保存在 `.portable-update/result.json`；其中记录备份路径。备份保存在系统临时目录，确认更新正常后可以自行删除。首次发布前或 GitHub 不可达时检查失败不影响本地启动。当前采用完整包更新，下载大小按发行类型而定。旧 NoModels 包先更新，再运行 INSTALL-VISION.bat 切换至 VisionReady。
+结果保存在 `.portable-update/result.json`；其中记录备份路径。备份保存在系统临时目录，确认更新正常后可以自行删除。GitHub 不可达时检查失败不影响本地启动。当前采用完整包更新，大小按发行类型而定。NoModels 更新后运行 INSTALL-VISION.bat 切换至 VisionReady；启动器记录发行类型并刷新视觉配置。旧版未记录类型的配置可用 `START-HERE.bat --vision gpu` 启用视觉。
 
 聊天记录由上游网页保存在浏览器；继续使用相同的浏览器、地址和端口即可。异步检查不会强制升级或打断推理。
 

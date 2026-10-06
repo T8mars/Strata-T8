@@ -139,6 +139,62 @@ class ConfigurationPaths(unittest.TestCase):
                 self.assertEqual('--vision' in saved['args'], not bundled)
 
 
+class EditionTransitions(unittest.TestCase):
+    def start(self, previous_edition, current_edition, *, disabled=False, failed=False):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp); cfg=root/'strata-test.json'; state=root/'state.json'
+            original={'args':['--native','main.gguf'],'port':8084,'api_key':'fixture-secret'}
+            if previous_edition=='VisionReady-NoMainModel':
+                original['vision']={'bundled':True}; original['args'].append('--vision')
+            portable.save_json(cfg,original)
+            previous={'version':'0.1.39-t8.9','edition':previous_edition,'data':str(root/'model')}
+            current=dict(previous,edition=current_edition)
+            portable.save_json(state,{'portable_config':cfg.name,'portable_fingerprint':previous})
+            (root/'meta.json').write_text(json.dumps({'edition':current_edition}))
+            before=state.read_bytes()
+            def attach(config,*args):
+                if failed: raise RuntimeError('encoder failed verification')
+                config['vision']={'bundled':True,'gpu':True}; config['args'].append('--vision'); return config
+            argv=['portable','start','--no-browser']+(['--vision','no'] if disabled else [])
+            with mock.patch.object(portable,'ROOT',root), mock.patch.object(portable,'STATE',state), \
+                 mock.patch.object(portable,'environment_check'), mock.patch.object(portable,'isolate_setup'), \
+                 mock.patch.object(portable,'data_path',return_value=root/'model'), \
+                 mock.patch.object(portable,'model_delivery',return_value={'family':'qwen'}), \
+                 mock.patch.object(portable,'fingerprint',return_value=current), \
+                 mock.patch.object(portable,'configure') as configure, \
+                 mock.patch.object(portable,'attach_vision',side_effect=attach) as vision, \
+                 mock.patch.object(portable.upstream,'cuda_lib_dirs',return_value=[]), \
+                 mock.patch.object(portable.upstream,'upgrade_config',side_effect=lambda p,c:c), \
+                 mock.patch.object(portable.threading,'Thread'), mock.patch.object(portable.os,'chdir'), \
+                 mock.patch.object(portable.subprocess,'call',return_value=0) as server, mock.patch('sys.argv',argv):
+                if failed:
+                    with self.assertRaisesRegex(RuntimeError,'verification'): portable.main()
+                    self.assertEqual(state.read_bytes(),before); server.assert_not_called()
+                else:
+                    self.assertEqual(portable.main(),0)
+                    self.assertEqual(portable.read_json(state)['portable_fingerprint']['edition'],current_edition)
+                configure.assert_not_called()
+                saved=portable.read_json(cfg)
+                self.assertEqual(saved['port'],8084); self.assertEqual(saved['api_key'],'fixture-secret')
+                return saved,vision.call_count
+
+    def test_same_version_downgrade_disables_bundled_vision_without_reconfiguration(self):
+        saved,calls=self.start('VisionReady-NoMainModel','Portable-NoModels')
+        self.assertNotIn('vision',saved); self.assertNotIn('--vision',saved['args']); self.assertEqual(calls,0)
+
+    def test_same_version_install_vision_enables_the_shipped_encoder(self):
+        saved,calls=self.start('Portable-NoModels','VisionReady-NoMainModel')
+        self.assertTrue(saved['vision']['gpu']); self.assertEqual(calls,1)
+
+    def test_explicit_no_vision_is_kept_during_edition_switch(self):
+        saved,calls=self.start('Portable-NoModels','VisionReady-NoMainModel',disabled=True)
+        self.assertNotIn('vision',saved); self.assertEqual(calls,0)
+
+    def test_failed_encoder_check_keeps_previous_edition_for_retry(self):
+        saved,calls=self.start('Portable-NoModels','VisionReady-NoMainModel',failed=True)
+        self.assertNotIn('vision',saved); self.assertEqual(calls,1)
+
+
 def junction(link, target):
     result = subprocess.run(['cmd', '/d', '/c', 'mklink', '/J', str(link), str(target)], capture_output=True)
     if result.returncode: raise AssertionError(result.stderr.decode(errors='replace'))

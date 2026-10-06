@@ -154,16 +154,18 @@ def model_delivery(data):
 
 def fingerprint(data):
     from portable_version import metadata
+    meta = metadata(ROOT)
     return {'app': str(ROOT), 'data': str(data), 'gpu': upstream.gpus(), 'amd': upstream.amd_gpus(),
-            'ram': round(upstream.ram_gb()), 'cpu': platform.processor(), 'version': metadata()['version']}
+            'ram': round(upstream.ram_gb()), 'cpu': platform.processor(), 'version': meta['version'],
+            'edition': meta.get('edition', 'Portable-NoModels')}
 
 
 def same_machine(previous, current):
     # A program update is not a hardware/model change and must not rerun setup defaults.
-    return isinstance(previous, dict) and {k: v for k, v in previous.items() if k != 'version'} == {k: v for k, v in current.items() if k != 'version'}
+    return isinstance(previous, dict) and {k: v for k, v in previous.items() if k not in ('version', 'edition')} == {k: v for k, v in current.items() if k not in ('version', 'edition')}
 
 
-def refresh_updated_config(cfg_path, state, current):
+def refresh_updated_config(cfg_path, state, current, *, enable_vision=False, vision_tokens=None):
     config = read_config(cfg_path)
     engine = ROOT/('engine-hip' if config.get('backend') == 'hip' else 'engine')
     config['exe'] = str(engine/'strata.exe')
@@ -180,6 +182,10 @@ def refresh_updated_config(cfg_path, state, current):
             config['vision']['mmproj'] = str(ROOT/'vision/weights'/read_json(ROOT/'vision/catalog.json')['file'])
     # Apply upstream compatibility migrations, retaining server settings and custom engine arguments.
     config = upstream.upgrade_config(cfg_path, config)
+    if enable_vision and not config.get('vision') and config.get('backend') != 'hip':
+        model = model_delivery(Path(current['data']))
+        if model['family'] == 'qwen':
+            config = attach_vision(config, model, 'gpu', vision_tokens)
     save_json(cfg_path, config)
     state['portable_fingerprint'] = current
     save_json(STATE, state)
@@ -323,8 +329,13 @@ def main():
         result, cfg = configure(data, args.context, args.backend, vision, args.vision_tokens, args.port)
         if result or args.action in ('configure', 'import'):
             return result
-    elif previous.get('version') != current['version']:
-        refresh_updated_config(cfg, state, current)
+    elif previous.get('version') != current['version'] or previous.get('edition') != current.get('edition'):
+        enable = (args.vision is None and previous.get('edition') == 'Portable-NoModels'
+                  and current.get('edition') == 'VisionReady-NoMainModel')
+        if enable:
+            refresh_updated_config(cfg, state, current, enable_vision=True, vision_tokens=args.vision_tokens)
+        else:
+            refresh_updated_config(cfg, state, current)
     config = read_config(cfg)
     if args.vision is not None or args.vision_tokens is not None:
         if args.vision == 'no':
