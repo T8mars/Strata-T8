@@ -26,6 +26,25 @@ def copy_tree(relative, ignore=None):
     shutil.copytree(src, TARGET/relative, dirs_exist_ok=True, ignore=ignore or shutil.ignore_patterns('__pycache__', '*.pyc'))
 
 
+def copy_source(relative, excluded=()):
+    """Ship tracked application files; local profiles and download state stay local."""
+    paths = subprocess.check_output(['git', 'ls-files', '-z', '--', relative], cwd=ROOT).decode('utf-8').split('\0')
+    for name in paths:
+        if not name:
+            continue
+        path = Path(name)
+        if any(part in excluded or part == '__pycache__' for part in path.parts):
+            continue
+        if path.name.startswith('test_') or path.name.endswith(('_test.py', '.pyc', '.log')) or path.name == 'stop_local.ps1':
+            continue
+        source = ROOT/path
+        if source.is_symlink() or not source.resolve().is_relative_to(ROOT.resolve()):
+            raise ValueError(f'Linked source file: {name}')
+        destination = TARGET/path
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source, destination)
+
+
 def main():
     global NAME, TARGET
     parser = argparse.ArgumentParser(description=__doc__)
@@ -44,13 +63,15 @@ def main():
     if TARGET.exists():
         shutil.rmtree(TARGET)
     TARGET.mkdir(parents=True)
-    for name in ['runtime', 'engine', 'engine-hip', 'serve', 'tools']:
+    for name in ['runtime', 'engine', 'engine-hip']:
         copy_tree(name, shutil.ignore_patterns('__pycache__', '*.pyc', 'test_*.py', '*_test.py', '*.log', 'stop_local.ps1'))
+    for name in ['serve', 'tools']:
+        copy_source(name)
     # Patch staged copies too: locally cached vendor engines may predate bootstrap.
     for backend in ['engine', 'engine-hip']:
         patch_engine(TARGET/backend)
-    copy_tree('data', shutil.ignore_patterns('experimental-speed-projection'))
-    copy_tree('vision', shutil.ignore_patterns('weights', '__pycache__'))
+    copy_source('data', ('experimental-speed-projection',))
+    copy_source('vision', ('weights',))
     if weights['vision']:
         from prepare_portable_vision import verify
         weight = verify(ROOT)
@@ -71,7 +92,7 @@ def main():
     for rel in ['third_party/llama.cpp/LICENSE']:
         shutil.copy2(ROOT/rel, TARGET/rel)
     (TARGET/'docs').mkdir()
-    for name in ['INSTALL.md', 'MODELS.md', 'TROUBLESHOOTING.md', 'AMD_HIP.md', 'HOW_IT_WORKS.md', 'DETAILS.md', 'BATCHING.md', 'UPDATING-T8.md', 'COMFYUI-T8.md', 'VALIDATION-COMFYUI-T8.md']:
+    for name in ['INSTALL.md', 'MODELS.md', 'TROUBLESHOOTING.md', 'AMD_HIP.md', 'HOW_IT_WORKS.md', 'DETAILS.md', 'BATCHING.md', 'UPDATING-T8.md', 'COMFYUI-T8.md', 'VALIDATION-COMFYUI-T8.md', 'AUDIT-20-T8.md']:
         shutil.copy2(ROOT/'docs'/name, TARGET/'docs'/name)
     # Preserve third-party licensing; ROCm/wheels already carry their license directories.
     versions = {d.metadata['Name']: d.version for d in importlib.metadata.distributions()}

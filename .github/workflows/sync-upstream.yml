@@ -39,12 +39,24 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           SYNC_SOURCE: ${{ inputs.source || 'release' }}
         run: python tools/sync_upstream.py --source $env:SYNC_SOURCE
+      - name: Check independent node compatibility
+        if: steps.sync.outputs.changed == 'true'
+        uses: actions/checkout@v4
+        with:
+          repository: T8mars/Comfyui-Strata-T8
+          ref: v1.0.0
+          path: .portable-build/node-regression
       - name: Install test dependencies
         if: steps.sync.outputs.changed == 'true'
         run: python -m pip install -r requirements.txt -r requirements-portable.txt
       - name: Validate merged source
         if: steps.sync.outputs.changed == 'true'
-        run: python -m unittest serve.test_server serve.test_security serve.test_responses serve.test_runconfig serve.test_lifecycle serve.test_vision_lifecycle tools.test_comfyui_nodes tools.test_portable_weights tools.test_portable_windows tools.test_windows_utf8_manifest tools.test_portable_launcher tools.test_portable_update tools.test_sync_upstream tools.test_model_sources tools.test_setup_update -q
+        run: python -m unittest serve.test_server serve.test_security serve.test_responses serve.test_runconfig serve.test_lifecycle serve.test_vision_lifecycle tools.test_portable_entries tools.test_portable_audit tools.test_portable_weights tools.test_portable_windows tools.test_windows_utf8_manifest tools.test_portable_launcher tools.test_portable_update tools.test_sync_upstream tools.test_model_sources tools.test_setup_update -q
+      - name: Independent node integration
+        if: steps.sync.outputs.changed == 'true'
+        env:
+          STRATA_SOURCE_DIR: ${{ github.workspace }}
+        run: python -m unittest discover -s .portable-build/node-regression/tests -q
       - name: Setup regression tests
         if: steps.sync.outputs.changed == 'true'
         run: python -m unittest discover -s tools -p 'test_setup_*.py' -q

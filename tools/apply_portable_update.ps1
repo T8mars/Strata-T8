@@ -40,12 +40,23 @@ function FileDigest([string]$path) {
 }
 try {
     if (($appRoot -eq $stageRoot) -or ($appRoot -eq $backupRoot) -or (Test-Path -LiteralPath $backupRoot)) { throw 'Invalid or reused update directory' }
-    $busy = @(Get-CimInstance Win32_Process | Where-Object { $_.ExecutablePath -and (LongPath $_.ExecutablePath).StartsWith($appRoot + '\', [StringComparison]::OrdinalIgnoreCase) })
+    $busy = @(Get-CimInstance Win32_Process | Where-Object {
+        $processPath = $_.ExecutablePath
+        if (!$processPath -or ![IO.Path]::IsPathRooted($processPath)) { return $false }
+        try { $exePath = LongPath $processPath }
+        catch { $exePath = [IO.Path]::GetFullPath($processPath) }
+        $exePath.StartsWith($appRoot + '\', [StringComparison]::OrdinalIgnoreCase)
+    })
     if ($busy.Count) { throw 'Strata is running. Close its window and try again.' }
+    $manifestPath = ScopedPath $stageRoot 'PACKAGE-MANIFEST.json'
+    if (!$plan.manifest_sha256 -or (FileDigest $manifestPath) -ne $plan.manifest_sha256) { throw 'Staged manifest failed verification' }
     $newNames = @{}
+    $oldNames = @{}
+    foreach ($entry in $plan.old) { $oldNames[$entry.path] = $true }
     foreach ($entry in $plan.new) {
         $source = ScopedPath $stageRoot $entry.path
-        $null = ScopedPath $appRoot $entry.path
+        $destination = ScopedPath $appRoot $entry.path
+        if (!$oldNames.ContainsKey($entry.path) -and (Test-Path -LiteralPath $destination -PathType Leaf)) { throw "Update would overwrite a user file: $($entry.path)" }
         if (!(Test-Path -LiteralPath $source -PathType Leaf) -or (Get-Item -LiteralPath $source).Length -ne $entry.size -or (FileDigest $source) -ne $entry.sha256) { throw "Staged file failed verification: $($entry.path)" }
         $newNames[$entry.path] = $true
     }

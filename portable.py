@@ -165,7 +165,7 @@ def attach_vision(config, model, mode='gpu', tokens=None):
     return config
 
 
-def configure(data, context=None, backend=None, vision=None, vision_tokens=None):
+def configure(data, context=None, backend=None, vision=None, vision_tokens=None, port=None):
     model = model_delivery(data)
     tag = upstream.FAMILIES[model['family']]['tag'] + model['model']
     cfg_path = ROOT/f'strata-{tag.lower()}.json'
@@ -176,6 +176,8 @@ def configure(data, context=None, backend=None, vision=None, vision_tokens=None)
         args += ['--context', str(context)]
     if backend:
         args += ['--backend', backend]
+    if port is not None:
+        args += ['--port', str(port)]
     sys.argv = args
     result = upstream.main()
     if result:
@@ -211,6 +213,10 @@ def main():
     args = ap.parse_args()
     if args.vision_tokens is not None and args.vision_tokens < 1:
         ap.error('--vision-tokens must be positive')
+    if args.port is not None and not 1 <= args.port <= 65535:
+        ap.error('--port must be between 1 and 65535')
+    if args.context is not None and args.context < 1:
+        ap.error('--context must be positive')
     os.chdir(ROOT)
     environment_check()
     if args.action == 'start':
@@ -234,7 +240,7 @@ def main():
         vision = args.vision
         if vision is None and (ROOT/'vision/catalog.json').is_file() and (ROOT/'vision/weights'/read_json(ROOT/'vision/catalog.json')['file']).is_file():
             vision = 'auto'
-        result, cfg = configure(data, args.context, args.backend, vision, args.vision_tokens)
+        result, cfg = configure(data, args.context, args.backend, vision, args.vision_tokens, args.port)
         if result or args.action in ('configure', 'import'):
             return result
     elif previous.get('version') != current['version']:

@@ -8,7 +8,7 @@
 2. 查询 T8mars/Strata-T8 最新正式 Release，比较 `上游版本-t8.修订`。
 3. 下载完整包及 SHA256，核对大小、压缩包哈希、文件清单、每个文件的哈希和版本。
 4. 拒绝路径越界、符号链接、模型目录、用户配置及未列入清单的文件。
-5. Python 退出后由 PowerShell 再次检查进程并替换受管程序文件，删除旧版本受管的过期文件。
+5. Python 退出后由 PowerShell 再次检查进程、暂存清单哈希与新增文件冲突，再替换受管程序文件，删除旧版本受管的过期文件。
 6. 原文件移动到独立备份目录；替换失败逆序恢复。结果和备份路径写入 `.portable-update/result.json`。
 
 主模型、MTP、配置、日志和其他自建文件不在受管清单内。VisionReady 的指定 mmproj 是受管资产，更新时按固定角色、路径、大小与 SHA256 校验；其余权重仍拒绝。新版本程序与自建文件重名会停止更新。网页聊天记录保存在浏览器，保持相同浏览器和服务地址即可沿用。SHA256 检测下载损坏，发行来源是此 GitHub 仓库。
@@ -40,6 +40,6 @@ GitHub runner 没有目标 GPU，自动检查不代表所有 GPU 的推理验收
 
 ## 发行类型迁移
 
-每版同时发布 VisionReady-NoMainModel、Portable-NoModels 和 ComfyUI 节点 ZIP，分别附 SHA256。旧 t8.4 更新器仍能获取新 NoModels 包；升级后 INSTALL-VISION.bat 可在相同版本切换类型。后续 UPDATE-PORTABLE 默认沿用当前类型，更新器仍拒绝降级版本。
+每版发布 VisionReady-NoMainModel 和 Portable-NoModels，分别附 SHA256。旧 t8.4 更新器仍能获取新 NoModels 包；升级后 INSTALL-VISION.bat 可在相同版本切换类型。后续 UPDATE-PORTABLE 默认沿用当前类型，更新器仍拒绝降级版本。
 
-视觉配置在启动时迁移到新运行目录，保留 GPU/CPU 编码方式及 token 设置。切换 VisionReady 不下载主模型或 MTP。节点独立更新须退出 ComfyUI 后覆盖目录并重启，本机档案在节点目录外保存。
+视觉配置在启动时迁移到新运行目录，保留 GPU/CPU 编码方式及 token 设置。切换 VisionReady 不下载主模型或 MTP。节点在 [独立仓库](https://github.com/T8mars/Comfyui-Strata-T8) 使用语义版本，通过 ComfyUI-Manager/Registry 或 Git 更新并重启；本机档案在节点目录外保存。整合包自动同步 Strata 上游；节点版本由其 pyproject.toml 管理，通过官方发布 Action 分别发布 GitHub Release 与 Registry。

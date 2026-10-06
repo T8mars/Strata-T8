@@ -5,6 +5,7 @@ import concurrent.futures
 import hashlib
 import json
 import os
+import re
 from pathlib import Path
 import threading
 import time
@@ -12,12 +13,18 @@ import urllib.request
 
 
 def download(url: str, target: Path, size: int, sha256: str, workers=8, chunk_mib=128):
-    target.parent.mkdir(parents=True, exist_ok=True)
     if workers < 1 or chunk_mib < 1:
         raise ValueError('workers and chunk size must be positive')
+    if type(size) is not int or size <= 0 or not re.fullmatch('[0-9a-f]{64}', sha256):
+        raise ValueError('Expected a positive file size and SHA-256')
+    target.parent.mkdir(parents=True, exist_ok=True)
     stamp = target.with_name(target.name + '.verified.json')
     if target.exists() and stamp.exists():
-        checked = json.loads(stamp.read_text())
+        try:
+            checked = json.loads(stamp.read_text(encoding='utf-8'))
+            if not isinstance(checked, dict): checked = {}
+        except (ValueError, OSError):
+            checked = {}
         if checked.get('sha256') == sha256 and target.stat().st_size == size and checked.get('mtime_ns') == target.stat().st_mtime_ns:
             print(f'Already verified: {target}', flush=True)
             return
@@ -33,11 +40,17 @@ def download(url: str, target: Path, size: int, sha256: str, workers=8, chunk_mi
     chunk = chunk_mib * 1024 * 1024
     info = {'url': url, 'size': size, 'sha256': sha256, 'chunk': chunk, 'complete': []}
     if state.exists() and partial.exists():
-        old = json.loads(state.read_text())
-        if all(old.get(k) == info[k] for k in ('size', 'sha256', 'chunk')):
+        try:
+            old = json.loads(state.read_text(encoding='utf-8'))
+        except (ValueError, OSError):
+            old = {}
+        count = (size+chunk-1)//chunk
+        if (isinstance(old, dict) and all(old.get(k) == info[k] for k in ('size', 'sha256', 'chunk'))
+                and partial.stat().st_size == size and isinstance(old.get('complete'), list)
+                and all(type(i) is int and 0 <= i < count for i in old['complete'])):
             info = old
     complete = set(info['complete'])
-    if not partial.exists():
+    if not partial.exists() or partial.stat().st_size != size:
         with partial.open('wb') as f:
             f.truncate(size)
     lock = threading.Lock()

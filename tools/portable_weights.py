@@ -17,7 +17,7 @@ def validate_weights(manifest):
     expected = weight_declaration(edition)
     if manifest.get('models_included') is not expected['vision']:
         raise ValueError('Release must explicitly exclude main/MTP models and classify vision weights')
-    if edition == 'VisionReady-NoMainModel' and manifest.get('weights') != expected:
+    if (edition == 'VisionReady-NoMainModel' or 'weights' in manifest) and manifest.get('weights') != expected:
         raise ValueError('Invalid vision weight roles')
     entries = [entry for entry in manifest['files'] if entry['path'] == VISION_PATH]
     if expected['vision']:

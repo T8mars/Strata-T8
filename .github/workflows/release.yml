@@ -27,6 +27,12 @@ jobs:
         with:
           ref: ${{ inputs.ref || 'main' }}
           fetch-depth: 0
+      - name: Check independent node compatibility
+        uses: actions/checkout@v4
+        with:
+          repository: T8mars/Comfyui-Strata-T8
+          ref: v1.0.0
+          path: .portable-build/node-regression
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
@@ -36,19 +42,21 @@ jobs:
         run: runtime/python/python.exe -X utf8 tools/prepare_portable_vision.py
       - name: Validate runtime and application
         run: |
-          runtime/python/python.exe -X utf8 -m unittest serve.test_server serve.test_security serve.test_responses serve.test_runconfig serve.test_lifecycle serve.test_vision_lifecycle tools.test_comfyui_nodes tools.test_portable_weights tools.test_portable_windows tools.test_windows_utf8_manifest tools.test_portable_launcher tools.test_portable_update tools.test_sync_upstream tools.test_model_sources tools.test_setup_update -q
+          runtime/python/python.exe -X utf8 -m unittest serve.test_server serve.test_security serve.test_responses serve.test_runconfig serve.test_lifecycle serve.test_vision_lifecycle tools.test_portable_entries tools.test_portable_audit tools.test_portable_weights tools.test_portable_windows tools.test_windows_utf8_manifest tools.test_portable_launcher tools.test_portable_update tools.test_sync_upstream tools.test_model_sources tools.test_setup_update -q
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           runtime/python/python.exe -X utf8 -m unittest discover -s tools -p 'test_setup_*.py' -q
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           runtime/python/python.exe -X utf8 -c "import portable; portable.environment_check()"
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
+      - name: Independent node integration
+        env:
+          STRATA_SOURCE_DIR: ${{ github.workspace }}
+        run: runtime/python/python.exe -X utf8 -m unittest discover -s .portable-build/node-regression/tests -q
       - name: Package and audit
         run: |
           runtime/python/python.exe -X utf8 -u tools/build_portable.py --edition VisionReady-NoMainModel
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           runtime/python/python.exe -X utf8 -u tools/build_portable.py --edition Portable-NoModels
-          if ($LASTEXITCODE) { exit $LASTEXITCODE }
-          runtime/python/python.exe -X utf8 tools/build_comfyui.py
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
       - name: Publish verified assets
         shell: pwsh

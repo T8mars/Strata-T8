@@ -4,7 +4,11 @@
   "bundled_cuda": true,
   "bundled_hip": true,
   "offline_model_import": true,
-  "model_download_priority": ["modelscope", "hf-mirror", "huggingface"],
+  "model_download_priority": [
+    "modelscope",
+    "hf-mirror",
+    "huggingface"
+  ],
   "release_update": true,
   "upstream_sync": true,
   "automatic_release": true,
@@ -17,5 +21,6 @@
   "comfyui_managed_service": true,
   "comfyui_same_gpu_handoff": true,
   "amd_vision_supported": false,
-  "amd_hardware_verified": false
+  "amd_hardware_verified": false,
+  "comfyui_separate_repository": true
 }

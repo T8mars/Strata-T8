@@ -36,6 +36,28 @@ class OfflineLauncher(unittest.TestCase):
 
 
 class UpdateConfiguration(unittest.TestCase):
+    def test_configure_forwards_explicit_port_to_offline_setup(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with mock.patch.object(portable, 'ROOT', root), mock.patch.object(portable, 'STATE', root/'state.json'), \
+                 mock.patch.object(portable, 'model_delivery', return_value={'family': 'qwen', 'model': 'IQ3_S', 'gguf_dir': 'models'}), \
+                 mock.patch.object(portable, 'fingerprint', return_value={}), \
+                 mock.patch.object(portable.upstream, 'main', return_value=0) as setup, \
+                 mock.patch.object(portable.sys, 'argv', []):
+                portable.configure(root/'model', port=8084)
+                self.assertIn('--port', portable.sys.argv)
+                self.assertEqual(portable.sys.argv[portable.sys.argv.index('--port')+1], '8084')
+                setup.assert_called_once()
+
+    def test_invalid_port_or_context_fails_before_setup(self):
+        for arguments in (['--port', '0'], ['--port', '65536'], ['--context', '-1']):
+            with self.subTest(arguments=arguments), mock.patch('sys.argv', ['portable.py', *arguments]), \
+                 mock.patch.object(portable, 'environment_check') as environment:
+                with self.assertRaises(SystemExit) as result:
+                    portable.main()
+                self.assertEqual(result.exception.code, 2)
+                environment.assert_not_called()
+
     def test_only_version_changes_are_ignored(self):
         before = {'app': 'app', 'data': 'model', 'gpu': [0], 'ram': 128, 'version': 'old'}
         after = dict(before, version='new')

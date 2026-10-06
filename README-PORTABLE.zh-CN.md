@@ -60,4 +60,4 @@ OpenAI API：`http://127.0.0.1:8080/v1`；默认仅监听本机。
 
 VisionReady 内置固定 BF16 mmproj、模板、来源和许可证；主模型/MTP 不包含。可用 START-HERE.bat --vision gpu、--vision cpu、--vision no 切换，--vision-tokens 指定图片 token 预算。更新保留用户编码方式和 token 设置。
 
-ComfyUI 使用单独的小型节点 ZIP；[安装与工作流](docs/COMFYUI-T8.md)。
+ComfyUI 节点在 [Comfyui-Strata-T8](https://github.com/T8mars/Comfyui-Strata-T8) 独立维护，可通过 Manager 安装与更新；[安装、模型路径与工作流](https://github.com/T8mars/Comfyui-Strata-T8#readme)。

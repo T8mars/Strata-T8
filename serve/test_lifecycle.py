@@ -165,6 +165,21 @@ class Lifecycle(unittest.TestCase):
         self.assertEqual(self.engine.closes, 0)
         self.assertEqual(self.request("/v1/load", {}, {"Content-Type": "text/plain"})[0], 415)
 
+    def test_native_startup_failure_returns_json_for_all_generation_protocols(self):
+        for failure in (RuntimeError('Insufficient VRAM for expert cache'), OSError('Vision encoder cannot open weights')):
+            with mock.patch.object(self.engine, 'restart', side_effect=failure):
+                requests = [('/v1/chat/completions', {'messages': [{'role': 'user', 'content': 'Hello'}]}),
+                            ('/v1/messages', {'model': self.svc.model, 'max_tokens': 32, 'messages': [{'role': 'user', 'content': 'Hello'}]}),
+                            ('/v1/responses', {'model': self.svc.model, 'input': 'Hello', 'max_output_tokens': 32})]
+                for path, request in requests:
+                    for stream in (False, True):
+                        with self.subTest(failure=type(failure).__name__, path=path, stream=stream):
+                            code, body = self.request(path, {**request, 'stream': stream})
+                            self.assertEqual(code, 503)
+                            self.assertEqual(body['error']['code'], 'engine_load_failed')
+                            self.assertIn(str(failure), body['error']['message'])
+                            self.assertFalse(self.svc.loaded())
+
 
 if __name__ == "__main__":
     unittest.main()

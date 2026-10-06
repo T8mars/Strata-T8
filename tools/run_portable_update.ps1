@@ -7,16 +7,20 @@ $env:PYTHONNOUSERSITE = '1'
 $env:PYTHONDONTWRITEBYTECODE = '1'
 $options = @()
 if ($env:T8_UPDATE_OPTIONS) {
-    if ($env:T8_UPDATE_OPTIONS.Trim() -ne '--check') {
-        Write-Host 'Supported option: --check'
+    $requested = $env:T8_UPDATE_OPTIONS.Trim()
+    if ($requested -eq '--check') {
+        $options = @('--check')
+    } elseif ($requested -match '^--edition\s+(Portable-NoModels|VisionReady-NoMainModel)$') {
+        $options = @('--edition', $Matches[1])
+    } else {
+        Write-Host 'Supported options: --check or --edition Portable-NoModels|VisionReady-NoMainModel'
         Read-Host 'Press Enter to close' | Out-Null
         exit 2
     }
-    $options = @('--check')
 }
 & (Join-Path $appDirectory 'runtime/python/python.exe') -X utf8 -u (Join-Path $appDirectory 'tools/portable_update.py') @options
 $updateResult = $LASTEXITCODE
-if ($updateResult -eq 0 -and !$options.Count) {
+if ($updateResult -eq 0 -and !($options -contains '--check')) {
     $planFile = Join-Path $appDirectory '.portable-update/plan.json'
     if (Test-Path -LiteralPath $planFile) {
         # PowerShell parses this complete script before replacing any application files.

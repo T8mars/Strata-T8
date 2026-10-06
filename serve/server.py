@@ -130,6 +130,10 @@ class EngineDied(RuntimeError):
     """The engine process ended in the middle of a request (issue #27: on Linux, the out-of-memory killer)."""
 
 
+class EngineLoadError(RuntimeError):
+    """A startup failure before response headers, including native RuntimeError/OSError."""
+
+
 class EngineStarting(RuntimeError):
     """The engine is (re)starting and has not said READY yet (#344): no context size to plan a request with - a 503,
     not a 400 about the prompt."""
@@ -2057,6 +2061,10 @@ class Service:
                     trace["state"] = "loading"
             try:
                 self.ensure_loaded(cancel)
+            except (EngineDied, EngineStarting, EngineStuck, GpuBusy, ModelBusy, RequestCancelled):
+                raise
+            except (RuntimeError, OSError) as error:
+                raise EngineLoadError(str(error)) from error
             finally:
                 if trace is not None:
                     with self.status_lock:
@@ -3445,6 +3453,8 @@ def make_handler(svc: Service):
                                           "message": str(e)}})
             except (GpuBusy, EngineStarting) as e:
                 self._json(503, {"error": {"type": "server_error", "message": str(e)}})
+            except EngineLoadError as e:
+                self._json(503, {"error": {"type": "server_error", "code": "engine_load_failed", "message": str(e)}})
             except EngineDied as e:                          # before the answer started (not streamed)
                 self._json(503, {"error": {"type": "server_error", "message": f"{e}; the next request restarts it"}})
             except EngineStuck as e:                         # an unload or restart that could not end the engine
@@ -3694,6 +3704,8 @@ def make_handler(svc: Service):
                 return self._json(e.status, e.body())
             except ModelBusy as e:
                 return self._json(409, responses_error_body(str(e), "server_error", code="model_busy"))
+            except EngineLoadError as e:
+                return self._json(503, responses_error_body(str(e), "server_error", code="engine_load_failed"))
             except (GpuBusy, EngineStarting, EngineStuck, EngineDied) as e:
                 return self._json(503, responses_error_body(str(e), "server_error", code="server_error"))
             cancel = self.cancel

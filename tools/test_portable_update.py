@@ -160,7 +160,7 @@ class WindowsApply(unittest.TestCase):
             path = root/name
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(content)
-        plan = {'root': str(root), 'stage': str(incoming), 'backup': str(self.base/'backup'), 'new': new['files'], 'old': old['files'], 'version': new['version']}
+        plan = {'root': str(root), 'stage': str(incoming), 'backup': str(self.base/'backup'), 'new': new['files'], 'old': old['files'], 'version': new['version'], 'manifest_sha256': hashlib.sha256((incoming/'PACKAGE-MANIFEST.json').read_bytes()).hexdigest()}
         path = root/'.portable-update/plan.json'
         path.write_text(json.dumps(plan, ensure_ascii=False), encoding='utf-8')
         return root, incoming, path
@@ -197,6 +197,32 @@ class WindowsApply(unittest.TestCase):
         result = self.apply(path)
         self.assertEqual(result.returncode, 1)
         self.assertEqual((root/'app.py').read_text(), 'old')
+
+    def test_user_file_created_after_prepare_is_preserved(self):
+        root, _, path = self.plan({'new.py': 'release content'})
+        (root/'new.py').write_text('user content')
+        result = self.apply(path)
+        self.assertEqual(result.returncode, 1, result.stdout+result.stderr)
+        self.assertIn('user file', result.stdout)
+        self.assertEqual((root/'app.py').read_text(), 'old')
+        self.assertEqual((root/'new.py').read_text(), 'user content')
+
+    def test_staged_manifest_corruption_changes_nothing(self):
+        root, incoming, path = self.plan()
+        (incoming/'PACKAGE-MANIFEST.json').write_text('{}')
+        result = self.apply(path)
+        self.assertEqual(result.returncode, 1, result.stdout+result.stderr)
+        self.assertIn('manifest failed verification', result.stdout)
+        self.assertEqual((root/'app.py').read_text(), 'old')
+
+    def test_unrelated_stale_process_path_does_not_abort_update(self):
+        root, _, path = self.plan()
+        wrapper = self.base/'stale-process.ps1'
+        wrapper.write_text('function Get-CimInstance { [pscustomobject]@{ ExecutablePath=$env:T8_STALE_EXE } }\n& $env:T8_APPLY_SCRIPT -PlanPath $env:T8_PLAN\nexit $LASTEXITCODE\n', encoding='utf-8')
+        env = dict(os.environ, T8_STALE_EXE=str(self.base/'other/missing.exe'), T8_APPLY_SCRIPT=str(SOURCE/'tools/apply_portable_update.ps1'), T8_PLAN=str(path))
+        result = subprocess.run(['powershell', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', str(wrapper)], env=env, capture_output=True, timeout=45)
+        self.assertEqual(result.returncode, 0, result.stdout+result.stderr)
+        self.assertEqual((root/'app.py').read_text(), 'new')
 
     def test_locked_old_file_is_preserved_and_previous_replacement_rolled_back(self):
         root, _, path = self.plan({'locked.py': 'new'})

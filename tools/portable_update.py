@@ -204,7 +204,8 @@ def prepare(root=ROOT, release=None, edition=None):
         if entry['path'].casefold() not in old_names and safe_path(root, entry['path']).exists():
             raise ValueError(f'New release conflicts with user file: {entry["path"]}')
     plan = {'root': str(root.resolve()), 'stage': str(incoming), 'backup': str(stage/'backup'),
-            'new': manifest['files'], 'old': old['files'], 'version': manifest['version']}
+            'new': manifest['files'], 'old': old['files'], 'version': manifest['version'],
+            'manifest_sha256': hashlib.sha256((incoming/'PACKAGE-MANIFEST.json').read_bytes()).hexdigest()}
     (plan_dir/'plan.json').write_text(json.dumps(plan, ensure_ascii=False), encoding='utf-8')
     shutil.copy2(root/'tools/apply_portable_update.ps1', plan_dir/'apply.ps1')
     print('Verified. Applying after Python exits; models and user configuration are preserved.', flush=True)
