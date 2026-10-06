@@ -42,16 +42,16 @@ jobs:
         run: runtime/python/python.exe -X utf8 tools/prepare_portable_vision.py
       - name: Validate runtime and application
         run: |
-          runtime/python/python.exe -X utf8 tools/run_release_checks.py --group application
+          runtime/python/python.exe -X utf8 tools/run_release_checks.py --group application --strict
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
-          runtime/python/python.exe -X utf8 tools/run_release_checks.py --group setup
+          runtime/python/python.exe -X utf8 tools/run_release_checks.py --group setup --strict
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           runtime/python/python.exe -X utf8 -c "import portable; portable.environment_check()"
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
       - name: Independent node integration
         env:
           STRATA_SOURCE_DIR: ${{ github.workspace }}
-        run: runtime/python/python.exe -X utf8 -m unittest discover -s .portable-build/node-regression/tests -q
+        run: runtime/python/python.exe -X utf8 tools/run_release_checks.py --group nodes --node-tests .portable-build/node-regression/tests --strict
       - name: Package and audit
         run: |
           runtime/python/python.exe -X utf8 -u tools/build_portable.py --edition VisionReady-NoMainModel

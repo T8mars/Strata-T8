@@ -57,7 +57,7 @@ Windows 10 1903+/11 x64、AVX2 CPU、SSD。NVIDIA RTX 20/30/40/50 系列建议 1
 
 仓库每日检查上游正式版本，合并及测试通过后自动打包发布；可在 [Actions](https://github.com/T8mars/Strata-T8/actions) 手动同步 main。冲突、测试失败或缺少匹配引擎时停止发布。[更新机制](docs/UPDATING-T8.md)
 
-当前发行同步上游 **v0.1.40.1**，配套 **0.1.40** 引擎，保留 ComfyUI Protocol 1 和视觉按需加载。主模型、MTP 与现有视觉权重可直接沿用。[本版验证范围](docs/VALIDATION-UPSTREAM-0140-T8.md)
+当前源码同步上游 **v0.1.40.1**，配套 **0.1.40** 引擎，保留 ComfyUI Protocol 1 和视觉按需加载。主模型、MTP 与现有视觉权重可直接沿用。[本版验证范围](docs/VALIDATION-UPSTREAM-0140-T8.md)
 
 OpenAI Base URL：`http://127.0.0.1:8080/v1`；Anthropic：`/v1/messages`；Responses：`/v1/responses`。默认监听本机，对外监听必须设置 API key。
 
