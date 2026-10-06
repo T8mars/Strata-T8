@@ -46,6 +46,21 @@ def update_metadata(root):
     return value
 
 
+def validate_metadata(application, manifest):
+    edition = validate_weights(manifest)
+    if not isinstance(application, dict) or application.get('version') != manifest['version']:
+        raise ValueError('Application metadata version differs from package manifest')
+    if application.get('edition', 'Portable-NoModels') != edition:
+        raise ValueError('Application metadata edition differs from package manifest')
+    expected = weight_declaration(edition)
+    if ('models_included' in application and application['models_included'] is not expected['vision']):
+        raise ValueError('Application metadata models_included differs from package manifest')
+    if 'weights' in application:
+        roles = application['weights']
+        if not isinstance(roles, dict) or set(roles) != set(expected) or any(roles[k] is not expected[k] for k in expected):
+            raise ValueError('Application metadata weight roles differ from package manifest')
+
+
 def discard_owned_pending_stage(root, plan):
     """Remove only a superseded, unapplied stage made by this updater version."""
     if not isinstance(plan, dict) or not isinstance(plan.get('stage_owner'), str):
@@ -148,18 +163,7 @@ def validate_manifest(root, manifest, verify=True):
         actual = {p.relative_to(root).as_posix().casefold() for p in root.rglob('*') if p.is_file()}
         if actual != seen | {'package-manifest.json'}:
             raise ValueError('Release has unlisted or missing files')
-        application = update_metadata(root)
-        if not isinstance(application, dict) or application.get('version') != manifest['version']:
-            raise ValueError('Application metadata version differs from package manifest')
-        if application.get('edition', 'Portable-NoModels') != edition:
-            raise ValueError('Application metadata edition differs from package manifest')
-        expected = weight_declaration(edition)
-        if ('models_included' in application and application['models_included'] is not expected['vision']):
-            raise ValueError('Application metadata models_included differs from package manifest')
-        if 'weights' in application:
-            roles = application['weights']
-            if not isinstance(roles, dict) or set(roles) != set(expected) or any(roles[k] is not expected[k] for k in expected):
-                raise ValueError('Application metadata weight roles differ from package manifest')
+        validate_metadata(update_metadata(root), manifest)
 
 
 def latest_release(repo=None, timeout=10):
@@ -391,13 +395,22 @@ def prepare(root=ROOT, release=None, edition=None):
             raise ValueError('Release edition differs from the requested edition')
         if manifest['version'] != release['tag_name'].removeprefix('v') or update_metadata(incoming)['version'] != manifest['version']:
             raise ValueError('Release, manifest and application versions differ')
-        old = update_json((root/'PACKAGE-MANIFEST.json').read_text(encoding='utf-8'))
+        old_manifest_bytes = (root/'PACKAGE-MANIFEST.json').read_bytes()
+        old = update_json(old_manifest_bytes)
         validate_manifest(root, old, verify=False)
+        installed = update_metadata(root)
+        validate_metadata(installed, old)
+        installed_version = version_key(installed['version'])
+        if (version_key(manifest['version']) < installed_version or
+                (version_key(manifest['version']) == installed_version and
+                 edition == installed.get('edition', 'Portable-NoModels'))):
+            raise ValueError('Installed version or edition changed during update preparation')
         # Never overwrite files a user created that were not managed by their old package.
         check_installation_topology(root, manifest['files'], old['files'])
         plan = {'root': str(root.resolve()), 'stage': str(incoming), 'backup': str(stage/'backup'),
                 'new': manifest['files'], 'old': old['files'], 'version': manifest['version'],
                 'stage_owner': token,
+                'installed_manifest_sha256': hashlib.sha256(old_manifest_bytes).hexdigest(),
                 'manifest_sha256': hashlib.sha256((incoming/'PACKAGE-MANIFEST.json').read_bytes()).hexdigest()}
         archive.unlink()
         publish_control_pair(root, plan_dir, plan)

@@ -316,11 +316,15 @@ def _tool_list(value, wrapper: str | None) -> list[dict]:
         tools = _object_list(value, "tools")
     except ValueError:
         raise ValueError(f"tools must be a list of tool objects, each {shape}") from None
+    names = set()
     for i, t in enumerate(tools):
         fn = t.get(wrapper, t) if wrapper and t.get("type") == wrapper else t
         if not isinstance(fn, dict) or not isinstance(fn.get("name"), str) or not fn["name"]:
             raise ValueError(f"tools[{i}] has no name: each tool must be {shape}")
         validate_tool_definition(fn, 'parameters' if wrapper else 'input_schema')
+        if fn['name'] in names:
+            raise ValueError('tools have a duplicate name: '+fn['name'])
+        names.add(fn['name'])
     return tools
 
 
@@ -516,19 +520,37 @@ def call_end(text: str) -> int:
             return text.find(CALL_END, pos)
 
 
+def _generated_tool_name(name: str) -> str:
+    try:
+        if not name.strip():
+            raise ValueError('empty name')
+        _json_value(name)
+    except ValueError:
+        raise StructuredOutputError('Generated tool call has an invalid function name') from None
+    return name
+
+
 def parse_tool_call(body: str, schema: dict | None = None) -> ToolCall:
     """`<function=NAME>\\n<parameter=P>\\nVALUE\\n</parameter>...</function>` -> ToolCall. Values are JSON-decoded
     when the tool's schema says the parameter is not a string (or, without a schema, when they parse as JSON
     objects/arrays/numbers/booleans)."""
     body = body.strip()
     if not body.startswith("<function=") or ">" not in body:
-        raise ValueError("malformed tool call: " + body[:80])
-    name = body[len("<function="):body.index(">")]
+        raise StructuredOutputError('Generated tool call has a malformed function header')
+    name = _generated_tool_name(body[len("<function="):body.index(">")])
     rest = body[body.index(">") + 1:]
     props = ((schema or {}).get("parameters") or {}).get("properties") or {}
     args = {}
-    while "<parameter=" in rest:
-        rest = rest[rest.index("<parameter=") + len("<parameter="):]
+    while rest:
+        parameter = rest.find('<parameter=')
+        close = rest.find('</function>')
+        if close >= 0 and (parameter < 0 or close < parameter):
+            if rest[close + len('</function>'):].strip():
+                raise StructuredOutputError('Generated tool call has content after its function end')
+            break
+        if parameter < 0:
+            break
+        rest = rest[parameter + len("<parameter="):]
         pname = rest[:rest.index(">")]
         if pname in args:
             raise StructuredOutputError('Generated tool call has a duplicate parameter name: '+pname)
@@ -591,7 +613,7 @@ class OutputParser:
                 b = rest.find(">", a + 10) if a >= 0 else -1
                 if b < 0:
                     return out
-                name = rest[a + 10:b]
+                name = _generated_tool_name(rest[a + 10:b])
                 self.scall = ToolCall(name=name, arguments={})
                 props = ((self.schemas.get(name) or {}).get("parameters") or {}).get("properties") or {}
                 self.sdeclared = {k: v.get('type') if isinstance(v, dict) else None for k, v in props.items()}
@@ -759,7 +781,9 @@ class OutputParser:
         if self.state == "call" and self.stream_tools and self.scall is not None:
             out += self._scan()                 # the output ended inside a call that was already announced
             if self.ss == "done":               # only its </tool_call> is missing: the call itself is whole
-                out.append(Event("tool_call", call=self.scall))
+                call = parse_tool_call(self.buf, self.schemas.get(self.scall.name))
+                call.id = self.scall.id
+                out.append(Event("tool_call", call=call))
             self.buf = ""
             self._reset_scan()
             return out

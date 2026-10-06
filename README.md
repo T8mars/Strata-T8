@@ -25,7 +25,7 @@ Release 附 SHA256，VERIFY-PACKAGE.bat 检查解压文件。请下载发行资�
 
 支持文本生成、扩写/翻译、正负提示词、结构化分镜、JSON 提取、图片描述/反推/OCR、批量处理和服务控制。同卡推理结束后确认语言与视觉引擎释放，再返回下游采样；API key 保存在本机，工作流只存档案名称。
 
-[节点说明](https://github.com/T8mars/Comfyui-Strata-T8#readme) · [实机验收](docs/VALIDATION-COMFYUI-T8.md) · [第六组 20 轮检查](docs/AUDIT-20-ROUND6-T8.md)
+[节点说明](https://github.com/T8mars/Comfyui-Strata-T8#readme) · [实机验收](docs/VALIDATION-COMFYUI-T8.md) · [第七组 20 轮检查](docs/AUDIT-20-ROUND7-T8.md)
 
 ## 模型下载
 

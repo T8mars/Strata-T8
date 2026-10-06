@@ -4,7 +4,7 @@ import argparse
 import importlib.metadata
 import json
 import os
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 import platform
 import re
 import subprocess
@@ -167,6 +167,26 @@ def model_delivery(data):
     gguf = (data/relative).resolve()
     if not gguf.is_relative_to(data.resolve()) or not gguf.is_dir():
         raise RuntimeError('Invalid or missing model GGUF directory')
+    # A published descriptor may outlive a later interrupted copy or preparation.
+    # Catalog-backed deliveries retain the producer's exact shard-size contract;
+    # legacy descriptors without a catalog still use their required_files list.
+    if 'files' in model:
+        entries = model['files']
+        if not isinstance(entries, list) or not entries:
+            raise RuntimeError('Invalid model descriptor shard catalog')
+        names = set()
+        for entry in entries:
+            if not isinstance(entry, dict):
+                raise RuntimeError('Invalid model descriptor shard catalog entry')
+            name, expected = entry.get('file'), entry.get('size')
+            if (not isinstance(name, str) or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_.-]*\.gguf', name, re.I)
+                    or PureWindowsPath(name).is_reserved() or name.casefold() in names
+                    or type(expected) is not int or expected <= 0):
+                raise RuntimeError('Invalid model descriptor shard catalog filename or size')
+            names.add(name.casefold())
+            shard = (gguf/name).resolve()
+            if not shard.is_relative_to(data.resolve()) or not shard.is_file() or shard.stat().st_size != expected:
+                raise RuntimeError(f'Model delivery is incomplete: missing or incorrectly sized shard: {name}')
     for rel in required:
         path = (data/rel).resolve()
         if not path.is_relative_to(data.resolve()) or not path.is_file() or not path.stat().st_size:
@@ -271,9 +291,11 @@ def configure(data, context=None, backend=None, vision=None, vision_tokens=None,
     model = model_delivery(data)
     tag = upstream.FAMILIES[model['family']]['tag'] + model['model']
     cfg_path = ROOT/f'strata-{tag.lower()}.json'
-    if cfg_path.is_symlink() or not cfg_path.resolve().is_relative_to(ROOT.resolve()):
+    script = ROOT/f'run-{tag.lower()}{".bat" if upstream.WIN else ".sh"}'
+    if any(path.is_symlink() or not path.resolve().is_relative_to(ROOT.resolve()) for path in (cfg_path, script)):
         raise RuntimeError('Linked configuration path; use a regular file in the application folder')
-    previous = {path: path.read_bytes() if path.exists() else None for path in (cfg_path, STATE)}
+    previous = {path: path.read_bytes() if path.exists() else None for path in (cfg_path, STATE, script)}
+    script_mode = script.stat().st_mode if script.exists() else None
     old_config = read_config(cfg_path) if cfg_path.exists() else {}
     if not isinstance(old_config, dict):
         raise RuntimeError('Invalid run configuration: expected a JSON object')
@@ -297,6 +319,8 @@ def configure(data, context=None, backend=None, vision=None, vision_tokens=None,
                     path.unlink(missing_ok=True)
                 else:
                     atomic_bytes(path, content)
+                    if path == script and script_mode is not None and not upstream.WIN:
+                        path.chmod(script_mode)
             except OSError:
                 failed.append(path.name)
         if failed:
@@ -330,6 +354,11 @@ def configure(data, context=None, backend=None, vision=None, vision_tokens=None,
                     generated['vision'] = old_config['vision']
                 generated = attach_vision(generated, model, vision, vision_tokens)
             save_json(cfg_path, generated)
+            # Setup wrote this companion before portable restored the user's port.
+            # Keep it in the same transaction and regenerate it from the final config.
+            if script.is_file():
+                upstream.write_run_script(tag, cfg_path, generated.get('port', 8080),
+                                          generated.get('open_browser') is not False)
         # Paths in native_experts.txt are per-model shard names (no machine paths).
         state = {**original_state, **read_state()}
         try:

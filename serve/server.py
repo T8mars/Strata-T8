@@ -49,6 +49,7 @@ from typing import Iterator, Protocol
 from urllib.parse import parse_qs, urlsplit
 
 ROOT = Path(__file__).resolve().parents[1]
+MAX_IMAGE_BYTES = 64 * 1024 * 1024
 sys.path.insert(0, str(ROOT / "tools"))
 sys.path.insert(0, str(ROOT))   # run as a script (run-<model>.bat) as well as a module
 from serve.frontend import (ChatTemplate, Event, OutputParser, anthropic_to_messages,  # noqa: E402
@@ -1433,15 +1434,32 @@ class Vision:
 
     @staticmethod
     def load(source: str) -> bytes:
+        def bounded(stream):
+            data = stream.read(MAX_IMAGE_BYTES + 1)
+            if len(data) > MAX_IMAGE_BYTES:
+                raise ValueError(f'image exceeds the {MAX_IMAGE_BYTES} byte limit')
+            return data
         if source.startswith("data:"):
-            return base64.b64decode(source.split(",", 1)[1])
+            header, separator, payload = source.partition(',')
+            if not separator or not header.lower().endswith(';base64'):
+                raise ValueError('an image data: URL must have a comma and base64 encoding')
+            if len(payload) > 4 * ((MAX_IMAGE_BYTES + 2) // 3):
+                raise ValueError(f'image exceeds the {MAX_IMAGE_BYTES} byte limit')
+            try:
+                data = base64.b64decode(payload, validate=True)
+            except ValueError:
+                raise ValueError('the image data: URL contains invalid base64') from None
+            if len(data) > MAX_IMAGE_BYTES:
+                raise ValueError(f'image exceeds the {MAX_IMAGE_BYTES} byte limit')
+            return data
         if source.startswith(("http://", "https://")):
             req = urllib.request.Request(source, headers={"User-Agent": "strata"})
             with urllib.request.urlopen(req, timeout=60) as r:
-                return r.read()
+                return bounded(r)
         path = source[7:] if source.startswith("file://") else source
         if path and os.path.isfile(path):
-            return Path(path).read_bytes()
+            with open(path, 'rb') as stream:
+                return bounded(stream)
         raise ValueError("an image must be a data: URL, an http(s) URL or a local file path")
 
     @staticmethod
@@ -1475,7 +1493,9 @@ class Vision:
     def encode(self, source: str, cancel=None) -> tuple[Path, int]:
         """-> (embeddings file, number of image tokens)."""
         check_cancel(cancel)
-        data = self.normalize(self.load(source))
+        data = self.load(source)
+        check_cancel(cancel)
+        data = self.normalize(data)
         check_cancel(cancel)
         key = hashlib.sha256(data).hexdigest()[:32]
         with self.lock:

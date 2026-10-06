@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+import uuid
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from portable_version import ROOT, source_version, upstream_version_key
@@ -60,6 +61,32 @@ def ignored_collisions(root, commit):
     return sorted(collisions)
 
 
+def diagnostic_branch(root, commit):
+    """Keep a user's existing branch and bind the reported branch to this commit."""
+    short = 'codex/upstream-' + commit[:12]
+    full = 'codex/upstream-' + commit
+    index = 0
+    while True:
+        branch = short if index == 0 else full if index == 1 else full + '-' + str(index - 1)
+        existing = git(root, 'show-ref', '--verify', '--hash', 'refs/heads/'+branch, check=False)
+        if existing.returncode:
+            git(root, 'branch', branch, commit)
+            return branch
+        if existing.stdout.strip() == commit:
+            return branch
+        index += 1
+
+
+def abort_sync_merge(root, commit):
+    """Abort this invocation's single-parent merge, never a replacement operation."""
+    if not operation_path(root, 'MERGE_HEAD').exists():
+        return
+    current = git(root, 'rev-parse', '--verify', 'MERGE_HEAD').stdout.strip()
+    if current != commit:
+        raise RuntimeError('Concurrent Git operation preserved; merge no longer belongs to this synchronization')
+    git(root, 'merge', '--abort')
+
+
 def sync(root, url, ref):
     root = Path(root)
     report = root/'.portable-build/upstream-conflict.json'
@@ -70,9 +97,18 @@ def sync(root, url, ref):
     check_idle_checkout(root)
     if git(root, 'status', '--porcelain').stdout.strip():
         raise RuntimeError('Working tree must be clean before upstream synchronization')
-    git(root, 'config', 'merge.t8-keep.driver', 'true')
-    git(root, 'fetch', '--no-tags', url, ref)
-    commit = git(root, 'rev-parse', 'FETCH_HEAD').stdout.strip()
+    # FETCH_HEAD is shared with other fetches and linked worktrees. A unique ref
+    # keeps this invocation bound to its own fetch without modifying that state.
+    fetched = 'refs/strata-t8/upstream-' + uuid.uuid4().hex
+    try:
+        git(root, 'fetch', '--no-write-fetch-head', '--no-tags', url, ref+':'+fetched)
+        commit = git(root, 'rev-parse', fetched+'^{commit}').stdout.strip()
+        return sync_fetched(root, commit, ref)
+    finally:
+        git(root, 'update-ref', '-d', fetched, check=False)
+
+
+def sync_fetched(root, commit, ref):
     if git(root, 'merge-base', '--is-ancestor', commit, 'HEAD', check=False).returncode == 0:
         return {'changed': False, 'upstream_commit': commit}
     before = git(root, 'rev-parse', 'HEAD').stdout.strip()
@@ -82,18 +118,21 @@ def sync(root, url, ref):
     if collisions:
         merged = subprocess.CompletedProcess([], 1, '', 'Upstream would overwrite ignored local paths: '+', '.join(collisions))
     else:
-        merged = git(root, 'merge', '--no-ff', '--no-commit', '--no-overwrite-ignore', commit, check=False)
+        # Scope the keep driver to this merge; never rewrite a user's shared config.
+        merged = git(root, '-c', 'merge.t8-keep.driver=true', 'merge', '--no-ff', '--no-commit', '--no-overwrite-ignore', commit, check=False)
     if merged.returncode:
         conflicts = git(root, 'diff', '--name-only', '--diff-filter=U').stdout.splitlines() + collisions
+        # Restore the checkout before producing diagnostics. A disk/write failure
+        # or a merged file at the diagnostic directory must not leave our merge active.
+        if not collisions:
+            abort_sync_merge(root, commit)
+        report = root/'.portable-build/upstream-conflict.json'
+        if report.is_symlink() or getattr(report, 'is_junction', lambda: False)() or report.parent.is_symlink() or getattr(report.parent, 'is_junction', lambda: False)():
+            raise RuntimeError('Linked upstream diagnostic path')
         report.parent.mkdir(exist_ok=True)
-        branch = 'codex/upstream-' + commit[:12]
+        branch = diagnostic_branch(root, commit)
         report.write_text(json.dumps({'upstream_commit': commit, 'base_commit': before, 'conflicts': conflicts,
                                       'branch': branch, 'error': merged.stdout + merged.stderr}, indent=2), encoding='utf-8')
-        # Git can refuse the merge before starting it (ignored-file collision or hook).
-        if operation_path(root, 'MERGE_HEAD').exists():
-            git(root, 'merge', '--abort')
-        if git(root, 'show-ref', '--verify', 'refs/heads/'+branch, check=False).returncode:
-            git(root, 'branch', branch, commit)
         raise RuntimeError(f'Upstream merge stopped; original checkout preserved. Diagnostic branch: {branch}; conflicts: {conflicts}')
     try:
         original = git(root, 'show', commit+':README.md').stdout
@@ -118,7 +157,7 @@ def sync(root, url, ref):
         git(root, 'commit', '-m', f'Sync upstream {ref} ({commit[:12]})')
         return {'changed': True, 'upstream_commit': commit, 'version': meta['version']}
     except Exception:
-        git(root, 'merge', '--abort', check=False)
+        abort_sync_merge(root, commit)
         # The merge's only generated files are controlled here.
         git(root, 'restore', '--source='+before, '--staged', '--worktree', 'meta.json')
         git(root, 'restore', '--source='+before, '--staged', '--worktree', 'README-UPSTREAM.md', check=False)

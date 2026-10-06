@@ -3,7 +3,8 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
+import re
 import urllib.parse
 from portable_download import download
 
@@ -11,10 +12,45 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def catalog(root=ROOT):
-    return json.loads((root/'vision/catalog.json').read_text(encoding='utf-8'))
+    entry = json.loads((root/'vision/catalog.json').read_text(encoding='utf-8'))
+    validate_entry(entry)
+    return entry
+
+
+def validate_entry(entry):
+    if not isinstance(entry, dict):
+        raise RuntimeError('Invalid vision catalog: expected an object')
+    name = entry.get('file')
+    if (not isinstance(name, str) or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_.-]*\.gguf', name, re.I)
+            or PureWindowsPath(name).is_reserved()
+            or type(entry.get('size')) is not int or entry['size'] <= 0
+            or not isinstance(entry.get('sha256'), str) or not re.fullmatch('[0-9a-f]{64}', entry['sha256'])
+            or not isinstance(entry.get('family'), str) or not entry['family']):
+        raise RuntimeError('Invalid vision catalog filename, size, digest or family')
+    repository = entry.get('repository')
+    if (not isinstance(repository, str) or not re.fullmatch(r'[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+', repository)
+            or any(part in ('.', '..') for part in repository.split('/'))
+            or any(not isinstance(entry.get(key), str) or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_.-]*', entry[key])
+                   for key in ('official_revision', 'modelscope_revision'))):
+        raise RuntimeError('Invalid vision catalog repository or revision')
+
+
+def weight_path(root, entry, *, downloads=False):
+    folder = root/'vision/weights'
+    path = folder/entry['file']
+    destinations = [folder, path]
+    if downloads:
+        destinations += [path.with_name(path.name+suffix) for suffix in
+                         ('.part', '.ranges.json', '.ranges.json.tmp', '.verified.json')]
+    if any(not target.resolve().is_relative_to(root.resolve()) for target in destinations):
+        raise RuntimeError('Vision weight or download sidecar path resolves outside the application folder')
+    if any(not target.resolve().is_relative_to(folder.resolve()) for target in destinations[1:]):
+        raise RuntimeError('Vision weight or download sidecar path resolves outside the weights folder')
+    return path
 
 
 def sources(entry):
+    validate_entry(entry)
     domestic = 'https://modelscope.cn/api/v1/models/' + entry['repository'] + '/repo?' + urllib.parse.urlencode(
         {'Revision': entry['modelscope_revision'], 'FilePath': entry['file']})
     suffix = '/' + entry['repository'] + '/resolve/' + entry['official_revision'] + '/' + entry['file']
@@ -23,7 +59,7 @@ def sources(entry):
 
 def verify(root=ROOT):
     entry = catalog(root)
-    path = root/'vision/weights'/entry['file']
+    path = weight_path(root, entry)
     if not path.is_file() or path.stat().st_size != entry['size']:
         raise RuntimeError('Bundled vision weight missing or incomplete; use the VisionReady distribution.')
     with path.open('rb') as stream:
@@ -41,10 +77,11 @@ def main():
     args = parser.parse_args()
     if not args.verify:
         entry = catalog(args.root)
+        path = weight_path(args.root, entry, downloads=True)
         for url in sources(entry):
             try:
                 print('Vision source: '+urllib.parse.urlparse(url).netloc, flush=True)
-                download(url, args.root/'vision/weights'/entry['file'], entry['size'], entry['sha256'], args.workers)
+                download(url, path, entry['size'], entry['sha256'], args.workers)
                 break
             except Exception as error:
                 print(f'Vision source failed: {error}', flush=True)

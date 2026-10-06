@@ -148,6 +148,22 @@ function CheckMetadata($metadata, $manifest) {
         } elseif ($value -eq $manifest -and $vision) { throw 'VisionReady manifest lacks weight roles' }
     }
 }
+function CompareVersion([string]$first, [string]$second) {
+    # Compare arbitrarily large integer components without float or lexical ordering.
+    foreach ($value in @($first, $second)) {
+        if ($value -cnotmatch '^[0-9]+\.[0-9]+\.[0-9]+-t8\.[0-9]+$') { throw 'Invalid installed or staged release version' }
+    }
+    $left = $first -split '\.|-t8\.'
+    $right = $second -split '\.|-t8\.'
+    for ($index = 0; $index -lt 4; $index++) {
+        $a = $left[$index] -replace '^0+(?=.)', ''
+        $b = $right[$index] -replace '^0+(?=.)', ''
+        if ($a.Length -ne $b.Length) { return [Math]::Sign($a.Length - $b.Length) }
+        $compared = [string]::CompareOrdinal($a, $b)
+        if ($compared) { return [Math]::Sign($compared) }
+    }
+    return 0
+}
 function InstallFile([string]$source, [string]$target, [long]$size, [string]$digest) {
     # Publish a complete file without overwriting a file created after preflight.
     $temporary = Join-Path ([IO.Path]::GetDirectoryName($target)) ('.t8-' + [Guid]::NewGuid().ToString('N') + '.tmp')
@@ -197,9 +213,19 @@ try {
     CheckEntries $manifest.files 'New manifest'
     if ($plan.version -ne $manifest.version) { throw 'Plan version differs from staged manifest' }
     MatchEntries $plan.new $manifest.files 'New'
-    $installedManifest = ReadJsonObject (ScopedPath $appRoot 'PACKAGE-MANIFEST.json') 'Installed manifest'
+    $installedManifestPath = ScopedPath $appRoot 'PACKAGE-MANIFEST.json'
+    if ($plan.PSObject.Properties['installed_manifest_sha256'] -and
+        ($plan.installed_manifest_sha256 -isnot [string] -or $plan.installed_manifest_sha256 -cnotmatch '^[0-9a-f]{64}$' -or
+         (FileDigest $installedManifestPath) -cne $plan.installed_manifest_sha256)) { throw 'Installed manifest changed after update preparation' }
+    $installedManifest = ReadJsonObject $installedManifestPath 'Installed manifest'
     CheckEntries $installedManifest.files 'Installed manifest'
     MatchEntries $plan.old $installedManifest.files 'Installed'
+    $installedMetadata = ReadJsonObject (ScopedPath $appRoot 'meta.json') 'Installed application metadata'
+    CheckMetadata $installedMetadata $installedManifest
+    $comparison = CompareVersion $manifest.version $installedManifest.version
+    $incomingEdition = if ($manifest.PSObject.Properties['edition']) { $manifest.edition } else { 'Portable-NoModels' }
+    $installedEdition = if ($installedManifest.PSObject.Properties['edition']) { $installedManifest.edition } else { 'Portable-NoModels' }
+    if ($comparison -lt 0 -or ($comparison -eq 0 -and $incomingEdition -ceq $installedEdition)) { throw 'Update would downgrade or reapply the installed version and edition' }
     $newNames = @{}
     $newEntries = @{}
     $oldNames = @{}
@@ -258,7 +284,11 @@ try {
         $changes.Add($change)
         if ($hadOld) {
             $null = New-Item -ItemType Directory -Path ([IO.Path]::GetDirectoryName($backup)) -Force
-            Move-Item -LiteralPath $target -Destination $backup
+            # A file move must name an exact vacant file, never a directory into
+            # which Move-Item can silently place it after a concurrent change.
+            $null = ScopedPath $backupRoot $relative
+            $null = ScopedPath $appRoot $relative
+            [IO.File]::Move($target, $backup)
             $change.saved = $true
         }
     }
@@ -297,8 +327,11 @@ try {
         $change = $changes[$i]
         try {
             if ($change.saved) {
+                $relative = $change.target.Substring($appRoot.Length + 1).Replace('\', '/')
+                $null = ScopedPath $appRoot $relative
+                $null = ScopedPath $backupRoot $relative
                 $null = [IO.Directory]::CreateDirectory([IO.Path]::GetDirectoryName($change.target))
-                Move-Item -LiteralPath $change.backup -Destination $change.target
+                [IO.File]::Move($change.backup, $change.target)
             }
         } catch { $rollbackErrors += $_.Exception.Message }
     }
