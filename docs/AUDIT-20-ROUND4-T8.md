@@ -37,7 +37,7 @@
 
 本机最终回归：服务/整合包 **399 例通过，180.507s**；独立节点 **131 例通过，15.484s**；setup **258 例通过，21.640s**，均无跳过。更新器相关组合的 106 例已包含在整合包测试中，不能另行累计。证据为忽略目录 `.portable-build/audit4-root-final-full.log`、`audit4-node-final-full.log`、`audit4-setup.log`、`audit4-extra-baseline.log` 及两个子 Agent 的复现日志。
 
-Windows 文件锁导致无法恢复时会明确报告未恢复的文件；配置和更新事务不保证断电时多文件同时提交。AMD 实机、多 GPU 及 Linux 托管原生引擎未验证。实际 GPU 与正式发行证据在最终核查后追加。
+Windows 文件锁导致无法恢复时会明确报告未恢复的文件；配置和更新事务不保证断电时多文件同时提交。AMD 实机、多 GPU 及 Linux 托管原生引擎未验证。实际 GPU 与正式发行证据见下文。
 
 ## 本机 GPU 工作流
 
@@ -51,4 +51,26 @@ Windows 文件锁导致无法恢复时会明确报告未恢复的文件；配置
 
 实际排队 load、缓存重复执行通过；每次返回下游前确认文字和视觉进程停止。使用独立验证档案，门槛为空闲显存 8GiB、内存 60GiB；产品默认空闲显存门槛仍为 12GiB。耗时只代表上述硬件、模型与设置。环境中未加载的 GLSL 扩展不在这三条工作流内。
 
-`.portable-build/audit4-graph-results.json` 记录工作流 ID、产物、释放状态及功能源码 SHA256；与当前待发布源码逐一核对。初次探针在发出任何队列请求前因探针变量名错误退出，修正后完整执行上述三条流程；没有把失败探针计作通过。
+`.portable-build/audit4-graph-results.json` 记录工作流 ID、产物、释放状态及六份相关功能源码 SHA256；与最终发布源码逐一核对。初次探针在发出任何队列请求前因探针变量名错误退出，修正后完整执行上述三条流程；没有把失败探针计作通过。
+
+
+## 最终源码与正式发行
+
+提交 `9e20fe5ab53b601646373407c6dd02a8172e0fbe` 的 [源码 CI](https://github.com/T8mars/Strata-T8/actions/runs/37452989952) 通过服务/整合包 399 例、独立节点 131 例、setup 258 例。源码 CI 没有嵌入式运行库，399 例中 5 例明确跳过；正式发行构建安装真实运行库后执行同一列表。
+
+[整合包 0.1.39-t8.11](https://github.com/T8mars/Strata-T8/releases/tag/v0.1.39-t8.11) 的 [发行构建](https://github.com/T8mars/Strata-T8/actions/runs/37453418848) 运行服务/整合包 399 例、节点集成 131 例、setup 258 例全部通过，无跳过；完整文件 SHA256 与 ZIP CRC 检查后正式发布。
+
+| 发行包 | 字节数 | 文件数（不计清单） | ZIP SHA256 |
+| --- | ---: | ---: | --- |
+| VisionReady-NoMainModel | 1,922,430,308 | 8,021 | `d67c076ed13d24fedf1a8c6a6cb1c57554d02bb0c869ae185a413663a91a1f86` |
+| Portable-NoModels | 1,208,743,706 | 8,020 | `7e964f77defc26ddcf2d19d3631c4cc5241d7a97609d8c5ba42a3228d7230abc` |
+
+发布后再次验证 GitHub 资产摘要与构建输出、公开 SHA256 文件、远端 ZIP 清单及 14 份关键源码/配置。只读取约 4MB 的验证范围，没有重新下载完整整合包或模型。VisionReady 含 Python、依赖、CUDA/HIP 引擎、固定视觉权重及配置；两个版本均不含主模型和 MTP。
+
+最终提交的本机文字推理返回 STRATA_OK，16.88s；视觉正确识别红圆、蓝方块及测试文字，3.81s。完成后卸载文字和视觉引擎，HTTP 在 `127.0.0.1:8082` 保持在线。三个绘图流程的六份相关功能源码 SHA256 与最终源码逐一匹配。
+
+[节点 1.0.3](https://github.com/T8mars/Comfyui-Strata-T8/releases/tag/v1.0.3) 源码为 `4203df3caef5495d998a8a9d6f9721c12a885cdc`。[Windows/Linux CI](https://github.com/T8mars/Comfyui-Strata-T8/actions/runs/37452842843) 通过；Windows 131 例全部执行，Linux 131 例中明确跳过 1 个 Windows 专属用例。[官方发布工作流](https://github.com/T8mars/Comfyui-Strata-T8/actions/runs/37452843332) 成功。GitHub ZIP SHA256 为 `ea7a8b4b7550bc70f104c8d54f00fa0088963cc36211eb52c327616bf0e1a155`，Registry ZIP SHA256 为 `64703daad0c015232710bb96c23a692cf0032f066e015145fed8827f3d296f93`；两份包代码逐字节匹配发布提交，10 个节点可导入，没有模型或个人档案。
+
+Publisher 为 `t8star`。[Registry 版本接口](https://api.comfy.org/nodes/strata-t8/versions/1.0.3) 本次核查状态为 `NodeVersionStatusPending`；CDN 包可取得，审核期间使用 GitHub Release 安装。发布成功不等于确认 Manager 已可检索。
+
+本机证据：`.portable-build/cloud-v11-ci-success.log`、`cloud-v11-release-success.log`、`release-v11-published.json`、`node-v103-published-verification.json`、`registry-v103-final-status.json`、`deployed-v11-results.json` 和前述回归/GPU 日志。原始后台日志、API key、个人档案和模型未纳入公开仓库。本段追加于正式发布后，未替换已经发布的版本或资产。
