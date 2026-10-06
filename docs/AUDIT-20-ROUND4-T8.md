@@ -18,7 +18,7 @@
 | R12 | 托管上下文超界到 setup 才处理；CLI 在环境检查前拒绝 1024..131072 以外的值 | ManagedProfiles，环境检查未调用 |
 | R13 | 重复 batch/slots/context 参数残留使串行档案含糊；移除所有受控参数后加入一个上下文值 | ManagedProfiles，分离值及等号形式 |
 | R14 | pack 缺少 dense/index 或工具成功但无产物仍发布完成描述；检查全部必要非空产物并写入 required_files | PreparedArtifacts，准备工具替身，禁止发布不完整描述 |
-| R15 | meta 与清单版本、发行类型、权重角色可矛盾；核对一致性，保留旧 NoModels 缺少新字段的兼容 | 更新器 MetadataBinding |
+| R15 | meta 与清单版本、发行类型、权重角色可矛盾；核对一致性，保留旧 NoModels 缺少新字段的兼容 | 更新器 UpdateMetadata |
 | R16 | result.json 写失败后再次写失败掩盖回滚结果；原子写结果，报告失败仍明确输出恢复状态 | 真实 PowerShell、锁文件 |
 | R17 | 新计划发布失败覆盖旧 apply 执行器；失败恢复旧执行器，使旧计划仍能执行 | 旧计划实际 PowerShell 应用 |
 | R18 | 合法托管文件与目录互换无法更新；先备份旧文件、再安装新文件；保护用户文件和自建空目录，失败恢复目录拓扑 | 微型包、真实 PowerShell，两种迁移及失败回滚 |
