@@ -43,7 +43,7 @@ def read_config(path):
     config = read_json(path)
     if (not isinstance(config, dict) or ('args' in config and (not isinstance(config['args'], list)
             or not all(isinstance(arg, str) for arg in config['args'])))
-            or ('vision' in config and not isinstance(config['vision'], dict))):
+            or (config.get('vision') is not None and not isinstance(config['vision'], dict))):
         raise RuntimeError('Invalid run configuration: expected an object with engine arguments and vision settings')
     return config
 

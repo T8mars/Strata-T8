@@ -117,6 +117,11 @@ class ConfigurationPaths(unittest.TestCase):
                 path.write_text(json.dumps(value))
                 with self.assertRaisesRegex(RuntimeError, 'run configuration'): portable.read_config(path)
 
+    def test_legacy_null_vision_remains_a_valid_disabled_configuration(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path=Path(tmp)/'config.json'; path.write_text('{"args":[],"vision":null}')
+            self.assertIsNone(portable.read_config(path)['vision'])
+
     def test_no_models_refresh_disables_only_bundled_vision(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
