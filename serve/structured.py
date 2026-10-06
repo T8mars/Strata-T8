@@ -106,36 +106,101 @@ def prepare_format(response_format, messages):
             raise NoSuchResource(ref=uri)
 
         try:
-            cls = validators.validator_for(schema)
-            cls.check_schema(schema)
-            registry = Registry(retrieve=no_remote)
-            from referencing import Resource
             from referencing.exceptions import Unresolvable
-            from referencing.jsonschema import DRAFT202012, specification_with
-            specification = specification_with(cls.META_SCHEMA['$schema'], default=DRAFT202012)
-            resource = Resource.from_contents(schema, default_specification=specification)
+            from referencing.jsonschema import specification_with
+
+            def schema_class(node, inherited):
+                if not isinstance(node, dict) or '$schema' not in node:
+                    return inherited
+                if not isinstance(node['$schema'], str) or not node['$schema']:
+                    raise ValueError('response_format schema $schema must be a nonempty string')
+                selected = validators.validator_for(node, default=None)
+                if selected is None:
+                    raise ValueError('response_format schema declares an unsupported $schema dialect')
+                return selected
+
+            checked = {}
+
+            def check_tree(node, inherited):
+                current_cls = schema_class(node, inherited)
+                key = (id(node), current_cls)
+                if key in checked:
+                    return checked[key]
+                specification = specification_with(current_cls.META_SCHEMA['$schema'])
+                try:
+                    children = list(specification.subresources_of(node))
+                except (TypeError, AttributeError):
+                    # Let the meta-schema describe invalid keyword containers.
+                    current_cls.check_schema(node)
+                    raise ValueError('invalid response_format schema child container') from None
+                if isinstance(node, dict) and 'dependencies' in current_cls.VALIDATORS:
+                    dependencies = node.get('dependencies')
+                    if isinstance(dependencies, dict):
+                        # Older referencing drafts enumerate dependencies from
+                        # the first value. Property-name arrays are data, while
+                        # schema dependencies must be found in every position.
+                        property_dependencies = {id(value) for value in dependencies.values()
+                                                 if isinstance(value, list)}
+                        children = [child for child in children if id(child) not in property_dependencies]
+                        children.extend(value for value in dependencies.values() if isinstance(value, (dict, bool)))
+                child_ids = {id(child) for child in children if isinstance(child, dict)}
+
+                def mask(value):
+                    # Check each schema under its own dialect, while retaining
+                    # keyword container shapes and boolean schema restrictions.
+                    if isinstance(value, dict):
+                        if id(value) in child_ids:
+                            return {}
+                        return {key: {} if isinstance(part, dict) and id(part) in child_ids else part
+                                for key, part in value.items()}
+                    if isinstance(value, list):
+                        return [{} if isinstance(part, dict) and id(part) in child_ids else part for part in value]
+                    return value
+
+                shallow = {key: mask(value) for key, value in node.items()} if isinstance(node, dict) else node
+                current_cls.check_schema(shallow)
+                result = (current_cls, specification, children)
+                checked[key] = result
+                for child in children:
+                    check_tree(child, current_cls)
+                return result
+
+            cls, specification, _ = check_tree(schema, validators.validator_for(True))
+            registry = Registry(retrieve=no_remote)
+            resource = specification.create_resource(schema)
             resolver = registry.resolver_with_root(resource)
             seen = set()
-            def local_refs(current, scoped):
+            def local_refs(current, scoped, inherited):
                 node = current.contents
-                if id(node) in seen: return
-                seen.add(id(node))
+                current_cls, current_specification, children = check_tree(node, inherited)
+                key = (id(node), current_cls, scoped._base_uri)
+                if key in seen: return
+                seen.add(key)
                 if isinstance(node, dict):
-                    current_cls = validators.validator_for(node, default=cls)
+                    active = dict(current_cls._APPLICABLE_VALIDATORS(node))
                     for key in ('$ref', '$dynamicRef', '$recursiveRef'):
-                        if key not in node or key not in current_cls.VALIDATORS: continue
-                        reference = node[key]
+                        if key not in active or key not in current_cls.VALIDATORS: continue
+                        reference = active[key]
                         if not reference.startswith('#'):
                             raise ValueError('response_format supports only local schema references (#...)')
                         try:
                             resolved = scoped.lookup(reference)
                         except Unresolvable:
                             raise ValueError('response_format local reference does not identify an existing schema') from None
-                        current_cls.check_schema(resolved.contents)
-                        local_refs(Resource.from_contents(resolved.contents, default_specification=specification), resolved.resolver)
-                for child in current.subresources():
-                    local_refs(child, scoped.in_subresource(child))
-            local_refs(resource, resolver)
+                        except (AttributeError, TypeError):
+                            raise ValueError('response_format local reference with mixed legacy dependencies is '
+                                             'unsupported; use a JSON Pointer reference (#/...)') from None
+                        _, target_specification, _ = check_tree(resolved.contents, current_cls)
+                        local_refs(target_specification.create_resource(resolved.contents), resolved.resolver, current_cls)
+                    if '$ref' in active and len(active) == 1:
+                        # Older drafts ignore all $ref sibling assertions. The
+                        # referenced target above remains subject to preflight.
+                        return
+                for contents in children:
+                    _, child_specification, _ = check_tree(contents, current_cls)
+                    child = child_specification.create_resource(contents)
+                    local_refs(child, scoped.in_subresource(child), current_cls)
+            local_refs(resource, resolver, cls)
             validator = cls(schema, registry=registry)
         except SchemaError as exc:
             raise ValueError(f"invalid response_format schema: {exc.message}") from exc

@@ -280,8 +280,16 @@ def configure(data, context=None, backend=None, vision=None, vision_tokens=None,
         result = upstream.main()
         if result:
             return result, cfg_path
+        if not cfg_path.is_file():
+            raise RuntimeError('Setup did not create the run configuration')
+        current_fingerprint = fingerprint(data)
+        if (previous[cfg_path] is not None and cfg_path.read_bytes() == previous[cfg_path]
+                and not same_machine(original_state.get('portable_fingerprint'), current_fingerprint)):
+            raise RuntimeError('Setup did not write a configuration for the selected model and PC')
         if cfg_path.is_file():
             generated = read_config(cfg_path)
+            if not isinstance(generated, dict):
+                raise RuntimeError('Setup produced an invalid run configuration: expected a JSON object')
             for key in ('host', 'api_key', 'port'):
                 if key in old_config and (key != 'port' or port is None):
                     generated[key] = old_config[key]
@@ -300,7 +308,7 @@ def configure(data, context=None, backend=None, vision=None, vision_tokens=None,
         except ValueError:
             state['portable_data_dir'] = str(data)
         state['portable_config'] = cfg_path.name
-        state['portable_fingerprint'] = fingerprint(data)
+        state['portable_fingerprint'] = current_fingerprint
         save_json(STATE, state)
         completed = True
     finally:

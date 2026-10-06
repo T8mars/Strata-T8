@@ -27,7 +27,7 @@ import json
 import time
 import uuid
 
-from serve.frontend import Event, _late_system_to_user, _parts_of, effort_kwargs
+from serve.frontend import Event, _late_system_to_user, _parts_of, _json_loads, _text, effort_kwargs
 
 ENCRYPTED_PREFIX = "strata.r1:"                   # our own reasoning replay strings; others' are ignored
 HOSTED_TOOLS = ("web_search", "web_search_preview", "file_search", "computer_use_preview", "computer_use",
@@ -71,9 +71,17 @@ def _content(content, param):
             raise ResponsesError("expected a content part object", f"{param}[{j}]")
         kind = part.get("type")
         if kind in ("input_text", "output_text", "text", "summary_text", "reasoning_text"):
-            parts.append({"type": "text", "text": part.get("text") or ""})
+            try:
+                text = _text(part.get('text'))
+            except ValueError as e:
+                raise ResponsesError(str(e), f'{param}[{j}].text') from None
+            parts.append({"type": "text", "text": text})
         elif kind == "refusal":
-            parts.append({"type": "text", "text": part.get("refusal") or ""})
+            try:
+                text = _text(part.get('refusal'), 'refusal')
+            except ValueError as e:
+                raise ResponsesError(str(e), f'{param}[{j}].refusal') from None
+            parts.append({"type": "text", "text": text})
         elif kind in ("input_image", "image_url"):
             if not part.get("image_url"):
                 raise ResponsesError("only images given as image_url (a data: or http(s) URL) are supported; "
@@ -88,14 +96,23 @@ def _content(content, param):
 def _reasoning_text(item, param) -> str:
     """The thinking a reasoning item carries: its reasoning_text content, else our own encrypted_content.  A summary
     alone, or another server's encrypted_content, carries none that can go back into the prompt."""
-    texts = [p.get("text") or "" for p in item.get("content") or [] if isinstance(p, dict)
-             and p.get("type") in ("reasoning_text", "text")]
+    content = item.get('content')
+    if content is not None and (not isinstance(content, list) or not all(isinstance(p, dict) for p in content)):
+        raise ResponsesError('reasoning content must be an array of objects', param + '.content')
+    try:
+        texts = [_text(p.get("text")) for p in content or [] if p.get("type") in ("reasoning_text", "text")]
+    except ValueError as e:
+        raise ResponsesError(str(e), param + '.content') from None
     if texts:
         return "".join(texts)
     enc = item.get("encrypted_content")
     if isinstance(enc, str) and enc.startswith(ENCRYPTED_PREFIX):
         try:
-            return json.loads(base64.b64decode(enc[len(ENCRYPTED_PREFIX):], validate=True).decode("utf-8"))["text"]
+            value = _json_loads(base64.b64decode(enc[len(ENCRYPTED_PREFIX):], validate=True).decode("utf-8"))
+            text = value['text']
+            if not isinstance(text, str):
+                raise ValueError('reasoning text must be a string')
+            return text
         except (ValueError, KeyError, TypeError, UnicodeError):
             raise ResponsesError("this reasoning item's encrypted_content is damaged", param + ".encrypted_content",
                                  "invalid_encrypted_content") from None
@@ -112,9 +129,11 @@ def _arguments(raw, param) -> dict:
     if not isinstance(raw, str):
         raise ResponsesError("function_call arguments must be a JSON string", param)
     try:
-        value = json.loads(raw)
-    except ValueError:
+        value = _json_loads(raw)
+    except json.JSONDecodeError:
         return {"arguments": raw}
+    except ValueError as e:
+        raise ResponsesError(str(e), param) from None
     return value if isinstance(value, dict) else {"arguments": value}
 
 
@@ -175,10 +194,14 @@ def input_messages(req: dict) -> list[dict]:
                     open_turn = None                 # thinking starts a new model turn
                 thinking.append(text)
         elif kind in ("function_call", "custom_tool_call"):
+            if item.get('call_id') is not None and not isinstance(item['call_id'], str):
+                raise ResponsesError('call_id must be a string', param + '.call_id')
             name = item.get("name")
             if not isinstance(name, str) or not name:
                 raise ResponsesError("a function_call needs a name", param + ".name")
             if item.get("namespace"):
+                if not isinstance(item['namespace'], str):
+                    raise ResponsesError('namespace must be a string', param + '.namespace')
                 name = f"{item['namespace']}.{name}"
             if kind == "function_call":
                 args = _arguments(item.get("arguments"), param + ".arguments")
@@ -188,6 +211,8 @@ def input_messages(req: dict) -> list[dict]:
             target.setdefault("tool_calls", []).append({"function": {"name": name, "arguments": args},
                                                         "_call_id": item.get("call_id")})
         elif kind in ("function_call_output", "custom_tool_call_output"):
+            if item.get('call_id') is not None and not isinstance(item['call_id'], str):
+                raise ResponsesError('call_id must be a string', param + '.call_id')
             messages.append({"role": "tool", "content": _tool_output(item, param), "_call_id": item.get("call_id")})
             open_turn = None
             thinking.clear()
@@ -244,7 +269,13 @@ def request_tools(req: dict):
         if not isinstance(name, str) or not name:
             raise ResponsesError("a tool needs a name", param + ".name")
         flat = f"{namespace}.{name}" if namespace else name
-        description = tool.get("description") or ""
+        if flat in names:
+            raise ResponsesError('tool names must be unique after namespace expansion', param + '.name')
+        description = tool.get("description")
+        if description is None:
+            description = ''
+        if not isinstance(description, str):
+            raise ResponsesError('tool description must be a string', param + '.description')
         if ns_description:
             description = ns_description + ("\n\n" + description if description else "")
         if kind == "function":
@@ -266,11 +297,23 @@ def request_tools(req: dict):
         if kind in ("function", "custom"):
             add(tool, param)
         elif kind == "namespace":
-            for j, member in enumerate(tool.get("tools") or []):
+            namespace = tool.get('name')
+            if not isinstance(namespace, str) or not namespace:
+                raise ResponsesError('a namespace needs a name', param + '.name')
+            description = tool.get('description')
+            if description is None:
+                description = ''
+            if not isinstance(description, str):
+                raise ResponsesError('namespace description must be a string', param + '.description')
+            members = tool.get('tools')
+            if members is None:
+                members = []
+            if not isinstance(members, list):
+                raise ResponsesError('namespace tools must be an array', param + '.tools')
+            for j, member in enumerate(members):
                 if not isinstance(member, dict) or member.get("type", "function") not in ("function", "custom"):
                     raise ResponsesError("a namespace holds function tools", f"{param}.tools[{j}]")
-                add({"type": "function", **member}, f"{param}.tools[{j}]", tool.get("name"),
-                    tool.get("description") or "")
+                add({"type": "function", **member}, f"{param}.tools[{j}]", namespace, description)
         elif kind in HOSTED_TOOLS or isinstance(kind, str):
             skipped.append(kind)                     # the model cannot run OpenAI's hosted tools: left out
         else:

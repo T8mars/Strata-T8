@@ -1,6 +1,6 @@
 param([Parameter(Mandatory=$true)][string]$PlanPath)
 $ErrorActionPreference = 'Stop'
-$plan = Get-Content -LiteralPath $PlanPath -Raw -Encoding UTF8 | ConvertFrom-Json
+$plan = $null
 Add-Type -TypeDefinition @'
 using System;
 using System.Text;
@@ -16,9 +16,9 @@ function LongPath([string]$path) {
     if ([T8Paths]::GetLongPathName($full, $buffer, 32768) -eq 0) { throw "Cannot resolve path: $path" }
     return $buffer.ToString().TrimEnd('\')
 }
-$appRoot = LongPath $plan.root
-$stageRoot = LongPath $plan.stage
-$backupRoot = [IO.Path]::GetFullPath($plan.backup).TrimEnd('\')
+$appRoot = $null
+$stageRoot = $null
+$backupRoot = $null
 $resultPath = $null
 function CheckRoot([string]$path) {
     $parent = $path
@@ -59,7 +59,7 @@ function WriteResult($value) {
     $temporary = $resultPath + '.' + [Guid]::NewGuid().ToString('N') + '.tmp'
     try {
         [IO.File]::WriteAllText($temporary, ($value | ConvertTo-Json), [Text.UTF8Encoding]::new($false))
-        if ([IO.File]::Exists($resultPath)) { [IO.File]::Replace($temporary, $resultPath, $null) }
+        if ([IO.File]::Exists($resultPath)) { [IO.File]::Replace($temporary, $resultPath, [NullString]::Value) }
         else { [IO.File]::Move($temporary, $resultPath) }
     } finally {
         if (Test-Path -LiteralPath $temporary -PathType Leaf) { Remove-Item -LiteralPath $temporary }
@@ -85,7 +85,57 @@ function MatchEntries($planned, $declared, [string]$label) {
         $seen[$entry.path] = $true
     }
 }
+function CheckEntries($entries, [string]$label) {
+    if ($entries -isnot [Array]) { throw "$label files must be an array" }
+    $names = @{}
+    foreach ($entry in $entries) {
+        if ($entry -isnot [pscustomobject] -or $entry.path -isnot [string] -or !$entry.path -or
+            ($entry.size -isnot [int] -and $entry.size -isnot [long]) -or $entry.size -lt 0 -or
+            $entry.sha256 -isnot [string] -or $entry.sha256 -cnotmatch '^[0-9a-f]{64}$') { throw "Invalid $label file entry" }
+        $relative = $entry.path
+        if ($relative -match '(^/|\\|:|(^|/)\.\.?(/|$)|[<>"|?*\x00-\x1f\x7f])' -or
+            $relative -match '^(Strata-data|models|packs|mtp|\.git|logs|\.portable-update)(/|$)' -or
+            $relative -match '^(portable-settings\.json|strata-.*\.json|PACKAGE-MANIFEST\.json)$') { throw "Unsafe $label file path: $relative" }
+        foreach ($part in $relative.Split('/')) {
+            if (!$part -or $part.EndsWith(' ') -or $part.EndsWith('.') -or $part -match '^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(\.|$)') { throw "Invalid $label Windows file path: $relative" }
+        }
+        if ($names.ContainsKey($relative)) { throw "Duplicate $label file path: $relative" }
+        $names[$relative] = $true
+    }
+    if (!$names.ContainsKey('meta.json')) { throw "$label manifest lacks application metadata" }
+    foreach ($relative in $names.Keys) {
+        $parent = [IO.Path]::GetDirectoryName($relative).Replace('\', '/')
+        while ($parent) {
+            if ($names.ContainsKey($parent)) { throw "Conflicting $label file paths: $relative" }
+            $parent = [IO.Path]::GetDirectoryName($parent).Replace('\', '/')
+        }
+    }
+}
+function InstallFile([string]$source, [string]$target) {
+    # Publish a complete file without overwriting a file created after preflight.
+    $temporary = Join-Path ([IO.Path]::GetDirectoryName($target)) ('.t8-' + [Guid]::NewGuid().ToString('N') + '.tmp')
+    try {
+        Copy-Item -LiteralPath $source -Destination $temporary
+        [IO.File]::Move($temporary, $target)
+        $installed.Add($target)
+    } finally {
+        if (Test-Path -LiteralPath $temporary -PathType Leaf) { Remove-Item -LiteralPath $temporary -Force }
+    }
+}
 try {
+    $plan = Get-Content -LiteralPath $PlanPath -Raw -Encoding UTF8 | ConvertFrom-Json
+    if ($plan -isnot [pscustomobject]) { throw 'Update plan must be an object' }
+    foreach ($field in @('root','stage','backup')) {
+        if ($plan.$field -isnot [string] -or !$plan.$field -or ![IO.Path]::IsPathRooted($plan.$field)) { throw "Invalid update plan directory: $field" }
+    }
+    if ($plan.version -isnot [string] -or $plan.version -notmatch '^\d+\.\d+\.\d+-t8\.\d+$' -or
+        $plan.manifest_sha256 -isnot [string] -or $plan.manifest_sha256 -cnotmatch '^[0-9a-f]{64}$') { throw 'Invalid update plan identity' }
+    CheckEntries $plan.new 'New plan'
+    CheckEntries $plan.old 'Installed plan'
+    $appRoot = LongPath $plan.root
+    $stageRoot = LongPath $plan.stage
+    $backupRoot = [IO.Path]::GetFullPath($plan.backup).TrimEnd('\')
+    if (![IO.Directory]::Exists($appRoot) -or ![IO.Directory]::Exists($stageRoot)) { throw 'Application and staging roots must be directories' }
     CheckRoot $appRoot
     CheckRoot $stageRoot
     CheckRoot $backupRoot
@@ -104,9 +154,11 @@ try {
     $manifestPath = ScopedPath $stageRoot 'PACKAGE-MANIFEST.json'
     if (!$plan.manifest_sha256 -or (FileDigest $manifestPath) -ne $plan.manifest_sha256) { throw 'Staged manifest failed verification' }
     $manifest = Get-Content -LiteralPath $manifestPath -Raw -Encoding UTF8 | ConvertFrom-Json
+    CheckEntries $manifest.files 'New manifest'
     if ($plan.version -ne $manifest.version) { throw 'Plan version differs from staged manifest' }
     MatchEntries $plan.new $manifest.files 'New'
     $installedManifest = Get-Content -LiteralPath (ScopedPath $appRoot 'PACKAGE-MANIFEST.json') -Raw -Encoding UTF8 | ConvertFrom-Json
+    CheckEntries $installedManifest.files 'Installed manifest'
     MatchEntries $plan.old $installedManifest.files 'Installed'
     $newNames = @{}
     $oldNames = @{}
@@ -125,6 +177,12 @@ try {
         if (!$oldNames.ContainsKey($entry.path) -and (Test-Path -LiteralPath $destination -PathType Leaf)) { throw "Update would overwrite a user file: $($entry.path)" }
         if (!(Test-Path -LiteralPath $source -PathType Leaf) -or (Get-Item -LiteralPath $source).Length -ne $entry.size -or (FileDigest $source) -ne $entry.sha256) { throw "Staged file failed verification: $($entry.path)" }
         $newNames[$entry.path] = $true
+    }
+    # An apply may run much later than prepare; recheck the entire staged inventory.
+    foreach ($item in @(Get-ChildItem -LiteralPath $stageRoot -Recurse -Force)) {
+        $relative = $item.FullName.Substring($stageRoot.Length + 1).Replace('\', '/')
+        $null = ScopedPath $stageRoot $relative
+        if (!$item.PSIsContainer -and !$newNames.ContainsKey($relative) -and $relative -ne 'PACKAGE-MANIFEST.json') { throw "Unlisted staged file: $relative" }
     }
     $managed = @($plan.new | ForEach-Object { $_.path }) + @($plan.old | Where-Object { !$newNames.ContainsKey($_.path) } | ForEach-Object { $_.path }) + @('PACKAGE-MANIFEST.json')
     # Detect known path conflicts before replacing a large runtime or moving the first old file.
@@ -173,8 +231,7 @@ try {
             }
         }
         EnsureDirectory ([IO.Path]::GetDirectoryName($target))
-        $installed.Add($target)
-        Copy-Item -LiteralPath $source -Destination $target
+        InstallFile $source $target
     }
     WriteResult @{ success=$true; version=$plan.version; backup=$backupRoot }
     Remove-Item -LiteralPath $PlanPath
@@ -184,7 +241,7 @@ try {
     $failure = $_.Exception.Message
     $rollbackErrors = @()
     for ($i=$installed.Count-1; $i -ge 0; $i--) {
-        try { if (Test-Path -LiteralPath $installed[$i] -PathType Leaf) { Remove-Item -LiteralPath $installed[$i] } }
+        try { if (Test-Path -LiteralPath $installed[$i] -PathType Leaf) { Remove-Item -LiteralPath $installed[$i] -Force } }
         catch { $rollbackErrors += $_.Exception.Message }
     }
     foreach ($directory in @($createdDirectories | Select-Object -Unique | Sort-Object Length -Descending)) {

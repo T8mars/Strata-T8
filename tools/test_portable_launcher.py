@@ -39,10 +39,14 @@ class UpdateConfiguration(unittest.TestCase):
     def test_configure_forwards_explicit_port_to_offline_setup(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
+            def create_config():
+                portable.save_json(root/'strata-iq3_s.json', {'exe': 'fixture.exe', 'args': [], 'port': 8084})
+                return 0
             with mock.patch.object(portable, 'ROOT', root), mock.patch.object(portable, 'STATE', root/'state.json'), \
                  mock.patch.object(portable, 'model_delivery', return_value={'family': 'qwen', 'model': 'IQ3_S', 'gguf_dir': 'models'}), \
                  mock.patch.object(portable, 'fingerprint', return_value={}), \
-                 mock.patch.object(portable.upstream, 'main', return_value=0) as setup, \
+                 mock.patch.object(portable.upstream, 'main', side_effect=create_config) as setup, \
+                 mock.patch.object(portable.upstream, 'upgrade_config', side_effect=lambda p, c: c), \
                  mock.patch.object(portable.sys, 'argv', []):
                 portable.configure(root/'model', port=8084)
                 self.assertIn('--port', portable.sys.argv)

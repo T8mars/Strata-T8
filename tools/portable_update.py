@@ -11,12 +11,81 @@ import sys
 import tempfile
 import urllib.request
 import zipfile
+import uuid
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from portable_version import ROOT, metadata, version_key, archive_name
 from portable_weights import validate_weights, weight_declaration, allowed_weight, allowed_runtime_data, MODEL_SUFFIXES
 from portable_io import atomic_json
 urlopen = urllib.request.urlopen
+
+
+def update_json(text):
+    """Do not let ambiguous or nonstandard JSON choose update files or versions."""
+    def pairs(items):
+        value = {}
+        for key, item in items:
+            if key in value:
+                raise ValueError('Duplicate update JSON member')
+            value[key] = item
+        return value
+    def constant(value):
+        raise ValueError('Non-finite update JSON number')
+    try:
+        value = json.loads(text, object_pairs_hook=pairs, parse_constant=constant)
+        json.dumps(value, allow_nan=False, ensure_ascii=False).encode('utf-8')
+        return value
+    except RecursionError as error:
+        raise ValueError('Update JSON is too deeply nested') from error
+
+
+def update_metadata(root):
+    value = update_json((root/'meta.json').read_text(encoding='utf-8'))
+    if not isinstance(value, dict):
+        raise ValueError('Application metadata must be an object')
+    return value
+
+
+def discard_owned_pending_stage(root, plan):
+    """Remove only a superseded, unapplied stage made by this updater version."""
+    if not isinstance(plan, dict) or not isinstance(plan.get('stage_owner'), str):
+        return
+    temp_root = Path(tempfile.gettempdir()).resolve()
+    try:
+        original_stage = Path(plan.get('stage', '')).parent
+        if original_stage.is_symlink() or getattr(original_stage, 'is_junction', lambda: False)():
+            return
+        stage = original_stage.resolve()
+        if (stage.parent != temp_root or not stage.name.startswith('Strata-T8-update-')
+                or (stage/'backup').exists() or Path(plan['stage']).resolve() != stage/'incoming'
+                or Path(plan['backup']).resolve() != stage/'backup'):
+            return
+        marker = stage/'stage-owner.json'
+        if marker.is_symlink() or getattr(marker, 'is_junction', lambda: False)():
+            return
+        owner = update_json(marker.read_text(encoding='utf-8'))
+        if owner != {'root': str(root.resolve()), 'token': plan['stage_owner']}:
+            return
+        incoming = stage/'incoming'
+        manifest_path = incoming/'PACKAGE-MANIFEST.json'
+        if hashlib.sha256(manifest_path.read_bytes()).hexdigest() != plan.get('manifest_sha256'):
+            return
+        manifest = update_json(manifest_path.read_text(encoding='utf-8'))
+        validate_manifest(incoming, manifest)
+        expected = {'stage-owner.json', 'incoming/PACKAGE-MANIFEST.json'}
+        expected.update('incoming/'+e['path'] for e in manifest['files'])
+        expected.update(p.as_posix() for name in list(expected) for p in PurePosixPath(name).parents if p.as_posix() != '.')
+        if {p.relative_to(stage).as_posix() for p in stage.rglob('*')} != expected:
+            return  # Preserve anything added by the user, including empty directories.
+        # Recheck every component, and only delete this uniquely allocated temp tree.
+        for path in stage.rglob('*'):
+            if (path.is_symlink() or getattr(path, 'is_junction', lambda: False)()
+                    or not path.resolve().is_relative_to(stage)):
+                return
+        if stage.resolve().parent == temp_root and not (stage/'backup').exists():
+            shutil.rmtree(stage)
+    except (OSError, ValueError, KeyError, TypeError) as error:
+        print(f'[Update] Previous staging retained: {error}', file=sys.stderr)
 
 
 def safe_path(root, relative):
@@ -79,7 +148,7 @@ def validate_manifest(root, manifest, verify=True):
         actual = {p.relative_to(root).as_posix().casefold() for p in root.rglob('*') if p.is_file()}
         if actual != seen | {'package-manifest.json'}:
             raise ValueError('Release has unlisted or missing files')
-        application = metadata(root)
+        application = update_metadata(root)
         if not isinstance(application, dict) or application.get('version') != manifest['version']:
             raise ValueError('Application metadata version differs from package manifest')
         if application.get('edition', 'Portable-NoModels') != edition:
@@ -97,7 +166,12 @@ def latest_release(repo=None, timeout=10):
     repo = repo or metadata()['repository']
     req = urllib.request.Request(f'https://api.github.com/repos/{repo}/releases/latest', headers={'User-Agent': 'Strata-T8', 'Accept': 'application/vnd.github+json'})
     with urlopen(req, timeout=timeout) as response:
-        release = json.load(response)
+        payload = response.read(4*1024**2+1)
+        if len(payload) > 4*1024**2:
+            raise ValueError('Oversized release API metadata')
+        release = update_json(payload)
+    if not isinstance(release, dict):
+        raise ValueError('Release API metadata must be an object')
     if release.get('draft') or release.get('prerelease'):
         raise ValueError('Release is not stable')
     version_key(release['tag_name'])
@@ -203,7 +277,7 @@ def extract_release(archive, destination):
                 target.parent.mkdir(parents=True, exist_ok=True)
                 with z.open(info) as source, target.open('wb') as output:
                     shutil.copyfileobj(source, output)
-    manifest = json.loads((destination/'PACKAGE-MANIFEST.json').read_text(encoding='utf-8'))
+    manifest = update_json((destination/'PACKAGE-MANIFEST.json').read_text(encoding='utf-8'))
     validate_manifest(destination, manifest)
     return manifest
 
@@ -258,6 +332,10 @@ def publish_control_pair(root, plan_dir, plan):
 
 
 def prepare(root=ROOT, release=None, edition=None):
+    root = Path(root)
+    if not root.is_dir():
+        raise ValueError('Application root must be a directory')
+    current = update_metadata(root)
     plan_dir = root/'.portable-update'
     # Check every control file before mkdir, unlink or copying can follow a junction.
     for path in (plan_dir, plan_dir/'plan.json', plan_dir/'apply.ps1'):
@@ -266,17 +344,24 @@ def prepare(root=ROOT, release=None, edition=None):
         if not path.resolve().is_relative_to(root.resolve()):
             raise ValueError('Portable update control path leaves the application')
     plan_dir.mkdir(exist_ok=True)
+    previous = None
+    if (plan_dir/'plan.json').is_file():
+        try:
+            previous = update_json((plan_dir/'plan.json').read_text(encoding='utf-8'))
+        except ValueError:
+            pass  # A damaged old descriptor never grants permission to delete a path.
     if (root/'.git').exists():
         raise RuntimeError('Git checkout: use git pull / upstream sync. Release updates apply to extracted packages.')
     if running := running_processes(root):
         raise RuntimeError(f'Exit Strata before updating. Running processes: {running}')
-    release = release or latest_release(metadata(root)['repository'])
-    current_edition = metadata(root).get('edition', 'Portable-NoModels')
+    release = release or latest_release(current['repository'])
+    current_edition = current.get('edition', 'Portable-NoModels')
     edition = edition or current_edition
-    release_version, current_version = version_key(release['tag_name']), version_key(metadata(root)['version'])
+    release_version, current_version = version_key(release['tag_name']), version_key(current['version'])
     if release_version < current_version or (release_version == current_version and edition == current_edition):
         # The wrapper applies plan.json after exit 0; a no-op must not apply an older pending edition.
         (plan_dir/'plan.json').unlink(missing_ok=True)
+        discard_owned_pending_stage(root, previous)
         print('Already up to date.', flush=True)
         return None
     name = archive_name(release['tag_name'].removeprefix('v'), edition)
@@ -299,20 +384,24 @@ def prepare(root=ROOT, release=None, edition=None):
             raise ValueError('Release archive SHA256 or size mismatch')
         incoming = stage/'incoming'
         incoming.mkdir()
+        token = uuid.uuid4().hex
+        (stage/'stage-owner.json').write_text(json.dumps({'root': str(root.resolve()), 'token': token}), encoding='utf-8')
         manifest = extract_release(archive, incoming)
         if manifest.get('edition', 'Portable-NoModels') != edition:
             raise ValueError('Release edition differs from the requested edition')
-        if manifest['version'] != release['tag_name'].removeprefix('v') or metadata(incoming)['version'] != manifest['version']:
+        if manifest['version'] != release['tag_name'].removeprefix('v') or update_metadata(incoming)['version'] != manifest['version']:
             raise ValueError('Release, manifest and application versions differ')
-        old = json.loads((root/'PACKAGE-MANIFEST.json').read_text(encoding='utf-8'))
+        old = update_json((root/'PACKAGE-MANIFEST.json').read_text(encoding='utf-8'))
         validate_manifest(root, old, verify=False)
         # Never overwrite files a user created that were not managed by their old package.
         check_installation_topology(root, manifest['files'], old['files'])
         plan = {'root': str(root.resolve()), 'stage': str(incoming), 'backup': str(stage/'backup'),
                 'new': manifest['files'], 'old': old['files'], 'version': manifest['version'],
+                'stage_owner': token,
                 'manifest_sha256': hashlib.sha256((incoming/'PACKAGE-MANIFEST.json').read_bytes()).hexdigest()}
         archive.unlink()
         publish_control_pair(root, plan_dir, plan)
+        discard_owned_pending_stage(root, previous)
     except Exception:
         # Delete only the fresh directory created by this invocation, never a redirected path.
         if stage.resolve() == owned_stage and not stage.is_symlink() and not getattr(stage, 'is_junction', lambda: False)():

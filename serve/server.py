@@ -52,7 +52,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tools"))
 sys.path.insert(0, str(ROOT))   # run as a script (run-<model>.bat) as well as a module
 from serve.frontend import (ChatTemplate, Event, OutputParser, anthropic_to_messages,  # noqa: E402
-                            images_of, mark_think_literals, openai_to_messages, unmark_think_literals)
+                            images_of, mark_think_literals, openai_to_messages, unmark_think_literals, _json_value)
 from serve.mcp import McpCancelled, hub_from_config  # noqa: E402
 from serve import runconfig  # noqa: E402
 from serve.winjob import contain  # noqa: E402
@@ -2141,7 +2141,7 @@ class Service:
         if not s:
             return req
         req = dict(req)
-        if "max_tokens" in s and not req.get("max_tokens") and not req.get("max_completion_tokens"):
+        if "max_tokens" in s and req.get("max_tokens") is None and req.get("max_completion_tokens") is None:
             req["max_tokens"] = s["max_tokens"]
         effort = s.get("reasoning_effort")
         if effort:
@@ -3550,8 +3550,7 @@ def make_handler(svc: Service):
             try:
                 value = json.loads(self.request_body or b'{}', object_pairs_hook=pairs, parse_constant=constant)
                 # Also reject overflowing exponent numbers and unpaired escaped UTF-16 surrogates.
-                json.dumps(value, ensure_ascii=False, allow_nan=False).encode('utf-8')
-                return value
+                return _json_value(value)
             except RecursionError:
                 raise ValueError('request JSON is too deeply nested') from None
 
@@ -3672,6 +3671,7 @@ def make_handler(svc: Service):
                 items.close()
 
         def _openai(self, req):
+            validate_inference_request(req)
             req = svc.with_shared(req, "openai")
             messages, tools, kw = openai_to_messages(req)
             messages, validator = prepare_format(req.get("response_format"), messages)
@@ -3811,6 +3811,7 @@ def make_handler(svc: Service):
                 pass
 
         def _responses_prepare(self, req):
+            validate_inference_request(req)
             responses_api.check_request(req)
             messages = responses_api.input_messages(req)
             tools, names, skipped = responses_api.request_tools(req)
@@ -3857,6 +3858,7 @@ def make_handler(svc: Service):
             self._json(200, {"input_tokens": len(svc.encode_prompt(messages, tools, kw))})
 
         def _anthropic(self, req):
+            validate_inference_request(req)
             req = svc.with_shared(req, "anthropic")
             messages, tools, kw = anthropic_to_messages(req, svc.anthropic_think_unasked)
             max_new = int(req.get("max_tokens") or 0)                  # 0/-1: the rest of the context
@@ -4111,6 +4113,22 @@ def origins_of(value, key: str, wildcard: bool) -> list[str]:
 
 
 SHARED_KEYS = ("reasoning_effort", "temperature", "top_p", "top_k", "seed", "max_tokens", "experimental_speed_projection")
+
+
+def validate_inference_request(req) -> None:
+    """Reject fields which otherwise fail after loading the inference engine."""
+    if req.get('stream') is not None and not isinstance(req['stream'], bool):
+        raise ValueError('stream must be a boolean')
+    options = req.get('stream_options')
+    if options is not None:
+        if not isinstance(options, dict):
+            raise ValueError('stream_options must be an object')
+        if options.get('include_usage') is not None and not isinstance(options['include_usage'], bool):
+            raise ValueError('stream_options.include_usage must be a boolean')
+    try:
+        StrataEngine.sampling_keys(req)
+    except OverflowError:
+        raise ValueError('sampling numbers exceed the supported range') from None
 
 
 def clean_shared_defaults(d) -> dict:

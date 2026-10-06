@@ -54,12 +54,53 @@ class ChatTemplate:
 
 
 # ------------------------------------------------------------------------------------------------ requests
+def _json_value(value):
+    # Frontend/template walks use Python recursion; reject deeper data before loading.
+    pending = [(value, 0)]
+    while pending:
+        node, depth = pending.pop()
+        if isinstance(node, (dict, list)):
+            if depth >= 128:
+                raise ValueError('JSON nesting exceeds 128 levels')
+            pending.extend((part, depth + 1) for part in (node.values() if isinstance(node, dict) else node))
+    json.dumps(value, ensure_ascii=False, allow_nan=False).encode('utf-8')
+    return value
+
+
+def _json_loads(text):
+    """Apply the request JSON rules again to JSON carried inside a string."""
+    def pairs(items):
+        result = {}
+        for key, value in items:
+            if key in result:
+                raise ValueError('duplicate JSON member')
+            result[key] = value
+        return result
+    def constant(value):
+        raise ValueError('nonfinite JSON number')
+    try:
+        value = json.loads(text, object_pairs_hook=pairs, parse_constant=constant)
+        return _json_value(value)
+    except RecursionError:
+        raise ValueError('JSON nesting is too deep') from None
+
+
+def _text(value, name='text') -> str:
+    if value is None:
+        return ''
+    if not isinstance(value, str):
+        raise ValueError(f'{name} must be a string')
+    return value
+
+
 def _text_of(content) -> str:
     if content is None:
         return ""
     if isinstance(content, str):
         return content
-    return "".join(part.get("text", "") for part in content if isinstance(part, dict) and part.get("type") in
+    if not isinstance(content, list) or not all(isinstance(p, dict) for p in content):
+        raise ValueError('content must be a string or a list of content objects')
+    return "".join(_text(part.get("text", "")) for part in content if part.get("type") in
                    ("text", "input_text", None))
 
 
@@ -107,12 +148,17 @@ def _image_source(part: dict) -> str:
         if not isinstance(src, dict):
             raise ValueError('image source must be an object')
         if src.get("type") == "base64":
-            return f"data:{src.get('media_type', 'image/png')};base64,{src.get('data', '')}"
+            media = _text(src.get('media_type', 'image/png'), 'image media_type')
+            data = _text(src.get('data', ''), 'image data')
+            return f"data:{media};base64,{data}"
+        for key in ('url', 'path'):
+            if src.get(key) is not None:
+                _text(src[key], 'image ' + key)
         return src.get("url") or src.get("path") or ""
     url = part.get("image_url")
     if isinstance(url, dict):
         url = url.get("url")
-    return url or ""
+    return _text(url, 'image_url')
 
 
 def _parts_of(content):
@@ -120,6 +166,8 @@ def _parts_of(content):
     template's list form - text items and image items, in order - whose image items carry their source."""
     if not _has_image(content):
         return _text_of(content)
+    if not all(isinstance(p, dict) for p in content):
+        raise ValueError('content must be a list of content objects')
     items = []
     for part in content:
         if not isinstance(part, dict):
@@ -127,7 +175,7 @@ def _parts_of(content):
         if part.get("type") in IMAGE_PARTS:
             items.append({"type": "image", "source": _image_source(part)})
         elif part.get("type") in ("text", "input_text", None) and "text" in part:
-            items.append({"type": "text", "text": part.get("text", "")})
+            items.append({"type": "text", "text": _text(part.get("text", ""))})
     return items
 
 
@@ -230,7 +278,7 @@ def _object_list(value, name: str) -> list[dict]:
         return []
     if isinstance(value, str):
         try:
-            value = json.loads(value)
+            value = _json_loads(value)
         except ValueError:
             raise ValueError(f"{name} must be a list of objects (a string was sent that is not JSON)") from None
     if not isinstance(value, list) or not all(isinstance(m, dict) for m in value):
@@ -262,16 +310,22 @@ def _tool_list(value, wrapper: str | None) -> list[dict]:
 def openai_to_messages(req: dict) -> tuple[list[dict], list[dict] | None, dict]:
     """OpenAI Chat Completions -> (template messages, template tools, template kwargs)."""
     messages = []
-    template_kwargs = req.get('chat_template_kwargs') or {}
+    template_kwargs = req.get('chat_template_kwargs')
+    if template_kwargs is None:
+        template_kwargs = {}
     if not isinstance(template_kwargs, dict):
         raise ValueError('chat_template_kwargs must be an object')
     for m in _object_list(req.get("messages"), "messages"):
         role = m.get("role")
+        if role not in ('user', 'assistant', 'system', 'developer', 'tool', 'function'):
+            raise ValueError('messages need a supported string role')
         if role == "developer":
             role = "system"
         out = {"role": role, "content": _parts_of(m.get("content")) if role in ("user", "tool", "assistant") else _text_of(m.get("content"))}
-        if m.get("reasoning_content"):
-            out["reasoning_content"] = m["reasoning_content"]
+        if m.get("reasoning_content") is not None:
+            reasoning_text = _text(m["reasoning_content"], 'reasoning_content')
+            if reasoning_text:
+                out["reasoning_content"] = reasoning_text
         if m.get("tool_calls"):
             calls = []
             for c in _object_list(m["tool_calls"], "tool_calls"):
@@ -280,7 +334,9 @@ def openai_to_messages(req: dict) -> tuple[list[dict], list[dict] | None, dict]:
                     raise ValueError("tool_calls must be a list of objects (each with a \"function\" object)")
                 args = fn.get("arguments")
                 if isinstance(args, str):               # the template requires a mapping, not a JSON string
-                    args = json.loads(args) if args.strip() else {}
+                    args = _json_loads(args) if args.strip() else {}
+                if args is not None and not isinstance(args, dict):
+                    raise ValueError('tool call arguments must be an object')
                 calls.append({"function": {"name": fn.get("name"), "arguments": args or {}}})
             out["tool_calls"] = calls
         messages.append(out)
@@ -322,9 +378,9 @@ def anthropic_to_messages(req: dict, think_unasked: bool = True) -> tuple[list[d
         for block in _object_list(content or [], 'message content'):
             kind = block.get("type")
             if kind == "text":
-                text.append(block.get("text", ""))
+                text.append(_text(block.get("text", "")))
             elif kind == "thinking":
-                reasoning.append(block.get("thinking", ""))
+                reasoning.append(_text(block.get("thinking", ""), 'thinking'))
             elif kind == "tool_use":
                 calls.append({"function": {"name": block.get("name"), "arguments": block.get("input") or {}}})
             elif kind == "tool_result":
