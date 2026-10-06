@@ -161,7 +161,7 @@ def fingerprint(data):
 
 
 def same_machine(previous, current):
-    # A program update is not a hardware/model change and must not rerun setup defaults.
+    # Program/edition updates are not hardware/model changes and must not rerun setup defaults.
     return isinstance(previous, dict) and {k: v for k, v in previous.items() if k not in ('version', 'edition')} == {k: v for k, v in current.items() if k not in ('version', 'edition')}
 
 
