@@ -42,3 +42,25 @@
 ComfyUI 0.38.0 / Torch 2.7.0+cu128 / RTX 4060 Ti 16GB / 128GB RAM / DreamShaper 8：实际队列文字提示词→绘图输出 1 图，28.16s；图片理解→绘图输出 1 图，35.22s；两镜头分镜→Batch→下游绘图输出 2 图，58.34s。另验证队列 load、缓存重复和每次文字/视觉进程释放，最后停止自有托管服务。`audit6-graph-results.json` 的 8 份相关功能源码 SHA256 与冻结文件一致。
 
 首次派发发生在 ComfyUI 启动完成前，连接被拒绝；没有计作通过。辅助脚本增加 readiness 检查后，上述三图重新完整执行成功。可选 GLSL 模块缺失，未用于上述工作流；没有停止用户的其他服务，没有重新下载模型。节点官方 V3 CPU 探针独立验证列表/Unicode/缓存和透传，未初始化 CUDA，见 `audit6-node-official-probe.log`。
+
+
+## 正式发行核对
+
+最终源码 `d0a3c5ab0e1775583aba7a7b15c79d6b502f5947` 的[源码 CI](https://github.com/T8mars/Strata-T8/actions/runs/37470044887) 成功：528/188/258 例。源码 CI 没有嵌入式运行库，其中 5 个运行库用例明确跳过；[正式发行构建](https://github.com/T8mars/Strata-T8/actions/runs/37470047582) 安装真实运行库后，同一列表 **528/188/258 例全部通过，无跳过**。
+
+[整合包 0.1.39-t8.13](https://github.com/T8mars/Strata-T8/releases/tag/v0.1.39-t8.13) 已正式发布并为 latest。清单绑定上述提交；构建端核对完整文件 SHA256 和 ZIP CRC。
+
+| 发行包 | 字节数 | 文件数（不计清单） | ZIP SHA256 |
+| --- | ---: | ---: | --- |
+| VisionReady-NoMainModel | 1,922,449,722 | 8,023 | `759f2cb614b7e2b83269d1e29ab1c6ad06f030eabf6e168f4701e69e9ba44d1b` |
+| Portable-NoModels | 1,208,763,091 | 8,022 | `c32fcf20f4b68de7275b9ca5ebc0a8a3589d828fa48478c27b51b9f0c3fe0505` |
+
+再次核对 GitHub 资产摘要、公开 SHA256 文件、两个远端 ZIP 的清单及 19 份关键源码/配置。公开范围验证合计读取 4,221,653 字节，没有重新下载整合包或主模型。VisionReady 含 Python、依赖、CUDA/HIP 引擎、固定视觉权重及配置；两个包均不含主模型及 MTP，NoModels 不含任何权重。
+
+最终提交的本机文字推理返回 STRATA_OK，22.19s；视觉正确识别红圆、蓝方块和测试文字，5.16s。引擎已卸载，HTTP 在 `127.0.0.1:8082` 保持在线。三个 GPU 流程的 8 份相关功能源码 SHA256 与当前文件匹配。
+
+[节点 1.0.5](https://github.com/T8mars/Comfyui-Strata-T8/releases/tag/v1.0.5) 源码 `0452eb109136fe0c1958d5133612a5af7f31df0e`，[Windows/Linux CI](https://github.com/T8mars/Comfyui-Strata-T8/actions/runs/37469986731) 及[官方发布工作流](https://github.com/T8mars/Comfyui-Strata-T8/actions/runs/37469987350) 成功。Windows 188 例全执行，Linux 188 例中明确跳过 1 个 Windows 专属用例。GitHub ZIP SHA256 `71717f623abebe949b72164ab8a378ab3d66474cd329cd1c6adc07eb843b47d8`，Registry ZIP SHA256 `ea72c2668725d6fa0de39eb17ff8f5ec35690c7ac41ddcbb1147308aeba743b9`；代码逐字节匹配发布提交，10 个节点可导入，没有模型或个人档案。
+
+Publisher `t8star`；[Registry 版本接口](https://api.comfy.org/nodes/strata-t8/versions/1.0.5) 最终核查为 `NodeVersionStatusPending`，CDN 包可取得。审核期间使用 GitHub Release，未把提交成功说成 Manager 已可检索。
+
+证据位于忽略目录 `.portable-build/`：`audit6-cloud-root-ci.log`、`audit6-cloud-node-ci.log`、`audit6-cloud-node-publish.log`、`cloud-v13-release-success.log`、`release-v13-published.json`、`node-v105-published-verification.json`、`registry-v105-final-status.json`、`deployed-v13-results.json` 和前述回归/GPU 日志。本段是发布后的文档补充，没有替换不可变版本及资产。
