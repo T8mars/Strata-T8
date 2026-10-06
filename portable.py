@@ -15,6 +15,7 @@ ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / 'tools'))
 import setup as upstream
+from tools.portable_io import atomic_json
 
 STATE = ROOT / 'portable-settings.json'
 
@@ -24,7 +25,7 @@ def read_json(path):
 
 
 def save_json(path, value):
-    Path(path).write_text(json.dumps(value, indent=2, ensure_ascii=False), encoding='utf-8')
+    atomic_json(path, value)
 
 
 def environment_check():
@@ -94,21 +95,27 @@ def model_delivery(data):
     if not path.is_file():
         raise RuntimeError('Model delivery missing. Place the separately supplied Strata-data folder beside START-HERE.bat, or use IMPORT-MODEL.bat with its path. See README-PORTABLE.zh-CN.md.')
     model = read_json(path)
+    if not isinstance(model, dict):
+        raise RuntimeError('Invalid portable-model.json: expected a JSON object')
     family, size = model.get('family'), model.get('model')
-    if family not in upstream.FAMILIES or size not in upstream.MODELS:
+    if not isinstance(family, str) or not isinstance(size, str) or family not in upstream.FAMILIES or size not in upstream.MODELS:
         raise RuntimeError('Invalid portable-model.json: unsupported family or model')
     if family not in upstream.MODELS[size]['families']:
         raise RuntimeError('Model size does not belong to the selected family')
-    gguf = (data/model['gguf_dir']).resolve()
+    relative = model.get('gguf_dir')
+    required = model.get('required_files', [])
+    if not isinstance(relative, str) or not relative or not isinstance(required, list) or not all(isinstance(rel, str) and rel for rel in required):
+        raise RuntimeError('Invalid portable-model.json: expected gguf_dir and a list of required_files')
+    gguf = (data/relative).resolve()
     if not gguf.is_relative_to(data.resolve()) or not gguf.is_dir():
         raise RuntimeError('Invalid or missing model GGUF directory')
-    for rel in model.get('required_files', []):
+    for rel in required:
         path = (data/rel).resolve()
-        if not path.is_relative_to(data.resolve()) or not path.is_file():
+        if not path.is_relative_to(data.resolve()) or not path.is_file() or not path.stat().st_size:
             raise RuntimeError(f'Model delivery is incomplete: {rel}')
     for rel in ['mtp/rt/experts.bin', 'mtp/rt/dense.bin', 'mtp/rt/dense.txt']:
-        if not (data/rel).is_file():
-            raise RuntimeError(f'Model delivery is missing its auxiliary MTP layer: {rel}')
+        if not (data/rel).is_file() or not (data/rel).stat().st_size:
+            raise RuntimeError(f'Model delivery is incomplete: missing or empty auxiliary MTP layer: {rel}')
     return model
 
 

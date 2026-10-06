@@ -42,7 +42,7 @@ jobs:
         run: runtime/python/python.exe -X utf8 tools/prepare_portable_vision.py
       - name: Validate runtime and application
         run: |
-          runtime/python/python.exe -X utf8 -m unittest serve.test_server serve.test_security serve.test_responses serve.test_runconfig serve.test_lifecycle serve.test_vision_lifecycle tools.test_portable_entries tools.test_portable_audit tools.test_portable_weights tools.test_portable_windows tools.test_windows_utf8_manifest tools.test_portable_launcher tools.test_portable_update tools.test_sync_upstream tools.test_model_sources tools.test_setup_update -q
+          runtime/python/python.exe -X utf8 -m unittest serve.test_server serve.test_security serve.test_responses serve.test_runconfig serve.test_lifecycle serve.test_vision_lifecycle tools.test_portable_entries tools.test_portable_audit tools.test_portable_weights tools.test_portable_windows tools.test_windows_utf8_manifest tools.test_portable_launcher tools.test_portable_update tools.test_portable_round2 tools.test_sync_upstream tools.test_model_sources tools.test_setup_update -q
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           runtime/python/python.exe -X utf8 -m unittest discover -s tools -p 'test_setup_*.py' -q
           if ($LASTEXITCODE) { exit $LASTEXITCODE }

@@ -14,7 +14,8 @@ import zipfile
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from portable_version import ROOT, metadata, version_key, archive_name
-from portable_weights import validate_weights, allowed_weight, MODEL_SUFFIXES
+from portable_weights import validate_weights, allowed_weight, allowed_runtime_data, MODEL_SUFFIXES
+from portable_io import atomic_json
 urlopen = urllib.request.urlopen
 
 
@@ -51,7 +52,7 @@ def validate_manifest(root, manifest, verify=True):
         if key in seen or key == 'package-manifest.json':
             raise ValueError(f'Duplicate package path: {rel}')
         seen.add(key)
-        if file.suffix.lower() in MODEL_SUFFIXES and not allowed_weight(entry, edition):
+        if file.suffix.lower() in MODEL_SUFFIXES and not allowed_weight(entry, edition) and not allowed_runtime_data(entry):
             raise ValueError(f'Model in release: {rel}')
         if not re.fullmatch('[0-9a-f]{64}', entry['sha256']) or not isinstance(entry['size'], int) or entry['size'] < 0:
             raise ValueError(f'Invalid file digest or size: {rel}')
@@ -182,32 +183,44 @@ def prepare(root=ROOT, release=None, edition=None):
     if filename.strip().lstrip('*') != name or not re.fullmatch('[0-9a-fA-F]{64}', digest):
         raise ValueError('Invalid release checksum metadata')
     stage = Path(tempfile.mkdtemp(prefix='Strata-T8-update-'))
-    archive = stage/name
-    print(f'Downloading {name} ({assets[name]["size"]/1e9:.2f} GB) ...', flush=True)
-    count = fetch(assets[name]['browser_download_url'], archive)
-    with archive.open('rb') as stream:
-        actual = hashlib.file_digest(stream, 'sha256').hexdigest()
-    if count != assets[name]['size'] or actual.lower() != digest.lower():
-        raise ValueError('Release archive SHA256 or size mismatch')
-    incoming = stage/'incoming'
-    incoming.mkdir()
-    manifest = extract_release(archive, incoming)
-    if manifest.get('edition', 'Portable-NoModels') != edition:
-        raise ValueError('Release edition differs from the requested edition')
-    if manifest['version'] != release['tag_name'].removeprefix('v') or metadata(incoming)['version'] != manifest['version']:
-        raise ValueError('Release, manifest and application versions differ')
-    old = json.loads((root/'PACKAGE-MANIFEST.json').read_text(encoding='utf-8'))
-    validate_manifest(root, old, verify=False)
-    # Never overwrite files a user created that were not managed by their old package.
-    old_names = {e['path'].casefold() for e in old['files']}
-    for entry in manifest['files']:
-        if entry['path'].casefold() not in old_names and safe_path(root, entry['path']).exists():
-            raise ValueError(f'New release conflicts with user file: {entry["path"]}')
-    plan = {'root': str(root.resolve()), 'stage': str(incoming), 'backup': str(stage/'backup'),
-            'new': manifest['files'], 'old': old['files'], 'version': manifest['version'],
-            'manifest_sha256': hashlib.sha256((incoming/'PACKAGE-MANIFEST.json').read_bytes()).hexdigest()}
-    (plan_dir/'plan.json').write_text(json.dumps(plan, ensure_ascii=False), encoding='utf-8')
-    shutil.copy2(root/'tools/apply_portable_update.ps1', plan_dir/'apply.ps1')
+    owned_stage = stage.resolve()
+    try:
+        archive = stage/name
+        print(f'Downloading {name} ({assets[name]["size"]/1e9:.2f} GB) ...', flush=True)
+        count = fetch(assets[name]['browser_download_url'], archive)
+        with archive.open('rb') as stream:
+            actual = hashlib.file_digest(stream, 'sha256').hexdigest()
+        if count != assets[name]['size'] or actual.lower() != digest.lower():
+            raise ValueError('Release archive SHA256 or size mismatch')
+        incoming = stage/'incoming'
+        incoming.mkdir()
+        manifest = extract_release(archive, incoming)
+        if manifest.get('edition', 'Portable-NoModels') != edition:
+            raise ValueError('Release edition differs from the requested edition')
+        if manifest['version'] != release['tag_name'].removeprefix('v') or metadata(incoming)['version'] != manifest['version']:
+            raise ValueError('Release, manifest and application versions differ')
+        old = json.loads((root/'PACKAGE-MANIFEST.json').read_text(encoding='utf-8'))
+        validate_manifest(root, old, verify=False)
+        # Never overwrite files a user created that were not managed by their old package.
+        old_names = {e['path'].casefold() for e in old['files']}
+        for entry in manifest['files']:
+            if entry['path'].casefold() not in old_names and safe_path(root, entry['path']).exists():
+                raise ValueError(f'New release conflicts with user file: {entry["path"]}')
+        plan = {'root': str(root.resolve()), 'stage': str(incoming), 'backup': str(stage/'backup'),
+                'new': manifest['files'], 'old': old['files'], 'version': manifest['version'],
+                'manifest_sha256': hashlib.sha256((incoming/'PACKAGE-MANIFEST.json').read_bytes()).hexdigest()}
+        shutil.copy2(root/'tools/apply_portable_update.ps1', plan_dir/'apply.ps1')
+        archive.unlink()
+        atomic_json(plan_dir/'plan.json', plan)
+    except Exception:
+        (plan_dir/'plan.json').unlink(missing_ok=True)
+        # Delete only the fresh directory created by this invocation, never a redirected path.
+        if stage.resolve() == owned_stage and not stage.is_symlink() and not getattr(stage, 'is_junction', lambda: False)():
+            try:
+                shutil.rmtree(owned_stage)
+            except OSError as error:
+                print(f'[Update] Could not remove failed staging directory: {error}', file=sys.stderr)
+        raise
     print('Verified. Applying after Python exits; models and user configuration are preserved.', flush=True)
     return plan
 

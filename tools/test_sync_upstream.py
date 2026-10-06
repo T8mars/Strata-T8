@@ -4,6 +4,7 @@ from pathlib import Path
 import subprocess
 import tempfile
 import unittest
+from unittest import mock
 
 from tools.sync_upstream import sync, select_ref
 
@@ -76,6 +77,19 @@ class UpstreamSync(unittest.TestCase):
     def test_dirty_worktree_is_refused(self):
         (self.repo/'app.py').write_text('local edit')
         with self.assertRaisesRegex(RuntimeError, 'clean'): sync(self.repo, str(self.up), 'refs/heads/main')
+
+    def test_generation_failure_restores_the_original_upstream_readme(self):
+        (self.repo/'README-UPSTREAM.md').write_text('saved upstream documentation')
+        self.commit(self.repo, 'record original upstream README')
+        before = self.git(self.repo, 'rev-parse', 'HEAD')
+        (self.up/'README.md').write_text('new upstream README')
+        (self.up/'new.py').write_text('new code')
+        self.commit(self.up, 'new upstream commit')
+        with mock.patch('tools.sync_upstream.source_version', side_effect=RuntimeError('unsupported source version')):
+            with self.assertRaises(RuntimeError): sync(self.repo, str(self.up), 'refs/heads/main')
+        self.assertEqual(self.git(self.repo, 'rev-parse', 'HEAD'), before)
+        self.assertEqual((self.repo/'README-UPSTREAM.md').read_text(), 'saved upstream documentation')
+        self.assertFalse(self.git(self.repo, 'status', '--porcelain'))
 
 
 if __name__ == '__main__': unittest.main()

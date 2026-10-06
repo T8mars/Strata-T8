@@ -11,6 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT/'tools'))
 from portable_download import download
+from portable_io import atomic_json
 import setup
 
 
@@ -54,14 +55,14 @@ def main():
     if not (pack/'native_experts.txt').exists() or not (pack/'tokenizer/vocab.json').exists():
         run('iq_pack.py', '--gguf', gguf/catalog['files'][0]['file'], '--out', pack)
     mtp = data/'mtp'
-    if not all((mtp/'rt'/name).is_file() for name in ('experts.bin', 'dense.bin', 'dense.txt')):
+    if not all((mtp/'rt'/name).is_file() and (mtp/'rt'/name).stat().st_size for name in ('experts.bin', 'dense.bin', 'dense.txt')):
         run('portable_mtp_fetch.py', 'fetch', '--out', mtp)
         run('mtp_fetch.py', 'verify', '--out', mtp)
         run('mtp_pack.py', '--src', mtp, '--experts', 'q2_0', '--out', mtp/'mtp-q2_0.gguf')
         run('mtp_rt.py', '--gguf', mtp/'mtp-q2_0.gguf', '--out', mtp/'rt')
     descriptor = {**catalog, 'gguf_dir': 'models/IQ3_S', 'required_files': ['models/IQ3_S/'+e['file'] for e in catalog['files']],
                   'mtp_official_revision': __import__('mtp_fetch').PINNED_REVISION}
-    (data/'portable-model.json').write_text(json.dumps(descriptor, ensure_ascii=False, indent=2), encoding='utf-8')
+    atomic_json(data/'portable-model.json', descriptor)
     print(f'Model ready: {data}. Use IMPORT-MODEL.bat to configure this PC.', flush=True)
 
 

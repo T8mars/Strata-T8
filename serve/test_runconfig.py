@@ -62,8 +62,19 @@ class Apply(unittest.TestCase):
                 runconfig.apply(CFG, changes)
         with self.assertRaises(ValueError):                              # one bad value: nothing is applied
             runconfig.apply(CFG, {"fit_max_tokens": True, "sampling.top_k": 0})
-        with self.assertRaises(ValueError):
-            runconfig.apply({**CFG, "vision": {"gpu": True}}, {"lazy_load": True})
+
+    def test_vision_config_can_use_supported_lazy_loading(self):
+        cfg = {**CFG, "vision": {"gpu": True}}
+        new, changed = runconfig.apply(cfg, {"lazy_load": True})
+        self.assertIs(new["lazy_load"], True)
+        self.assertEqual(new["vision"], cfg["vision"])
+        self.assertEqual(changed, ["lazy_load"])
+
+    def test_nonfinite_and_unrepresentable_values_are_rejected_before_save(self):
+        for key in ("sampling.temperature", "sampling.top_p", "sampling.min_p", "idle_unload_s", "reasoning_budget_tokens"):
+            for value in (float('nan'), float('inf'), float('-inf'), 10**1000):
+                with self.subTest(key=key, kind=type(value).__name__), self.assertRaises(ValueError):
+                    runconfig.apply(CFG, {key: value})
 
     def test_view(self):
         v = runconfig.view({**CFG, "args": CFG["args"] + ["--vram-reserve-mib", "1500"]}, "x/strata-q2_0.json")
@@ -147,6 +158,14 @@ class Http(unittest.TestCase):
             status, _ = self.call("POST", {"set": {"fit_max_tokens": True}}, {"Authorization": "Bearer secret"})
         self.assertEqual(status, 200)
         self.assertIs(self.saved()["fit_max_tokens"], True)
+
+    def test_nonfinite_settings_return_400_without_touching_configuration(self):
+        before = self.path.read_bytes()
+        for value in (b'NaN', b'Infinity', b'-Infinity', b'1e999'):
+            status, _ = self.call('POST', b'{"set":{"idle_unload_s":'+value+b'}}')
+            self.assertEqual(status, 400)
+        self.assertEqual(self.path.read_bytes(), before)
+        self.assertFalse(self.path.with_name(self.path.name+'.bak').exists())
 
     def test_without_a_run_config(self):
         self.svc.config_path = None

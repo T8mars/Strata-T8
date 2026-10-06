@@ -31,6 +31,8 @@ def sync(root, url, ref):
     if git(root, 'merge-base', '--is-ancestor', commit, 'HEAD', check=False).returncode == 0:
         return {'changed': False, 'upstream_commit': commit}
     before = git(root, 'rev-parse', 'HEAD').stdout.strip()
+    readme_path = root/'README-UPSTREAM.md'
+    readme_before = readme_path.read_bytes() if readme_path.exists() else None
     merged = git(root, 'merge', '--no-ff', '--no-commit', commit, check=False)
     if merged.returncode:
         conflicts = git(root, 'diff', '--name-only', '--diff-filter=U').stdout.splitlines()
@@ -61,6 +63,11 @@ def sync(root, url, ref):
         git(root, 'merge', '--abort', check=False)
         # The merge's only generated files are controlled here.
         git(root, 'restore', '--source='+before, '--staged', '--worktree', 'meta.json')
+        git(root, 'restore', '--source='+before, '--staged', '--worktree', 'README-UPSTREAM.md', check=False)
+        if readme_before is None:
+            readme_path.unlink(missing_ok=True)
+        else:
+            readme_path.write_bytes(readme_before)
         raise
 
 

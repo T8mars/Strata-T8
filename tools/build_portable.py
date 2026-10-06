@@ -11,7 +11,7 @@ import sys
 import zipfile
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from portable_version import metadata, source_version, archive_name
-from portable_weights import weight_declaration, MODEL_SUFFIXES, allowed_weight
+from portable_weights import weight_declaration, MODEL_SUFFIXES, allowed_weight, allowed_runtime_data
 from windows_utf8_manifest import patch_engine
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -92,7 +92,7 @@ def main():
     for rel in ['third_party/llama.cpp/LICENSE']:
         shutil.copy2(ROOT/rel, TARGET/rel)
     (TARGET/'docs').mkdir()
-    for name in ['INSTALL.md', 'MODELS.md', 'TROUBLESHOOTING.md', 'AMD_HIP.md', 'HOW_IT_WORKS.md', 'DETAILS.md', 'BATCHING.md', 'UPDATING-T8.md', 'COMFYUI-T8.md', 'VALIDATION-COMFYUI-T8.md', 'AUDIT-20-T8.md']:
+    for name in ['INSTALL.md', 'MODELS.md', 'TROUBLESHOOTING.md', 'AMD_HIP.md', 'HOW_IT_WORKS.md', 'DETAILS.md', 'BATCHING.md', 'UPDATING-T8.md', 'COMFYUI-T8.md', 'VALIDATION-COMFYUI-T8.md', 'AUDIT-20-T8.md', 'AUDIT-20-ROUND2-T8.md']:
         shutil.copy2(ROOT/'docs'/name, TARGET/'docs'/name)
     # Preserve third-party licensing; ROCm/wheels already carry their license directories.
     versions = {d.metadata['Name']: d.version for d in importlib.metadata.distributions()}
@@ -109,7 +109,7 @@ def main():
         with file.open('rb') as stream:
             digest = hashlib.file_digest(stream, 'sha256').hexdigest()
         entry = {'path': rel, 'size': file.stat().st_size, 'sha256': digest}
-        if file.suffix.lower() in MODEL_SUFFIXES and not allowed_weight(entry, edition):
+        if file.suffix.lower() in MODEL_SUFFIXES and not allowed_weight(entry, edition) and not allowed_runtime_data(entry):
             raise SystemExit(f'Model-like file forbidden in distribution: {rel}')
         save['files'].append(entry)
     (TARGET/'PACKAGE-MANIFEST.json').write_text(json.dumps(save, indent=2, ensure_ascii=False), encoding='utf-8')

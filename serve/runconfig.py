@@ -10,9 +10,10 @@ used from the next start on.
 from __future__ import annotations
 
 import json
-import os
+import math
 import shutil
 from pathlib import Path
+from tools.portable_io import atomic_json
 
 # (key, kind, help).  kind: "bool", "int>=0", "num>=0", ("enum", values), "names", or ("sampling", check) for a key
 # of the "sampling" block, ("arg", flag) for an engine option kept in "args".
@@ -30,7 +31,7 @@ EDITABLE = [
      "Where a non-default reasoning effort goes: start (the default) or end (keeps the cache when it changes)"),
     ("aliases", "names", "Other model names the server lists and answers to (comma-separated)"),
     ("idle_unload_s", "num>=0", "Unload the model after this many seconds without requests (0 or empty: never)"),
-    ("lazy_load", "bool", "Start without loading the model; the first request loads it (text only)"),
+    ("lazy_load", "bool", "Start without loading the model; the first request loads it"),
     ("engine_silence_s", "num>=0", "End a request when the engine says nothing for this long (default 300 s, 0 = wait)"),
     ("api_monitor", "bool", "Keep the last 100 requests' prompts and answers in memory for /api-monitor"),
     ("open_browser", "bool", "Open the chat page in the browser when the model is ready"),
@@ -71,7 +72,11 @@ def view(cfg: dict, path: str | Path) -> dict:
 
 
 def _number(key, v, whole=False, lo=0.0, hi=None, lo_open=False):
-    if isinstance(v, bool) or not isinstance(v, (int, float)) or (whole and v != int(v)) or \
+    try:
+        finite = not isinstance(v, bool) and isinstance(v, (int, float)) and math.isfinite(v)
+    except OverflowError:
+        finite = False
+    if not finite or (whole and v != int(v)) or \
             (v <= lo if lo_open else v < lo) or (hi is not None and v > hi):
         rng = f"{'more than' if lo_open else 'at least'} {lo:g}" + (f" and at most {hi:g}" if hi is not None else "")
         raise ValueError(f"{key}: expected a {'whole ' if whole else ''}number, {rng}, not {v!r}")
@@ -89,8 +94,6 @@ def check(key: str, v, cfg: dict):
     if k == "bool":
         if not isinstance(v, bool):
             raise ValueError(f"{key}: expected true or false, not {v!r}")
-        if key == "lazy_load" and v and cfg.get("vision"):
-            raise ValueError("lazy_load: lazy loading is text-only, and this model reads images (\"vision\")")
         return v
     if k == "enum":
         if v not in kind[1]:
@@ -166,9 +169,7 @@ def save(path: str | Path, cfg: dict) -> Path:
     path = Path(path)
     bak = path.with_name(path.name + ".bak")
     shutil.copyfile(path, bak)
-    tmp = path.with_name(path.name + ".tmp")
-    tmp.write_text(json.dumps(cfg, indent=1), encoding="utf-8")
-    os.replace(tmp, path)
+    atomic_json(path, cfg, indent=1)
     return bak
 
 

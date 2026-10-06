@@ -38,6 +38,20 @@ function FileDigest([string]$path) {
     try { return [BitConverter]::ToString($hasher.ComputeHash($stream)).Replace('-', '').ToLower() }
     finally { $stream.Dispose(); $hasher.Dispose() }
 }
+function MatchEntries($planned, $declared, [string]$label) {
+    $expected = @{}
+    foreach ($entry in $declared) {
+        if (!$entry.path -or $expected.ContainsKey($entry.path)) { throw "Invalid $label manifest entries" }
+        $expected[$entry.path] = $entry
+    }
+    if (@($planned).Count -ne $expected.Count) { throw "$label plan differs from manifest" }
+    $seen = @{}
+    foreach ($entry in $planned) {
+        $original = $expected[$entry.path]
+        if (!$original -or $seen.ContainsKey($entry.path) -or $entry.size -ne $original.size -or $entry.sha256 -ne $original.sha256) { throw "$label plan differs from manifest: $($entry.path)" }
+        $seen[$entry.path] = $true
+    }
+}
 try {
     if (($appRoot -eq $stageRoot) -or ($appRoot -eq $backupRoot) -or (Test-Path -LiteralPath $backupRoot)) { throw 'Invalid or reused update directory' }
     $busy = @(Get-CimInstance Win32_Process | Where-Object {
@@ -50,6 +64,11 @@ try {
     if ($busy.Count) { throw 'Strata is running. Close its window and try again.' }
     $manifestPath = ScopedPath $stageRoot 'PACKAGE-MANIFEST.json'
     if (!$plan.manifest_sha256 -or (FileDigest $manifestPath) -ne $plan.manifest_sha256) { throw 'Staged manifest failed verification' }
+    $manifest = Get-Content -LiteralPath $manifestPath -Raw -Encoding UTF8 | ConvertFrom-Json
+    if ($plan.version -ne $manifest.version) { throw 'Plan version differs from staged manifest' }
+    MatchEntries $plan.new $manifest.files 'New'
+    $installedManifest = Get-Content -LiteralPath (ScopedPath $appRoot 'PACKAGE-MANIFEST.json') -Raw -Encoding UTF8 | ConvertFrom-Json
+    MatchEntries $plan.old $installedManifest.files 'Installed'
     $newNames = @{}
     $oldNames = @{}
     foreach ($entry in $plan.old) { $oldNames[$entry.path] = $true }

@@ -7,6 +7,7 @@ from pathlib import Path
 import shutil
 import subprocess
 import sys
+import tempfile
 import urllib.request
 import zipfile
 
@@ -18,14 +19,25 @@ import setup
 
 
 def download(url, target, sha=None):
-    if not target.exists():
-        print(f'Downloading {target.name}', flush=True)
-        with urllib.request.urlopen(url, timeout=120) as src, target.open('wb') as dst:
-            shutil.copyfileobj(src, dst, length=4*1024**2)
-    if sha:
+    if target.is_file():
+        if not sha:
+            return
         with target.open('rb') as stream:
-            if hashlib.file_digest(stream, 'sha256').hexdigest() != sha:
-                raise ValueError(f'Checksum mismatch: {target.name}')
+            if hashlib.file_digest(stream, 'sha256').hexdigest() == sha:
+                return
+    print(f'Downloading {target.name}', flush=True)
+    descriptor, name = tempfile.mkstemp(prefix=target.name+'.', suffix='.tmp', dir=target.parent)
+    temporary = Path(name)
+    try:
+        with os.fdopen(descriptor, 'wb') as dst, urllib.request.urlopen(url, timeout=120) as src:
+            shutil.copyfileobj(src, dst, length=4*1024**2)
+        if sha:
+            with temporary.open('rb') as stream:
+                if hashlib.file_digest(stream, 'sha256').hexdigest() != sha:
+                    raise ValueError(f'Checksum mismatch: {target.name}')
+        os.replace(temporary, target)
+    finally:
+        temporary.unlink(missing_ok=True)
 
 
 def extract(archive, destination):

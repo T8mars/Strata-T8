@@ -2,7 +2,15 @@
 VISION_PATH = 'vision/weights/mmproj-Qwen3.8-Flash-Next-BF16.gguf'
 VISION_SIZE = 907543008
 VISION_SHA256 = 'b1a82259702816a5330d7bd7607cd9676b11780e79ff7348c21103ff3ce49bd0'
-MODEL_SUFFIXES = ('.gguf', '.safetensors', '.pt', '.pth', '.ckpt', '.onnx')
+MODEL_SUFFIXES = ('.gguf', '.safetensors', '.pt', '.pth', '.ckpt', '.onnx', '.bin')
+RUNTIME_BINARY_DATA = {'data/expert-profile.bin', 'data/expert-profile-coder.bin',
+                       'data/draft_vocab.bin', 'data/draft_vocab_en.bin',
+                       'data/draft_vocab_fr.bin', 'data/draft_vocab_cyrillic.bin'}
+
+
+def allowed_runtime_data(entry):
+    # Small upstream expert routing statistics and token masks are metadata, not tensor weights.
+    return entry['path'] in RUNTIME_BINARY_DATA and 0 < entry['size'] <= 1024**2
 
 
 def weight_declaration(edition):
