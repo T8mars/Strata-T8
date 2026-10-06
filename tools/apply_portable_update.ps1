@@ -19,7 +19,17 @@ function LongPath([string]$path) {
 $appRoot = LongPath $plan.root
 $stageRoot = LongPath $plan.stage
 $backupRoot = [IO.Path]::GetFullPath($plan.backup).TrimEnd('\')
-$resultPath = Join-Path $appRoot '.portable-update/result.json'
+$resultPath = $null
+function CheckRoot([string]$path) {
+    $parent = $path
+    while ($parent) {
+        if ((Test-Path -LiteralPath $parent) -and ((Get-Item -LiteralPath $parent -Force).Attributes -band [IO.FileAttributes]::ReparsePoint)) { throw "Linked update directory: $path" }
+        $parent = [IO.Path]::GetDirectoryName($parent)
+    }
+}
+function Overlapping([string]$first, [string]$second) {
+    return $first.Equals($second, [StringComparison]::OrdinalIgnoreCase) -or $first.StartsWith($second + '\', [StringComparison]::OrdinalIgnoreCase) -or $second.StartsWith($first + '\', [StringComparison]::OrdinalIgnoreCase)
+}
 function ScopedPath([string]$base, [string]$relative) {
     if ($relative -match '(^/|\\|:|(^|/)\.\.?(/|$))') { throw "Unsafe path: $relative" }
     $target = [IO.Path]::GetFullPath((Join-Path $base $relative))
@@ -53,7 +63,11 @@ function MatchEntries($planned, $declared, [string]$label) {
     }
 }
 try {
-    if (($appRoot -eq $stageRoot) -or ($appRoot -eq $backupRoot) -or (Test-Path -LiteralPath $backupRoot)) { throw 'Invalid or reused update directory' }
+    CheckRoot $appRoot
+    CheckRoot $stageRoot
+    CheckRoot $backupRoot
+    $resultPath = ScopedPath $appRoot '.portable-update/result.json'
+    if ((Overlapping $appRoot $stageRoot) -or (Overlapping $appRoot $backupRoot) -or (Overlapping $stageRoot $backupRoot) -or (Test-Path -LiteralPath $backupRoot)) { throw 'Invalid, overlapping or reused update directory' }
     $busy = @(Get-CimInstance Win32_Process | Where-Object {
         $processPath = $_.ExecutablePath
         if (!$processPath -or ![IO.Path]::IsPathRooted($processPath)) { return $false }
@@ -80,6 +94,17 @@ try {
         $newNames[$entry.path] = $true
     }
     $managed = @($plan.new | ForEach-Object { $_.path }) + @($plan.old | Where-Object { !$newNames.ContainsKey($_.path) } | ForEach-Object { $_.path }) + @('PACKAGE-MANIFEST.json')
+    # Detect known path conflicts before replacing a large runtime or moving the first old file.
+    foreach ($relative in $managed) {
+        $target = ScopedPath $appRoot $relative
+        $null = ScopedPath $backupRoot $relative
+        if ((Test-Path -LiteralPath $target) -and !(Test-Path -LiteralPath $target -PathType Leaf)) { throw "Target is not a file: $relative" }
+        $parent = [IO.Path]::GetDirectoryName($target)
+        while ($parent.StartsWith($appRoot + '\', [StringComparison]::OrdinalIgnoreCase)) {
+            if (Test-Path -LiteralPath $parent -PathType Leaf) { throw "Target parent is a file: $relative" }
+            $parent = [IO.Path]::GetDirectoryName($parent)
+        }
+    }
     foreach ($relative in $managed) {
         $target = ScopedPath $appRoot $relative
         $backup = ScopedPath $backupRoot $relative
@@ -113,7 +138,7 @@ try {
             if ($change.saved) { Move-Item -LiteralPath $change.backup -Destination $change.target }
         } catch { $rollbackErrors += $_.Exception.Message }
     }
-    @{ success=$false; error=$failure; rollback_errors=$rollbackErrors; backup=$backupRoot } | ConvertTo-Json | Set-Content -LiteralPath $resultPath -Encoding UTF8
+    if ($resultPath) { @{ success=$false; error=$failure; rollback_errors=$rollbackErrors; backup=$backupRoot } | ConvertTo-Json | Set-Content -LiteralPath $resultPath -Encoding UTF8 }
     Write-Host "Update failed: $failure"
     if ($rollbackErrors.Count) { Write-Host 'Rollback needs attention. See .portable-update/result.json and the backup.' }
     else { Write-Host 'Previous installation preserved.' }

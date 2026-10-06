@@ -6,6 +6,7 @@ import json
 import os
 from pathlib import Path
 import platform
+import re
 import subprocess
 import sys
 import threading
@@ -15,7 +16,7 @@ ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / 'tools'))
 import setup as upstream
-from tools.portable_io import atomic_json
+from tools.portable_io import atomic_json, atomic_bytes
 
 STATE = ROOT / 'portable-settings.json'
 
@@ -26,6 +27,37 @@ def read_json(path):
 
 def save_json(path, value):
     atomic_json(path, value)
+
+
+def read_state():
+    state = read_json(STATE) if STATE.exists() else {}
+    if not isinstance(state, dict):
+        raise RuntimeError('Invalid portable-settings.json: expected a JSON object')
+    saved = state.get('portable_data_dir')
+    if saved is not None and (not isinstance(saved, str) or not saved or any(ord(c) < 32 for c in saved)):
+        raise RuntimeError('Invalid portable-settings.json: expected a model folder path')
+    return state
+
+
+def read_config(path):
+    config = read_json(path)
+    if (not isinstance(config, dict) or ('args' in config and (not isinstance(config['args'], list)
+            or not all(isinstance(arg, str) for arg in config['args'])))
+            or ('vision' in config and not isinstance(config['vision'], dict))):
+        raise RuntimeError('Invalid run configuration: expected an object with engine arguments and vision settings')
+    return config
+
+
+def config_path(state):
+    name = state.get('portable_config', 'missing.json')
+    if not isinstance(name, str) or Path(name).name != name or '/' in name or '\\' in name or ':' in name:
+        raise RuntimeError('Invalid portable-settings.json: config must be a file in the application folder')
+    if name != 'missing.json' and not re.fullmatch(r'strata-[A-Za-z0-9_-]+\.json', name):
+        raise RuntimeError('Invalid portable-settings.json: expected a strata model configuration')
+    path = ROOT/name
+    if not path.resolve().is_relative_to(ROOT.resolve()) or path.is_symlink():
+        raise RuntimeError('Invalid portable-settings.json: linked configuration path')
+    return path
 
 
 def environment_check():
@@ -78,7 +110,7 @@ def data_path(requested=None):
     if requested:
         return Path(requested).expanduser().resolve()
     if STATE.exists():
-        saved = read_json(STATE).get('portable_data_dir')
+        saved = read_state().get('portable_data_dir')
         if saved:
             path = Path(saved)
             path = path if path.is_absolute() else ROOT/path
@@ -114,7 +146,8 @@ def model_delivery(data):
         if not path.is_relative_to(data.resolve()) or not path.is_file() or not path.stat().st_size:
             raise RuntimeError(f'Model delivery is incomplete: {rel}')
     for rel in ['mtp/rt/experts.bin', 'mtp/rt/dense.bin', 'mtp/rt/dense.txt']:
-        if not (data/rel).is_file() or not (data/rel).stat().st_size:
+        component = (data/rel).resolve()
+        if not component.is_relative_to(data.resolve()) or not component.is_file() or not component.stat().st_size:
             raise RuntimeError(f'Model delivery is incomplete: missing or empty auxiliary MTP layer: {rel}')
     return model
 
@@ -131,14 +164,20 @@ def same_machine(previous, current):
 
 
 def refresh_updated_config(cfg_path, state, current):
-    config = read_json(cfg_path)
+    config = read_config(cfg_path)
     engine = ROOT/('engine-hip' if config.get('backend') == 'hip' else 'engine')
     config['exe'] = str(engine/'strata.exe')
     config['cwd'] = str(ROOT)
     config['lib_dirs'] = [str(p) for p in (upstream.hip_lib_dirs(engine) if config.get('backend') == 'hip' else upstream.cuda_lib_dirs())]
     if config.get('vision') and config['vision'].get('bundled'):
-        config['vision']['exe'] = str(ROOT/'engine/strata-vision.exe')
-        config['vision']['mmproj'] = str(ROOT/'vision/weights'/read_json(ROOT/'vision/catalog.json')['file'])
+        from portable_version import metadata
+        if metadata(ROOT).get('edition') == 'Portable-NoModels':
+            config.pop('vision')
+            config['args'] = [arg for arg in config.get('args', []) if arg != '--vision']
+            print('NoModels edition: bundled vision is disabled. Run INSTALL-VISION.bat to restore it.', flush=True)
+        else:
+            config['vision']['exe'] = str(ROOT/'engine/strata-vision.exe')
+            config['vision']['mmproj'] = str(ROOT/'vision/weights'/read_json(ROOT/'vision/catalog.json')['file'])
     # Apply upstream compatibility migrations, retaining server settings and custom engine arguments.
     config = upstream.upgrade_config(cfg_path, config)
     save_json(cfg_path, config)
@@ -176,6 +215,14 @@ def configure(data, context=None, backend=None, vision=None, vision_tokens=None,
     model = model_delivery(data)
     tag = upstream.FAMILIES[model['family']]['tag'] + model['model']
     cfg_path = ROOT/f'strata-{tag.lower()}.json'
+    if cfg_path.is_symlink() or not cfg_path.resolve().is_relative_to(ROOT.resolve()):
+        raise RuntimeError('Linked configuration path; use a regular file in the application folder')
+    previous = {path: path.read_bytes() if path.exists() else None for path in (cfg_path, STATE)}
+    old_config = read_config(cfg_path) if cfg_path.exists() else {}
+    if not isinstance(old_config, dict):
+        raise RuntimeError('Invalid run configuration: expected a JSON object')
+    # Validate state before setup can replace either configuration file.
+    original_state = read_state()
     args = ['setup.py', '--setup', '--yes', '--no-start', '--family', model['family'], '--model', model['model'],
             '--vision', 'no', '--data-dir', str(data), '--gguf-dir', str(data/model['gguf_dir']),
             '--experimental-speed-projection', 'off']
@@ -186,23 +233,49 @@ def configure(data, context=None, backend=None, vision=None, vision_tokens=None,
     if port is not None:
         args += ['--port', str(port)]
     sys.argv = args
-    result = upstream.main()
-    if result:
-        return result, cfg_path
-    if vision == 'auto':
-        generated = read_json(cfg_path)
-        vision = 'gpu' if generated.get('backend') != 'hip' and model['family'] == 'qwen' else 'no'
-    if vision and vision != 'no':
-        save_json(cfg_path, attach_vision(read_json(cfg_path), model, vision, vision_tokens))
-    # Paths in native_experts.txt are per-model shard names (no machine paths).
-    state = read_json(STATE) if STATE.exists() else {}
+    def restore():
+        failed = []
+        for path, content in previous.items():
+            try:
+                if content is None:
+                    path.unlink(missing_ok=True)
+                else:
+                    atomic_bytes(path, content)
+            except OSError:
+                failed.append(path.name)
+        if failed:
+            raise RuntimeError('Configuration rollback incomplete; could not restore: ' + ', '.join(failed))
+    completed = False
     try:
-        state['portable_data_dir'] = os.path.relpath(data, ROOT)
-    except ValueError:
-        state['portable_data_dir'] = str(data)
-    state['portable_config'] = cfg_path.name
-    state['portable_fingerprint'] = fingerprint(data)
-    save_json(STATE, state)
+        result = upstream.main()
+        if result:
+            return result, cfg_path
+        if cfg_path.is_file():
+            generated = read_config(cfg_path)
+            for key in ('host', 'api_key', 'port'):
+                if key in old_config and (key != 'port' or port is None):
+                    generated[key] = old_config[key]
+            if vision == 'auto':
+                old_vision = old_config.get('vision') or {}
+                vision = ('gpu' if old_vision.get('gpu', True) else 'cpu') if generated.get('backend') != 'hip' and model['family'] == 'qwen' else 'no'
+            if vision and vision != 'no':
+                if isinstance(old_config.get('vision'), dict):
+                    generated['vision'] = old_config['vision']
+                generated = attach_vision(generated, model, vision, vision_tokens)
+            save_json(cfg_path, generated)
+        # Paths in native_experts.txt are per-model shard names (no machine paths).
+        state = {**original_state, **read_state()}
+        try:
+            state['portable_data_dir'] = os.path.relpath(data, ROOT)
+        except ValueError:
+            state['portable_data_dir'] = str(data)
+        state['portable_config'] = cfg_path.name
+        state['portable_fingerprint'] = fingerprint(data)
+        save_json(STATE, state)
+        completed = True
+    finally:
+        if not completed:
+            restore()
     print(f'Portable model configured: {cfg_path.name}', flush=True)
     return 0, cfg_path
 
@@ -239,8 +312,8 @@ def main():
             raise RuntimeError('No model folder was selected')
     data = data_path(args.data_dir)
     model_delivery(data)
-    state = read_json(STATE) if STATE.exists() else {}
-    cfg = ROOT/state.get('portable_config', 'missing.json')
+    state = read_state()
+    cfg = config_path(state)
     current = fingerprint(data)
     previous = state.get('portable_fingerprint')
     if args.action in ('configure', 'import') or not cfg.is_file() or not same_machine(previous, current) or args.context or args.backend:
@@ -252,7 +325,7 @@ def main():
             return result
     elif previous.get('version') != current['version']:
         refresh_updated_config(cfg, state, current)
-    config = read_json(cfg)
+    config = read_config(cfg)
     if args.vision is not None or args.vision_tokens is not None:
         if args.vision == 'no':
             config.pop('vision', None)

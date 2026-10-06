@@ -20,10 +20,12 @@ urlopen = urllib.request.urlopen
 
 
 def safe_path(root, relative):
+    if not isinstance(relative, str):
+        raise ValueError('Package path must be a string')
     path = PurePosixPath(relative)
     if not relative or '\\' in relative or ':' in relative or path.is_absolute() or any(p in ('..', '.') for p in relative.split('/')):
         raise ValueError(f'Unsafe package path: {relative}')
-    if any(not p or p.endswith((' ', '.')) or PureWindowsPath(p).is_reserved() or re.search(r'[<>"|?*]', p) for p in relative.split('/')):
+    if any(not p or p.endswith((' ', '.')) or PureWindowsPath(p).is_reserved() or re.search(r'[<>"|?*\x00-\x1f\x7f]', p) for p in relative.split('/')):
         raise ValueError(f'Invalid Windows package path: {relative}')
     if path.parts[0].lower() in ('strata-data', 'models', 'packs', 'mtp', '.git', 'logs', '.portable-update'):
         raise ValueError(f'User data path in package: {relative}')
@@ -42,6 +44,13 @@ def safe_path(root, relative):
 
 
 def validate_manifest(root, manifest, verify=True):
+    if not isinstance(manifest, dict) or not isinstance(manifest.get('files'), list) or not isinstance(manifest.get('version'), str):
+        raise ValueError('Invalid package manifest: expected version and file list')
+    for entry in manifest['files']:
+        if (not isinstance(entry, dict) or not isinstance(entry.get('path'), str)
+                or type(entry.get('size')) is not int or entry['size'] < 0
+                or not isinstance(entry.get('sha256'), str) or not re.fullmatch('[0-9a-f]{64}', entry['sha256'])):
+            raise ValueError('Invalid package file entry: expected path, integer size and SHA256')
     edition = validate_weights(manifest)
     version_key(manifest['version'])
     seen = set()
@@ -63,6 +72,9 @@ def validate_manifest(root, manifest, verify=True):
                 actual = hashlib.file_digest(stream, 'sha256').hexdigest()
             if actual != entry['sha256']:
                 raise ValueError(f'Release file checksum failed: {rel}')
+    for key in seen:
+        if any(parent.as_posix() in seen for parent in PurePosixPath(key).parents):
+            raise ValueError(f'Conflicting package file paths: {key}')
     if verify:
         actual = {p.relative_to(root).as_posix().casefold() for p in root.rglob('*') if p.is_file()}
         if actual != seen | {'package-manifest.json'}:
@@ -161,8 +173,13 @@ def extract_release(archive, destination):
 
 def prepare(root=ROOT, release=None, edition=None):
     plan_dir = root/'.portable-update'
+    # Check every control file before mkdir, unlink or copying can follow a junction.
+    for path in (plan_dir, plan_dir/'plan.json', plan_dir/'apply.ps1'):
+        if path.is_symlink() or getattr(path, 'is_junction', lambda: False)():
+            raise ValueError('Linked portable update control path')
+        if not path.resolve().is_relative_to(root.resolve()):
+            raise ValueError('Portable update control path leaves the application')
     plan_dir.mkdir(exist_ok=True)
-    (plan_dir/'plan.json').unlink(missing_ok=True)
     if (root/'.git').exists():
         raise RuntimeError('Git checkout: use git pull / upstream sync. Release updates apply to extracted packages.')
     if running := running_processes(root):
@@ -172,6 +189,8 @@ def prepare(root=ROOT, release=None, edition=None):
     edition = edition or current_edition
     release_version, current_version = version_key(release['tag_name']), version_key(metadata(root)['version'])
     if release_version < current_version or (release_version == current_version and edition == current_edition):
+        # The wrapper applies plan.json after exit 0; a no-op must not apply an older pending edition.
+        (plan_dir/'plan.json').unlink(missing_ok=True)
         print('Already up to date.', flush=True)
         return None
     name = archive_name(release['tag_name'].removeprefix('v'), edition)
@@ -213,7 +232,6 @@ def prepare(root=ROOT, release=None, edition=None):
         archive.unlink()
         atomic_json(plan_dir/'plan.json', plan)
     except Exception:
-        (plan_dir/'plan.json').unlink(missing_ok=True)
         # Delete only the fresh directory created by this invocation, never a redirected path.
         if stage.resolve() == owned_stage and not stage.is_symlink() and not getattr(stage, 'is_junction', lambda: False)():
             try:

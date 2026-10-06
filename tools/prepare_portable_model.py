@@ -52,7 +52,7 @@ def main():
     def run(tool, *arguments):
         subprocess.run([sys.executable, '-X', 'utf8', str(ROOT/'tools'/tool), *map(str, arguments)], env=env, check=True)
     pack = data/'packs/iq3_s'
-    if not (pack/'native_experts.txt').exists() or not (pack/'tokenizer/vocab.json').exists():
+    if not all((pack/name).is_file() and (pack/name).stat().st_size for name in ('native_experts.txt', 'tokenizer/vocab.json', 'tokenizer/chat_template.jinja')):
         run('iq_pack.py', '--gguf', gguf/catalog['files'][0]['file'], '--out', pack)
     mtp = data/'mtp'
     if not all((mtp/'rt'/name).is_file() and (mtp/'rt'/name).stat().st_size for name in ('experts.bin', 'dense.bin', 'dense.txt')):

@@ -3,7 +3,8 @@ from __future__ import annotations
 import hashlib
 import json
 import os
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
+import re
 import shutil
 import subprocess
 import sys
@@ -41,11 +42,39 @@ def download(url, target, sha=None):
 
 
 def extract(archive, destination):
+    destination = Path(destination)
     with zipfile.ZipFile(archive) as z:
+        entries = {}
+        total = 0
         for member in z.infolist():
-            target = destination/member.filename
-            if not target.resolve().is_relative_to(destination.resolve()) or ':' in member.filename or '\\' in member.filename:
+            name = member.filename.rstrip('/') if member.is_dir() else member.filename
+            parts = name.split('/')
+            target = destination.joinpath(*parts)
+            if (not name or PurePosixPath(name).is_absolute() or ':' in name or '\\' in name
+                    or any(not p or p in ('.', '..') or p.endswith((' ', '.')) or PureWindowsPath(p).is_reserved()
+                           or re.search(r'[<>"|?*\x00-\x1f\x7f]', p) for p in parts)
+                    or not target.resolve().is_relative_to(destination.resolve())):
                 raise ValueError('Unsafe upstream ZIP path')
+            if (member.external_attr >> 16) & 0o170000 == 0o120000:
+                raise ValueError('Linked upstream ZIP path')
+            for parent in [target, *target.parents]:
+                if parent == destination.parent: break
+                if parent.is_symlink() or getattr(parent, 'is_junction', lambda: False)():
+                    raise ValueError('Linked upstream extraction path')
+                if parent.exists() and ((parent == target and member.is_dir() and not parent.is_dir())
+                        or (parent == target and not member.is_dir() and parent.is_dir())
+                        or (parent != target and not parent.is_dir())):
+                    raise ValueError('Conflicting upstream extraction path')
+            key = name.casefold()
+            if key in entries:
+                raise ValueError('Duplicate upstream ZIP path')
+            entries[key] = member.is_dir()
+            total += member.file_size
+            if total > 8*1024**3:
+                raise ValueError('Upstream ZIP expands beyond 8 GiB')
+        for key in entries:
+            if any(entries.get(parent.as_posix()) is False for parent in PurePosixPath(key).parents if parent.as_posix() != '.'):
+                raise ValueError('Conflicting upstream ZIP paths')
         z.extractall(destination)
 
 

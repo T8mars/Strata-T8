@@ -79,15 +79,25 @@ def prepare_format(response_format, messages):
 
     def check_refs(node):
         if isinstance(node, dict):
-            for key, value in node.items():
+            for key in ('$ref', '$dynamicRef'):
+                value = node.get(key)
                 if key in ("$ref", "$dynamicRef") and isinstance(value, str) and not value.startswith("#"):
                     raise ValueError("response_format supports only local schema references (#...)")
-                check_refs(value)
+            for key in ('$defs', 'definitions', 'properties', 'patternProperties', 'dependentSchemas'):
+                for value in (node.get(key) or {}).values() if isinstance(node.get(key), dict) else ():
+                    check_refs(value)
+            for key in ('additionalProperties', 'unevaluatedProperties', 'propertyNames', 'items', 'contains',
+                        'additionalItems', 'not', 'if', 'then', 'else', 'unevaluatedItems', 'contentSchema',
+                        'allOf', 'anyOf', 'oneOf', 'prefixItems'):
+                if key in node: check_refs(node[key])
         elif isinstance(node, list):
             for value in node:
                 check_refs(value)
-    check_refs(schema)
     if modules is None:
+        try:
+            check_refs(schema)
+        except RecursionError:
+            raise ValueError('response_format schema is too deeply nested') from None
         validator = _ObjectOnly()
     else:
         validators, SchemaError, Registry, NoSuchResource = modules
@@ -98,9 +108,39 @@ def prepare_format(response_format, messages):
         try:
             cls = validators.validator_for(schema)
             cls.check_schema(schema)
-            validator = cls(schema, registry=Registry(retrieve=no_remote))
+            registry = Registry(retrieve=no_remote)
+            from referencing import Resource
+            from referencing.exceptions import Unresolvable
+            from referencing.jsonschema import DRAFT202012, specification_with
+            specification = specification_with(cls.META_SCHEMA['$schema'], default=DRAFT202012)
+            resource = Resource.from_contents(schema, default_specification=specification)
+            resolver = registry.resolver_with_root(resource)
+            seen = set()
+            def local_refs(current, scoped):
+                node = current.contents
+                if id(node) in seen: return
+                seen.add(id(node))
+                if isinstance(node, dict):
+                    current_cls = validators.validator_for(node, default=cls)
+                    for key in ('$ref', '$dynamicRef', '$recursiveRef'):
+                        if key not in node or key not in current_cls.VALIDATORS: continue
+                        reference = node[key]
+                        if not reference.startswith('#'):
+                            raise ValueError('response_format supports only local schema references (#...)')
+                        try:
+                            resolved = scoped.lookup(reference)
+                        except Unresolvable:
+                            raise ValueError('response_format local reference does not identify an existing schema') from None
+                        current_cls.check_schema(resolved.contents)
+                        local_refs(Resource.from_contents(resolved.contents, default_specification=specification), resolved.resolver)
+                for child in current.subresources():
+                    local_refs(child, scoped.in_subresource(child))
+            local_refs(resource, resolver)
+            validator = cls(schema, registry=registry)
         except SchemaError as exc:
             raise ValueError(f"invalid response_format schema: {exc.message}") from exc
+        except RecursionError:
+            raise ValueError('response_format schema is too deeply nested') from None
     directive = ("OUTPUT FORMAT REQUIREMENT: Return exactly one JSON object matching the JSON Schema below. "
                  "No Markdown, headings, code fences, commentary, or text outside the JSON. "
                  "Use every required field, correct types, and only allowed fields. "

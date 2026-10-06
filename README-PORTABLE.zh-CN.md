@@ -18,7 +18,7 @@ START-HERE.bat --context 32768
 START-HERE.bat --backend hip
 ```
 
-首次启动或换电脑时自动配置；配置保存在 `strata-*.json`，模型位置在 `portable-settings.json`。同一电脑升级程序后保留端口、API key、上下文及手动引擎参数，仅更新运行库路径和必要的上游兼容设置。主动运行配置入口或更换硬件时会重新配置。
+首次启动或换电脑时自动配置；配置保存在 `strata-*.json`，模型位置在 `portable-settings.json`。同一电脑升级程序后保留端口、API key、上下文及手动引擎参数，仅更新运行库路径和必要的上游兼容设置。主动配置或更换硬件时重新生成引擎参数，保留端口和 API key；配置失败恢复原文件，恢复被文件锁阻止时明确报告。
 
 ## 独立模型目录
 

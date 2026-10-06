@@ -13,9 +13,9 @@ import urllib.request
 
 
 def download(url: str, target: Path, size: int, sha256: str, workers=8, chunk_mib=128):
-    if workers < 1 or chunk_mib < 1:
-        raise ValueError('workers and chunk size must be positive')
-    if type(size) is not int or size <= 0 or not re.fullmatch('[0-9a-f]{64}', sha256):
+    if type(workers) is not int or workers < 1 or type(chunk_mib) is not int or chunk_mib < 1:
+        raise ValueError('workers and chunk size must be positive integers')
+    if type(size) is not int or size <= 0 or not isinstance(sha256, str) or not re.fullmatch('[0-9a-f]{64}', sha256):
         raise ValueError('Expected a positive file size and SHA-256')
     target.parent.mkdir(parents=True, exist_ok=True)
     stamp = target.with_name(target.name + '.verified.json')
