@@ -34,3 +34,11 @@
 最终本机回归：整合包/服务 **305 例**、安装器 **258 例**、独立节点 **84 例**，全部通过，无跳过。安装器分组与整合包分组共享部分用例，数量不相加宣称互不重复。节点新增 29 例及 1 例发行权重检查，修复 14 类问题；官方 API/CPU tensor 探针另行执行。
 
 最终实机 ComfyUI 0.38.0 / Torch 2.7.0+cu128 / DreamShaper 8 SD1.5：文本绘图 27.27s（1 张），图片反推绘图 27.16s（1 张），两镜头分镜批量绘图 51.34s（2 张）。Control(load) 经真实队列执行，重复请求命中缓存，每次下游绘图前确认语言/视觉进程均停止。计时为本次小型工作流总耗时，不能当作模型吞吐量。验收档案使用 8GiB 空闲显存门槛，默认配置仍为 12GiB。
+
+## 正式发行验证
+
+追加二进制 metadata 边界回归后，[最终 CI](https://github.com/T8mars/Strata-T8/actions/runs/37439572730) 和 [云端构建发行](https://github.com/T8mars/Strata-T8/actions/runs/37441312516) 均通过：整合包/服务 **306 例**、节点集成 **84 例**、安装器 **258 例**。节点自己的 Windows/Linux CI 也通过。浏览器测试仅调整进程启动预算，行为断言保持完整。
+
+[整合包 0.1.39-t8.8](https://github.com/T8mars/Strata-T8/releases/tag/v0.1.39-t8.8) 正式发行来自提交 `bff6d944e2e92f9722c6ac5d4b9c1729729a3d66`，VisionReady 8019 个清单文件，NoModels 8018 个。云端完整文件摘要及 ZIP CRC 通过；发布后再核对 GitHub 资产摘要、公开 SHA256 文件、ZIP 文件目录和关键源码。验证通过小范围 HTTP 请求读取约 4MB，未重新下载两个完整大包。两种包均排除主模型/MTP，VisionReady 保留固定视觉编码器。
+
+[节点 1.0.1](https://github.com/T8mars/Comfyui-Strata-T8/releases/tag/v1.0.1) 已由官方工作流发布至 GitHub 与 Comfy Registry（Publisher `t8star`）。Registry CDN 的 17 个文件与发行提交逐一相同，10 个节点可独立导入。2026-10-06 本次检查时 Registry 版本状态仍为 Pending；不能据此宣称 Manager 已可搜索。
