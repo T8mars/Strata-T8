@@ -231,9 +231,12 @@ class PreparedPack(unittest.TestCase):
                     p = data/'mtp/rt'/name; p.parent.mkdir(parents=True, exist_ok=True); p.write_text('fixture')
                 def rebuild(command, **kwargs):
                     (pack/missing).write_text('rebuilt')
+                def downloaded(url, path, size, *args, **kwargs):
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    path.write_bytes(b'x'*size)
                 with mock.patch.object(prepare_model, 'ROOT', root), \
                      mock.patch.object(prepare_model.setup, 'HF_REVISIONS', {'fixture/model': 'rev'}), \
-                     mock.patch.object(prepare_model, 'download'), mock.patch.object(prepare_model.subprocess, 'run', side_effect=rebuild) as run, \
+                     mock.patch.object(prepare_model, 'download', side_effect=downloaded), mock.patch.object(prepare_model.subprocess, 'run', side_effect=rebuild) as run, \
                      mock.patch('sys.argv', ['prepare', '--yes', '--data-dir', str(data)]):
                     prepare_model.main()
                 self.assertEqual(len(run.call_args_list), 1)

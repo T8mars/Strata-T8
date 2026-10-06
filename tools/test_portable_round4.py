@@ -232,9 +232,12 @@ class PreparedArtifacts(unittest.TestCase):
             def run(command,**kwargs):
                 if create:
                     for name in names: (pack/name).write_text('rebuilt')
+            def downloaded(url,path,size,*args,**kwargs):
+                path.parent.mkdir(parents=True,exist_ok=True)
+                path.write_bytes(b'x'*size)
             with mock.patch.object(prepare_model,'ROOT',root), \
                  mock.patch.object(prepare_model.setup,'HF_REVISIONS',{'fixture/model':'rev'}), \
-                 mock.patch.object(prepare_model,'download'), mock.patch.object(prepare_model.subprocess,'run',side_effect=run) as command, \
+                 mock.patch.object(prepare_model,'download',side_effect=downloaded), mock.patch.object(prepare_model.subprocess,'run',side_effect=run) as command, \
                  mock.patch('sys.argv',['prepare','--yes','--data-dir',str(data)]):
                 if missing and not create:
                     with self.assertRaisesRegex(RuntimeError,'incomplete'): prepare_model.main()

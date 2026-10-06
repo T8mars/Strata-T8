@@ -71,6 +71,14 @@ function FileDigest([string]$path) {
     try { return [BitConverter]::ToString($hasher.ComputeHash($stream)).Replace('-', '').ToLower() }
     finally { $stream.Dispose(); $hasher.Dispose() }
 }
+function ReadJsonObject([string]$path, [string]$label) {
+    $document = Get-Content -LiteralPath $path -Raw -Encoding UTF8
+    # Windows PowerShell unwraps a one-element JSON array when assigning pipeline output.
+    if ($document -notmatch '^\s*\{') { throw "$label must be a JSON object" }
+    $value = $document | ConvertFrom-Json
+    if ($value -isnot [pscustomobject]) { throw "$label must be a JSON object" }
+    return $value
+}
 function MatchEntries($planned, $declared, [string]$label) {
     $expected = @{}
     foreach ($entry in $declared) {
@@ -111,11 +119,42 @@ function CheckEntries($entries, [string]$label) {
         }
     }
 }
-function InstallFile([string]$source, [string]$target) {
+function CheckMetadata($metadata, $manifest) {
+    if ($metadata -isnot [pscustomobject] -or $metadata.version -isnot [string] -or
+        $metadata.version -cne $manifest.version) { throw 'Application metadata version differs from package manifest' }
+    $edition = 'Portable-NoModels'
+    if ($manifest.PSObject.Properties['edition']) {
+        if ($manifest.edition -isnot [string]) { throw 'Package edition must be a string' }
+        $edition = $manifest.edition
+    }
+    if ($edition -cne 'Portable-NoModels' -and $edition -cne 'VisionReady-NoMainModel') { throw 'Unknown package edition' }
+    $applicationEdition = 'Portable-NoModels'
+    if ($metadata.PSObject.Properties['edition']) {
+        if ($metadata.edition -isnot [string]) { throw 'Application metadata edition must be a string' }
+        $applicationEdition = $metadata.edition
+    }
+    if ($applicationEdition -cne $edition) { throw 'Application metadata edition differs from package manifest' }
+    $vision = $edition -ceq 'VisionReady-NoMainModel'
+    if ($manifest.models_included -isnot [bool] -or $manifest.models_included -ne $vision) { throw 'Manifest models_included differs from edition' }
+    foreach ($value in @($manifest, $metadata)) {
+        if ($value.PSObject.Properties['models_included'] -and
+            ($value.models_included -isnot [bool] -or $value.models_included -ne $vision)) { throw 'Application metadata models_included differs from package manifest' }
+        if ($value.PSObject.Properties['weights']) {
+            $roles = $value.weights
+            if ($roles -isnot [pscustomobject] -or @($roles.PSObject.Properties).Count -ne 3 -or
+                $roles.main -isnot [bool] -or $roles.main -ne $false -or
+                $roles.mtp -isnot [bool] -or $roles.mtp -ne $false -or
+                $roles.vision -isnot [bool] -or $roles.vision -ne $vision) { throw 'Application metadata weight roles differ from package manifest' }
+        } elseif ($value -eq $manifest -and $vision) { throw 'VisionReady manifest lacks weight roles' }
+    }
+}
+function InstallFile([string]$source, [string]$target, [long]$size, [string]$digest) {
     # Publish a complete file without overwriting a file created after preflight.
     $temporary = Join-Path ([IO.Path]::GetDirectoryName($target)) ('.t8-' + [Guid]::NewGuid().ToString('N') + '.tmp')
     try {
         Copy-Item -LiteralPath $source -Destination $temporary
+        # Preflight verifies staging; verify the actual copy before publishing it too.
+        if ((Get-Item -LiteralPath $temporary).Length -ne $size -or (FileDigest $temporary) -cne $digest) { throw "Copied update file failed verification: $target" }
         [IO.File]::Move($temporary, $target)
         $installed.Add($target)
     } finally {
@@ -123,7 +162,7 @@ function InstallFile([string]$source, [string]$target) {
     }
 }
 try {
-    $plan = Get-Content -LiteralPath $PlanPath -Raw -Encoding UTF8 | ConvertFrom-Json
+    $plan = ReadJsonObject $PlanPath 'Update plan'
     if ($plan -isnot [pscustomobject]) { throw 'Update plan must be an object' }
     foreach ($field in @('root','stage','backup')) {
         if ($plan.$field -isnot [string] -or !$plan.$field -or ![IO.Path]::IsPathRooted($plan.$field)) { throw "Invalid update plan directory: $field" }
@@ -153,14 +192,16 @@ try {
     if ($busy.Count) { throw 'Strata is running. Close its window and try again.' }
     $manifestPath = ScopedPath $stageRoot 'PACKAGE-MANIFEST.json'
     if (!$plan.manifest_sha256 -or (FileDigest $manifestPath) -ne $plan.manifest_sha256) { throw 'Staged manifest failed verification' }
-    $manifest = Get-Content -LiteralPath $manifestPath -Raw -Encoding UTF8 | ConvertFrom-Json
+    $manifest = ReadJsonObject $manifestPath 'New manifest'
+    $manifestSize = (Get-Item -LiteralPath $manifestPath).Length
     CheckEntries $manifest.files 'New manifest'
     if ($plan.version -ne $manifest.version) { throw 'Plan version differs from staged manifest' }
     MatchEntries $plan.new $manifest.files 'New'
-    $installedManifest = Get-Content -LiteralPath (ScopedPath $appRoot 'PACKAGE-MANIFEST.json') -Raw -Encoding UTF8 | ConvertFrom-Json
+    $installedManifest = ReadJsonObject (ScopedPath $appRoot 'PACKAGE-MANIFEST.json') 'Installed manifest'
     CheckEntries $installedManifest.files 'Installed manifest'
     MatchEntries $plan.old $installedManifest.files 'Installed'
     $newNames = @{}
+    $newEntries = @{}
     $oldNames = @{}
     $oldDirectories = @{}
     foreach ($entry in $plan.old) { $oldNames[$entry.path] = $true }
@@ -177,7 +218,10 @@ try {
         if (!$oldNames.ContainsKey($entry.path) -and (Test-Path -LiteralPath $destination -PathType Leaf)) { throw "Update would overwrite a user file: $($entry.path)" }
         if (!(Test-Path -LiteralPath $source -PathType Leaf) -or (Get-Item -LiteralPath $source).Length -ne $entry.size -or (FileDigest $source) -ne $entry.sha256) { throw "Staged file failed verification: $($entry.path)" }
         $newNames[$entry.path] = $true
+        $newEntries[$entry.path] = $entry
     }
+    $stagedMetadata = ReadJsonObject (ScopedPath $stageRoot 'meta.json') 'Application metadata'
+    CheckMetadata $stagedMetadata $manifest
     # An apply may run much later than prepare; recheck the entire staged inventory.
     foreach ($item in @(Get-ChildItem -LiteralPath $stageRoot -Recurse -Force)) {
         $relative = $item.FullName.Substring($stageRoot.Length + 1).Replace('\', '/')
@@ -231,7 +275,8 @@ try {
             }
         }
         EnsureDirectory ([IO.Path]::GetDirectoryName($target))
-        InstallFile $source $target
+        if ($relative -eq 'PACKAGE-MANIFEST.json') { InstallFile $source $target $manifestSize $plan.manifest_sha256 }
+        else { $entry = $newEntries[$relative]; InstallFile $source $target $entry.size $entry.sha256 }
     }
     WriteResult @{ success=$true; version=$plan.version; backup=$backupRoot }
     Remove-Item -LiteralPath $PlanPath

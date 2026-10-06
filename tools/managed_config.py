@@ -27,7 +27,7 @@ def fresh_config(data, model, context, output):
             raise RuntimeError(f'Managed model configuration failed (exit {result})')
         if len(captured) != 1:
             raise RuntimeError('Managed model configuration did not produce one engine profile')
-        return captured[0]
+        return portable.validate_config(captured[0], require_args=True)
     finally:
         sys.argv = argv
         for name, value in original.items(): setattr(setup, name, value)
@@ -51,6 +51,33 @@ def single_request_args(argv, context):
     return stripped + ['--max-context', str(context)]
 
 
+def protected_output(output, data):
+    root = portable.ROOT.resolve()
+    if output == root or output.is_dir() or output == portable.STATE.resolve() or output.is_relative_to(data):
+        return True
+    if not output.is_relative_to(root):
+        return False
+    relative = output.relative_to(root)
+    name = relative.parts[0].lower()
+    if len(relative.parts) > 1 and name in ('engine', 'engine-hip', 'runtime', 'serve', 'tools', 'vision',
+                                           'data', 'third_party', 'src', 'include', 'docs', 'tests', 'bench', '.github', '.git'):
+        return True
+    if len(relative.parts) == 1 and (name.startswith('strata-') or name in
+            ('meta.json', 'features.json', 'model-sources.json', 'portable-settings.json', 'package-manifest.json')
+            or (output.suffix.lower() != '.json' and output.is_file())):
+        return True
+    manifest = root/'PACKAGE-MANIFEST.json'
+    if manifest.is_file():
+        try:
+            entries = portable.read_json(manifest).get('files', [])
+            if isinstance(entries, list) and any(isinstance(entry, dict) and isinstance(entry.get('path'), str)
+                    and (root/entry['path']).resolve() == output for entry in entries):
+                return True
+        except (OSError, ValueError, AttributeError):
+            pass
+    return False
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--data-dir', type=Path, required=True)
@@ -60,10 +87,12 @@ def main():
     args = parser.parse_args()
     if not 1024 <= args.context <= 131072:
         parser.error('--context must be between 1024 and 131072')
-    portable.environment_check()
-    portable.isolate_setup()
     data = args.data_dir.expanduser().resolve()
     args.output = args.output.expanduser().resolve()
+    if protected_output(args.output, data):
+        raise RuntimeError('Managed profile output must be separate from application files, web configuration, settings and model files')
+    portable.environment_check()
+    portable.isolate_setup()
     model = portable.model_delivery(data)
     tag = portable.upstream.FAMILIES[model['family']]['tag'] + model['model']
     base = portable.ROOT/f'strata-{tag.lower()}.json'

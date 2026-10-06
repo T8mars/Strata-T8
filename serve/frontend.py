@@ -23,6 +23,7 @@ from pathlib import Path
 
 import jinja2
 from jinja2.sandbox import ImmutableSandboxedEnvironment
+from serve.structured import StructuredOutputError
 
 
 # ------------------------------------------------------------------------------------------------ template
@@ -286,6 +287,21 @@ def _object_list(value, name: str) -> list[dict]:
     return value
 
 
+def validate_tool_definition(fn: dict, schema_key='parameters') -> None:
+    """Validate the fields consumed by the template and incremental tool parser."""
+    if fn.get('description') is not None and not isinstance(fn['description'], str):
+        raise ValueError('tool description must be a string')
+    params = fn.get(schema_key)
+    if params is None:
+        return
+    if not isinstance(params, dict):
+        raise ValueError(f'tool {schema_key} must be an object')
+    if 'properties' in params:
+        props = params['properties']
+        if not isinstance(props, dict) or not all(isinstance(p, (dict, bool)) for p in props.values()):
+            raise ValueError(f'tool {schema_key}.properties must map names to schemas')
+
+
 def _tool_list(value, wrapper: str | None) -> list[dict]:
     """#592: a request's "tools" as a list of tool objects, each with a name - in the OpenAI shape
     {"type": "function", "function": {"name": ...}} (`wrapper` "function"; a bare {"name": ...} is still taken), or
@@ -304,6 +320,7 @@ def _tool_list(value, wrapper: str | None) -> list[dict]:
         fn = t.get(wrapper, t) if wrapper and t.get("type") == wrapper else t
         if not isinstance(fn, dict) or not isinstance(fn.get("name"), str) or not fn["name"]:
             raise ValueError(f"tools[{i}] has no name: each tool must be {shape}")
+        validate_tool_definition(fn, 'parameters' if wrapper else 'input_schema')
     return tools
 
 
@@ -332,6 +349,8 @@ def openai_to_messages(req: dict) -> tuple[list[dict], list[dict] | None, dict]:
                 fn = c.get("function", c)
                 if not isinstance(fn, dict):
                     raise ValueError("tool_calls must be a list of objects (each with a \"function\" object)")
+                if not isinstance(fn.get('name'), str) or not fn['name']:
+                    raise ValueError('tool calls need a nonempty string function name')
                 args = fn.get("arguments")
                 if isinstance(args, str):               # the template requires a mapping, not a JSON string
                     args = _json_loads(args) if args.strip() else {}
@@ -364,8 +383,8 @@ def anthropic_to_messages(req: dict, think_unasked: bool = True) -> tuple[list[d
     if system:
         messages.append({"role": "system", "content": _text_of(system)})
     for m in _object_list(req.get("messages"), "messages"):
-        if not isinstance(m.get('role'), str):
-            raise ValueError('messages need a string role')
+        if m.get('role') not in ('user', 'assistant', 'system', 'developer', 'tool', 'function'):
+            raise ValueError('messages need a supported string role')
         content = m.get("content")
         if isinstance(content, str):
             messages.append({"role": m["role"], "content": content})
@@ -374,19 +393,25 @@ def anthropic_to_messages(req: dict, think_unasked: bool = True) -> tuple[list[d
                 isinstance(b, dict) and b.get("type") == "tool_result" for b in content):
             messages.append({"role": "user", "content": _parts_of(content)})
             continue
+        image_parts = _parts_of(content) if m.get('role') == 'user' and _has_image(content) else None
         text, reasoning, calls = [], [], []
-        for block in _object_list(content or [], 'message content'):
+        for block in _object_list(content, 'message content'):
             kind = block.get("type")
             if kind == "text":
                 text.append(_text(block.get("text", "")))
             elif kind == "thinking":
                 reasoning.append(_text(block.get("thinking", ""), 'thinking'))
             elif kind == "tool_use":
-                calls.append({"function": {"name": block.get("name"), "arguments": block.get("input") or {}}})
+                if not isinstance(block.get('name'), str) or not block['name']:
+                    raise ValueError('tool calls need a nonempty string function name')
+                args = block.get('input')
+                if args is not None and not isinstance(args, dict):
+                    raise ValueError('tool call input must be an object')
+                calls.append({"function": {"name": block['name'], "arguments": args or {}}})
             elif kind == "tool_result":
-                messages.append({"role": "tool", "content": _text_of(block.get("content"))})
-        if text or calls or reasoning:
-            out = {"role": m["role"], "content": "".join(text)}
+                messages.append({"role": "tool", "content": _parts_of(block.get("content"))})
+        if text or calls or reasoning or image_parts:
+            out = {"role": m["role"], "content": image_parts if image_parts is not None else "".join(text)}
             if reasoning:
                 out["reasoning_content"] = "".join(reasoning)
             if calls:
@@ -505,6 +530,8 @@ def parse_tool_call(body: str, schema: dict | None = None) -> ToolCall:
     while "<parameter=" in rest:
         rest = rest[rest.index("<parameter=") + len("<parameter="):]
         pname = rest[:rest.index(">")]
+        if pname in args:
+            raise StructuredOutputError('Generated tool call has a duplicate parameter name: '+pname)
         rest = rest[rest.index(">") + 1:]
         end = param_end(rest, final=True)
         value = rest[:end] if end >= 0 else rest
@@ -513,12 +540,13 @@ def parse_tool_call(body: str, schema: dict | None = None) -> ToolCall:
             value = value[1:]
         if value.endswith("\n"):
             value = value[:-1]
-        declared = (props.get(pname) or {}).get("type")
+        prop = props.get(pname)
+        declared = prop.get('type') if isinstance(prop, dict) else None
         if declared == "string":
             args[pname] = value
         else:
             try:
-                args[pname] = json.loads(value)
+                args[pname] = _json_loads(value)
             except ValueError:
                 args[pname] = value
     return ToolCall(name=name, arguments=args)
@@ -547,6 +575,7 @@ class OutputParser:
         self.sfirst = True
         self.sval_started = False
         self.sdeclared = {}
+        self.snames = set()
 
     def _scan(self) -> list[Event]:
         """Advance the streaming view of the call body in self.buf (see stream_tools)."""
@@ -565,7 +594,7 @@ class OutputParser:
                 name = rest[a + 10:b]
                 self.scall = ToolCall(name=name, arguments={})
                 props = ((self.schemas.get(name) or {}).get("parameters") or {}).get("properties") or {}
-                self.sdeclared = {k: (v or {}).get("type") for k, v in props.items()}
+                self.sdeclared = {k: v.get('type') if isinstance(v, dict) else None for k, v in props.items()}
                 out.append(Event("tool_start", call=self.scall))
                 args("{")
                 self.sp += b + 1
@@ -578,6 +607,9 @@ class OutputParser:
                     if b < 0:
                         return out
                     pname = stripped[11:b]
+                    if pname in self.snames:
+                        raise StructuredOutputError('Generated tool call has a duplicate parameter name: '+pname)
+                    self.snames.add(pname)
                     args(("" if self.sfirst else ",") + json.dumps(pname) + ":")
                     self.sfirst = False
                     self.sp += b + 1
@@ -627,7 +659,7 @@ class OutputParser:
                 if value.endswith("\n"):
                     value = value[:-1]
                 try:
-                    v = json.loads(value)
+                    v = _json_loads(value)
                 except ValueError:
                     v = value
                 args(json.dumps(v, ensure_ascii=False))

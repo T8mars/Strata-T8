@@ -40,12 +40,38 @@ def read_state():
 
 
 def read_config(path):
-    config = read_json(path)
+    return validate_config(read_json(path))
+
+
+def validate_config(config, *, require_args=False):
     if (not isinstance(config, dict) or ('args' in config and (not isinstance(config['args'], list)
             or not all(isinstance(arg, str) for arg in config['args'])))
-            or (config.get('vision') is not None and not isinstance(config['vision'], dict))):
+            or (require_args and 'args' not in config)
+            or (config.get('vision') is not None and not isinstance(config['vision'], dict))
+            or ('exe' in config and (not isinstance(config['exe'], str) or not config['exe']))
+            or (config.get('cwd') is not None and not isinstance(config['cwd'], str))
+            or (config.get('lib_dirs') is not None and (not isinstance(config['lib_dirs'], list)
+                or not all(isinstance(path, str) for path in config['lib_dirs'])))
+            or ('port' in config and (type(config['port']) is not int or not 1 <= config['port'] <= 65535))
+            or any(config.get(key) is not None and not isinstance(config[key], str) for key in ('host', 'api_key'))
+            or (config.get('backend') is not None and (not isinstance(config['backend'], str)
+                or config['backend'] not in ('cuda', 'hip')))):
         raise RuntimeError('Invalid run configuration: expected an object with engine arguments and vision settings')
     return config
+
+
+def context_matches(config, context):
+    values = []
+    args = config.get('args', [])
+    for index, arg in enumerate(args):
+        if arg == '--max-context':
+            values.append(args[index+1] if index+1 < len(args) else '')
+        elif arg.startswith('--max-context='):
+            values.append(arg.partition('=')[2])
+    try:
+        return bool(values) and all(int(value) == context for value in values)
+    except ValueError:
+        return False
 
 
 def config_path(state):
@@ -283,13 +309,16 @@ def configure(data, context=None, backend=None, vision=None, vision_tokens=None,
         if not cfg_path.is_file():
             raise RuntimeError('Setup did not create the run configuration')
         current_fingerprint = fingerprint(data)
-        if (previous[cfg_path] is not None and cfg_path.read_bytes() == previous[cfg_path]
-                and not same_machine(original_state.get('portable_fingerprint'), current_fingerprint)):
-            raise RuntimeError('Setup did not write a configuration for the selected model and PC')
+        unchanged = previous[cfg_path] is not None and cfg_path.read_bytes() == previous[cfg_path]
+        if unchanged:
+            if not same_machine(original_state.get('portable_fingerprint'), current_fingerprint):
+                raise RuntimeError('Setup did not write a configuration for the selected model and PC')
+            if ((context is not None and not context_matches(old_config, context))
+                    or (backend is not None and (old_config.get('backend') or 'cuda') != backend)
+                    or (port is not None and old_config.get('port', 8080) != port)):
+                raise RuntimeError('Setup did not apply the requested configuration settings')
         if cfg_path.is_file():
-            generated = read_config(cfg_path)
-            if not isinstance(generated, dict):
-                raise RuntimeError('Setup produced an invalid run configuration: expected a JSON object')
+            generated = validate_config(read_config(cfg_path), require_args=True)
             for key in ('host', 'api_key', 'port'):
                 if key in old_config and (key != 'port' or port is None):
                     generated[key] = old_config[key]

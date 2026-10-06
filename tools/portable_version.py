@@ -6,6 +6,12 @@ import re
 ROOT = Path(__file__).resolve().parents[1]
 
 
+def upstream_version_key(value):
+    if not isinstance(value, str) or not re.fullmatch(r'(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)', value):
+        raise ValueError(f'Unsupported stable upstream version: {value}')
+    return tuple(map(int, value.split('.')))
+
+
 def metadata(root=ROOT):
     return json.loads((root/'meta.json').read_text(encoding='utf-8'))
 

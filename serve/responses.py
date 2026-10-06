@@ -27,7 +27,8 @@ import json
 import time
 import uuid
 
-from serve.frontend import Event, _late_system_to_user, _parts_of, _json_loads, _text, effort_kwargs
+from serve.frontend import (Event, _late_system_to_user, _parts_of, _json_loads, _text, effort_kwargs,
+                            validate_tool_definition)
 
 ENCRYPTED_PREFIX = "strata.r1:"                   # our own reasoning replay strings; others' are ignored
 HOSTED_TOOLS = ("web_search", "web_search_preview", "file_search", "computer_use_preview", "computer_use",
@@ -199,14 +200,16 @@ def input_messages(req: dict) -> list[dict]:
             name = item.get("name")
             if not isinstance(name, str) or not name:
                 raise ResponsesError("a function_call needs a name", param + ".name")
+            if item.get('namespace') is not None and not isinstance(item['namespace'], str):
+                raise ResponsesError('namespace must be a string', param + '.namespace')
             if item.get("namespace"):
-                if not isinstance(item['namespace'], str):
-                    raise ResponsesError('namespace must be a string', param + '.namespace')
                 name = f"{item['namespace']}.{name}"
             if kind == "function_call":
                 args = _arguments(item.get("arguments"), param + ".arguments")
             else:
-                args = {"input": item.get("input") if isinstance(item.get("input"), str) else ""}
+                if item.get('input') is not None and not isinstance(item['input'], str):
+                    raise ResponsesError('custom tool input must be a string', param + '.input')
+                args = {"input": item.get('input') or ''}
             target = open_turn if open_turn is not None and not thinking else turn()
             target.setdefault("tool_calls", []).append({"function": {"name": name, "arguments": args},
                                                         "_call_id": item.get("call_id")})
@@ -279,6 +282,10 @@ def request_tools(req: dict):
         if ns_description:
             description = ns_description + ("\n\n" + description if description else "")
         if kind == "function":
+            try:
+                validate_tool_definition(tool)
+            except ValueError as e:
+                raise ResponsesError(str(e), param) from None
             params = tool.get("parameters") or {"type": "object", "properties": {}}
         else:                                        # custom: free-form text, maybe in a grammar the model reads
             fmt = tool.get("format") or {}

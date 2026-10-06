@@ -92,7 +92,7 @@ def main():
     for rel in ['third_party/llama.cpp/LICENSE']:
         shutil.copy2(ROOT/rel, TARGET/rel)
     (TARGET/'docs').mkdir()
-    for name in ['INSTALL.md', 'MODELS.md', 'TROUBLESHOOTING.md', 'AMD_HIP.md', 'HOW_IT_WORKS.md', 'DETAILS.md', 'BATCHING.md', 'UPDATING-T8.md', 'COMFYUI-T8.md', 'VALIDATION-COMFYUI-T8.md', 'AUDIT-20-T8.md', 'AUDIT-20-ROUND2-T8.md', 'AUDIT-20-ROUND3-T8.md', 'AUDIT-20-ROUND4-T8.md', 'AUDIT-20-ROUND5-T8.md']:
+    for name in ['INSTALL.md', 'MODELS.md', 'TROUBLESHOOTING.md', 'AMD_HIP.md', 'HOW_IT_WORKS.md', 'DETAILS.md', 'BATCHING.md', 'UPDATING-T8.md', 'COMFYUI-T8.md', 'VALIDATION-COMFYUI-T8.md', 'AUDIT-20-T8.md', 'AUDIT-20-ROUND2-T8.md', 'AUDIT-20-ROUND3-T8.md', 'AUDIT-20-ROUND4-T8.md', 'AUDIT-20-ROUND5-T8.md', 'AUDIT-20-ROUND6-T8.md']:
         shutil.copy2(ROOT/'docs'/name, TARGET/'docs'/name)
     # Preserve third-party licensing; ROCm/wheels already carry their license directories.
     versions = {d.metadata['Name']: d.version for d in importlib.metadata.distributions()}
