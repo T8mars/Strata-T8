@@ -228,6 +228,8 @@ def _timeout_env(name: str, default: float) -> float | None:
         v = float(os.environ.get(name, default))
     except ValueError:
         v = default
+    if not math.isfinite(v):
+        v = default
     return None if v <= 0 else v
 
 
@@ -591,6 +593,19 @@ class StrataEngine:
 
     def __init__(self, exe: str, args: list[str], cwd: str | None = None, log: str | None = None,
                  env: dict | None = None, lazy: bool = False, cancel=None, start_timeout_s=_DEFAULT_START_TIMEOUT):
+        try:
+            self._initialize(exe, args, cwd, log, env, lazy, cancel, start_timeout_s)
+        except Exception:
+            loading = getattr(self, 'loading_done', None)
+            if loading is not None:
+                loading.set()
+            if getattr(self, 'proc', None) is not None:
+                self.close()
+            elif getattr(self, 'log', None) not in (None, subprocess.DEVNULL):
+                self.log.close()
+            raise
+
+    def _initialize(self, exe, args, cwd, log, env, lazy, cancel, start_timeout_s):
         if start_timeout_s is _DEFAULT_START_TIMEOUT:
             start_timeout_s = ENGINE_READY_S
         self.spawn = (exe, list(args), cwd, log, env)   # to start it again after it died (issue #27)
@@ -619,6 +634,7 @@ class StrataEngine:
         self.unloaded = False            # `ended` stays True until READY (below): not alive while starting (#344)
         self.log = open(log, "a", encoding="utf-8") if log else subprocess.DEVNULL
         loading = threading.Event()                     # set once READY: the narrator below stops
+        self.loading_done = loading
         log_start = os.path.getsize(log) if log else 0  # where this start's lines begin (start_failure_hint)
         self.log_start = log_start                      # #596: the Monitor's conversation cache reads from here
         if log:
@@ -650,20 +666,13 @@ class StrataEngine:
                     f = line.split()
                     self.max_context = int(f[1])
                     self.can_stop = "stop" in f[2:]
-        except (RequestCancelled, EngineStarting):
+        except Exception:
             self.close()
             raise
         finally:
             loading.set()
         if self.max_context <= 0:
-            try:                                        # its pipes and our handle on its log (the log stays)
-                self.proc.wait(timeout=5)
-                self.proc.stdin.close()
-                self.proc.stdout.close()
-                if log:
-                    self.log.close()
-            except (OSError, subprocess.TimeoutExpired):
-                pass
+            self.close()                                # a bad READY can still leave a live child waiting on stdin
             raise RuntimeError("the engine exited before it was ready" + (f" (see {log})" if log else "") +
                                start_failure_hint(log, log_start) + start_log_tail(log, log_start))
         self.known_ctx = self.max_context   # survives a failed restart: requests keep their limit and restart it
@@ -831,10 +840,7 @@ class StrataEngine:
                 except (RequestCancelled, EngineStarting, EngineStuck):
                     raise
                 except RuntimeError:
-                    try:
-                        self.proc.wait(timeout=60)
-                    except (subprocess.TimeoutExpired, OSError):
-                        pass
+                    self.close()                  # __init__ may already have confirmed and cleared the failed child
                     if i == tries - 1:
                         raise
                     print(f"[strata] the engine did not start (try {i + 1} of {tries}); again in "
@@ -846,8 +852,10 @@ class StrataEngine:
                         time.sleep(self.RESTART_RETRY_S)
         finally:
             self.starting = False
-            with self.slot_cv:                   # #1012: wake the requests that waited through it: they go on with the
-                self.slot_cv.notify_all()        # new engine, or (it did not start) end with a clean EngineDied
+            cv = getattr(self, 'slot_cv', None)  # a lazy engine's first failed start has no batch waiters yet
+            if cv is not None:
+                with cv:                        # #1012: wake waiters with the new engine or a clean EngineDied
+                    cv.notify_all()
         self.info = {**info, **self.info}
 
     def _parse_done(self, line):
@@ -3192,6 +3200,12 @@ class Service:
                 else:
                     encoded = [self.vision.encode(src, cancel=cancel) if cancel is not None else self.vision.encode(src)
                                for src in images]
+                # Snapshot under the same FIFO as encoding: another request can evict cached images
+                # immediately after it acquires this slot. prepare() removes the copy on any later refusal.
+                check_cancel(cancel)
+                combined = combined_embeddings_path(self.vision.dir, sum(Path(p).stat().st_size for p, _ in encoded))
+                self.embeddings.path = combined
+                write_temporary(combined, [p for p, _ in encoded])
             finally:
                 self.fifo.release()
             # one <|image_pad|> per image -> one per image token.  Only the markers the template writes for an image
@@ -3235,13 +3249,6 @@ class Service:
                                  f"max_tokens (at most {max(0, room)} here), or add \"fit_max_tokens\": true to the "
                                  "model's strata-<model>.json to shorten it to the room left (#545)")
             max_new = max(1, room)          # --fit-max-tokens: a shorter completion beats a 400
-        if images:
-            # The request's images in one file for GENI (~10 MB a picture), written once nothing above refuses the
-            # request: one refused after it (the engine starting, no room) left it in the vision directory for good,
-            # one more for every retry of a 503.  run() deletes it; drop_embeddings() if run() never starts.
-            combined = combined_embeddings_path(self.vision.dir, sum(Path(p).stat().st_size for p, _ in encoded))
-            self.embeddings.path = combined             # first, so a half-written one is found as well
-            write_temporary(combined, [p for p, _ in encoded])
         if req is not None and req.get("strata_prefix") is not None:
             req["strata_prefix"] = self.resolve_prefix(req["strata_prefix"], messages, tools, kwargs, ids, bool(images))
         return ids, kwargs.get("enable_thinking", True) is not False, max_new
@@ -4163,6 +4170,7 @@ def make_handler(svc: Service):
         watch_done = None                                   # #430 #431: stops this request's disconnect watcher
         body_read = False                                   # whether a handler took this request's body
         DRAIN_SECONDS = 5                                   # the longest an unread body is read and dropped
+        BODY_SECONDS = 30                                   # total time allowed to receive an accepted body
 
         def log_message(self, fmt, *args):
             pass
@@ -4181,16 +4189,32 @@ def make_handler(svc: Service):
             """Decode a chunked body: at most `limit` bytes (BadBody 413 beyond it - the size is checked before a chunk
             is read, so a huge announced chunk is never allocated), BadBody 400 for a malformed one.  keep=False reads
             and drops it (the drain); `deadline` (monotonic) ends the read early."""
-            parts, total = [], 0
-            while True:
+            def read_part(size):
                 if deadline is not None:
                     wait = deadline - time.monotonic()
                     if wait <= 0:
-                        if keep:
-                            raise BadBody(400, "the chunked request body timed out")
-                        return b""
+                        raise BadBody(400, "the chunked request body timed out")
                     self.connection.settimeout(wait)
-                line = self.rfile.readline(1025)
+                try:
+                    # read() can wait across arbitrarily many socket reads, each extending a socket timeout.
+                    return self.rfile.read1(size) if deadline is not None else self.rfile.read(size)
+                except OSError:
+                    raise BadBody(400, "the chunked request body timed out or ended early") from None
+
+            def read_line(limit):
+                if deadline is None:
+                    return self.rfile.readline(limit)
+                line = bytearray()
+                while len(line) < limit:
+                    byte = read_part(1)
+                    line.extend(byte)
+                    if not byte or byte == b"\n":
+                        break
+                return bytes(line)
+
+            parts, total = [], 0
+            while True:
+                line = read_line(1025)
                 if not line.endswith(b"\r\n"):
                     raise BadBody(400, "malformed chunked request body")
                 size_text = line[:-2].split(b";", 1)[0]
@@ -4199,7 +4223,7 @@ def make_handler(svc: Service):
                 size = int(size_text, 16)
                 if size == 0:
                     for _ in range(64):                       # the trailers, up to the blank line
-                        trailer = self.rfile.readline(8193)
+                        trailer = read_line(8193)
                         if trailer == b"\r\n":
                             return b"".join(parts)
                         if (not trailer.endswith(b"\r\n") or b":" not in trailer
@@ -4212,13 +4236,19 @@ def make_handler(svc: Service):
                     raise BadBody(413, f"the request body is larger than {limit >> 20} MiB")
                 left = size
                 while left > 0:
-                    piece = self.rfile.read(min(left, 1 << 20))
+                    piece = read_part(min(left, 1 << 20))
                     if not piece:
                         raise BadBody(400, "the chunked request body ended early")
                     left -= len(piece)
                     if keep:
                         parts.append(piece)
-                if self.rfile.read(2) != b"\r\n":
+                ending = b""
+                while len(ending) < 2:
+                    piece = read_part(2 - len(ending))
+                    if not piece:
+                        break
+                    ending += piece
+                if ending != b"\r\n":
                     raise BadBody(400, "malformed chunked request body")
 
         def _body(self) -> bytes:
@@ -4731,7 +4761,7 @@ def make_handler(svc: Service):
                 timeout = self.connection.gettimeout()
                 self.body_read = True
                 try:
-                    return self._read_chunked(min(limit, CHUNKED_BODY_MAX), deadline=time.monotonic() + 30)
+                    return self._read_chunked(min(limit, CHUNKED_BODY_MAX), deadline=time.monotonic() + self.BODY_SECONDS)
                 except OSError:
                     raise BadBody(400, 'incomplete chunked request body') from None
                 finally:
@@ -4749,8 +4779,19 @@ def make_handler(svc: Service):
                 return None
             timeout = self.connection.gettimeout()
             try:
-                self.connection.settimeout(30.0)
-                body = self.rfile.read(length)
+                deadline = time.monotonic() + self.BODY_SECONDS
+                parts, left = [], length
+                while left:
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        raise TimeoutError('request body deadline exceeded')
+                    self.connection.settimeout(remaining)
+                    piece = self.rfile.read1(min(left, 1 << 20))
+                    if not piece:
+                        break
+                    parts.append(piece)
+                    left -= len(piece)
+                body = b''.join(parts)
             except OSError:
                 body = None
             finally:

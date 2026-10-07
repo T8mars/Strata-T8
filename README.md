@@ -57,7 +57,7 @@ Windows 10 1903+/11 x64、AVX2 CPU、SSD。NVIDIA RTX 20/30/40/50 系列建议 1
 
 仓库每日检查上游正式版本，合并及测试通过后自动打包发布；可在 [Actions](https://github.com/T8mars/Strata-T8/actions) 手动同步 main。冲突、测试失败或缺少匹配引擎时停止发布。[更新机制](docs/UPDATING-T8.md)
 
-当前发行版 **0.1.40-t8.2** 同步上游 [v0.1.40.2](https://github.com/Niko1221/Strata/releases/tag/v0.1.40.2)，配套 **0.1.40.2** CUDA/HIP 引擎，保留 ComfyUI Protocol 1 和视觉按需加载。同步服务超时、分块 HTTP、图片方向校正、多图缓存及 Responses API 修复。主模型、MTP 与现有视觉权重可直接沿用。[本版验证范围](docs/VALIDATION-UPSTREAM-01402-T8.md)
+当前发行版 **0.1.40-t8.3** 基于上游 [v0.1.40.2](https://github.com/Niko1221/Strata/releases/tag/v0.1.40.2)，配套 **0.1.40.2** CUDA/HIP 引擎，支持 ComfyUI Protocol 1 和视觉按需加载。本轮修复启动失败的进程清理、慢速请求超时和连续视觉请求的缓存竞争；配套节点 **1.0.7** 修复发行 ZIP 的托管启动。主模型、MTP 与现有视觉权重可直接沿用。[检查与验证范围](docs/AUDIT-20-ROUND8-T8.md)
 
 OpenAI Base URL：`http://127.0.0.1:8080/v1`；Anthropic：`/v1/messages`；Responses：`/v1/responses`。默认监听本机，对外监听必须设置 API key。
 

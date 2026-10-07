@@ -1,3 +1,11 @@
+## Strata-T8 0.1.40-t8.3
+
+修复 HTTP 慢流可延长读取时限、原生启动返回畸形或零 context 的 READY 时留下子进程，以及连续视觉请求在复制图像嵌入前发生缓存驱逐的问题。非有限环境超时回退默认值，显式 0 仍关闭超时。
+
+与独立节点 **1.0.7** 配套；节点修复 Release ZIP / Registry 安装后的托管启动元数据缺失，并新增打包版本和兼容信息门禁。完整逐轮检查和验证范围见 [第八组报告](https://github.com/T8mars/Strata-T8/blob/v0.1.40-t8.3/docs/AUDIT-20-ROUND8-T8.md)。
+
+沿用上游及 CUDA/HIP 引擎 **0.1.40.2**、Python **3.12.10** 和协议 1。两版均包含运行依赖；VisionReady 含视觉权重、配置及许可证，主模型/MTP 独立分发。既有模型无需重新下载；旧整包运行 UPDATE-PORTABLE.bat 升级，模型、配置和用户文件保留。节点 Registry 审核以官方状态为准。
+
 ## Strata-T8 0.1.40-t8.2
 
 同步 [上游 v0.1.40.2](https://github.com/Niko1221/Strata/releases/tag/v0.1.40.2)，更新至 0.1.40.2 CUDA/HIP 引擎。主模型、MTP 和既有视觉权重可直接复用，ComfyUI 节点 1.0.6 与 Protocol 1 保持兼容。
