@@ -51,15 +51,37 @@ class UpstreamNativeBuild(unittest.TestCase):
     def network(self, request, **kwargs):
         self.requests.append(request)
         if isinstance(request, str):
-            self.assertIn('/releases/download/v0.1.40.1/', request)
+            self.assertIn('/releases/download/'+self.release['tag_name']+'/', request)
             return io.BytesIO(self.payload)
-        self.assertEqual(request.full_url, 'https://api.github.com/repos/Niko1221/Strata/releases/tags/v0.1.40.1')
+        self.assertEqual(request.full_url, 'https://api.github.com/repos/Niko1221/Strata/releases/tags/'+self.meta['upstream_release_tag'])
         return io.BytesIO(json.dumps(self.release).encode())
 
     def invoke(self):
         with mock.patch.object(bootstrap.urllib.request, 'urlopen', side_effect=self.network), \
              mock.patch.object(bootstrap, 'patch_engine'):
-            return bootstrap.bootstrap_engines(self.meta, '0.1.40', self.root/'cache', self.root/'stage')
+            return bootstrap.bootstrap_engines(self.meta, self.meta['engine_version'], self.root/'cache', self.root/'stage')
+
+    def test_four_part_engine_rejects_an_old_cache_and_keeps_exact_provenance(self):
+        self.payload = fixture_zip('0.1.40.2')
+        self.meta.update(upstream_version='0.1.40.2', engine_version='0.1.40.2',
+                         upstream_release_tag='v0.1.40.2')
+        self.release['tag_name'] = 'v0.1.40.2'
+        cache = self.root/'cache'
+        cache.mkdir()
+        for asset in self.release['assets']:
+            sha = hashlib.sha256(self.payload).hexdigest()
+            self.meta['engine_assets_sha256'][asset['name']] = sha
+            asset.update(digest='sha256:'+sha,
+                         browser_download_url=f"https://github.com/Niko1221/Strata/releases/download/v0.1.40.2/{asset['name']}")
+            (cache/('0.1.40.2-'+asset['name'])).write_bytes(fixture_zip('0.1.40'))
+        builds = self.invoke()
+        self.assertEqual(len(self.requests), 3)
+        for build in builds.values():
+            self.assertEqual(build['version'], '0.1.40.2')
+            self.assertEqual(build['upstream_asset']['release_tag'], 'v0.1.40.2')
+        self.requests.clear()
+        self.invoke()
+        self.assertEqual(len(self.requests), 1)
 
     def test_hotfix_release_uses_three_part_native_build_and_records_verified_source(self):
         with mock.patch.dict('os.environ', {'GH_TOKEN': 'fixture-token'}):

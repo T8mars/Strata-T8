@@ -28,7 +28,7 @@ python tools/sync_upstream.py --source release
 python tools/sync_upstream.py --source main
 ```
 
-上游 Release 可以使用四段热修复版本（例如 `v0.1.40.1`），源码及引擎仍使用三段 `0.1.40`，T8 发行版本为 `0.1.40-t8.1`。meta.json 分别记录 `upstream_release_tag`、真实 `upstream_commit`、`engine_version` 和官方引擎资产 SHA256；只有 Release 前三段与源码版本一致时才允许发布。正式版自动刷新资产摘要，没有源码变化时也核对摘要。main 验证分支不沿用旧资产摘要，同时保留 `upstream_stable_release_tag` 作为正式版下限；旧版本或旧于当前 main 的正式提交不能重新标记为新版。
+上游 Release、源码和引擎支持三段或四段版本。`v0.1.40.1` 使用 `0.1.40` 引擎，`v0.1.40.2` 的源码和引擎均为 `0.1.40.2`。T8 发行版本保持三段基础版本加递增修订，例如 `0.1.40-t8.2`，供既有更新器和节点比较。meta.json 分别记录准确的 `upstream_release_tag`、`upstream_commit`、`engine_version` 和官方资产 SHA256；四段源码必须精确匹配 Release，三段源码允许同基础版本的热修复标签，下载的 BUILD.json 必须精确匹配记录的引擎版本。正式版自动刷新资产摘要，没有源码变化时也核对摘要。main 验证分支不沿用旧资产摘要，同时保留 `upstream_stable_release_tag` 作为正式版下限；旧版本或旧于当前 main 的正式提交不能重新标记为新版。
 
 上游重写历史时，仅在已导入的上游提交仍属于本仓历史，且新历史包含完全相同的文件树时建立历史连接。找不到此锚点则停止并保留诊断，交由人工审查；不会清空或强制重置 T8 历史。v0.1.40.1 同步已连接新旧相同的 v0.1.39 基准。
 
@@ -43,6 +43,8 @@ Git 克隆副本使用上游 START-HERE.bat / UPDATE.bat 安装更新；整合�
 发布器再次逐文件校验两版 ZIP、SHA256、清单和引擎来源，只上传本版本的四个资产。发布前确认远端标签指向实际测试 SHA；无标签的草稿须绑定此 SHA，已有标签则以其实际提交为准。上传后核对四个资产的名称、大小和 GitHub 摘要，再公开 Release。网络或鉴权失败不能当作“Release 不存在”；同标签的已发布资产保持不变，标签指向其他提交时拒绝发布。
 
 GitHub runner 没有目标 GPU，自动检查不代表所有 GPU 的推理验收。AMD 验证状态记录在 features.json。升级 Python 大版本时需同步路径配置并重新验收。
+
+Windows 正式发布要求适用于 Windows 的全部应用、安装器及节点测试实际执行，无失败、错误或跳过。上游 Docker 入口依赖 POSIX shell 和符号链接，单独由 Linux CI 的 `posix --strict` 门槛执行，Windows 不将这三项标记为已通过。
 
 ## 发行类型迁移
 

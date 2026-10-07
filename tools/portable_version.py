@@ -7,13 +7,12 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def upstream_version_key(value):
-    if not isinstance(value, str) or not re.fullmatch(r'(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)', value):
-        raise ValueError(f'Unsupported stable upstream version: {value}')
-    return tuple(map(int, value.split('.')))
+    """Compare exact native versions, including four-part engine hotfixes."""
+    return upstream_release_key(value)
 
 
 def upstream_release_key(value):
-    """Upstream may publish a Python-only hotfix with the same three-part engine."""
+    """Normalize stable three/four-part versions for ordering."""
     number = r'(?:0|[1-9][0-9]*)'
     if not isinstance(value, str) or not re.fullmatch(rf'{number}\.{number}\.{number}(?:\.{number})?', value):
         raise ValueError(f'Unsupported stable upstream release: {value}')
@@ -25,7 +24,8 @@ def validate_source_release(version, tag):
     source = upstream_version_key(version)
     if not isinstance(tag, str) or not tag.startswith('v'):
         raise ValueError('Expected a stable upstream version tag')
-    if upstream_release_key(tag[1:])[:3] != source:
+    release = upstream_release_key(tag[1:])
+    if release[:3] != source[:3] or (len(version.split('.')) == 4 and release != source):
         raise ValueError('Upstream release tag differs from CMake source version')
 
 

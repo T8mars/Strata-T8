@@ -4,7 +4,7 @@ import unittest
 
 from tools import test_sync_upstream as fixtures
 from tools.sync_upstream import sync, select_ref, release_asset_pins
-from tools.portable_version import upstream_release_key, upstream_version_key, version_key
+from tools.portable_version import upstream_release_key, upstream_version_key, version_key, validate_source_release
 from tools.check_private_paths import private_paths
 
 
@@ -36,6 +36,29 @@ class HotfixSynchronization(unittest.TestCase):
         before = self.git(self.repo, 'rev-parse', 'HEAD')
         self.assertFalse(sync(self.repo, str(self.up), 'refs/tags/v0.1.40.1')['changed'])
         self.assertEqual(before, self.git(self.repo, 'rev-parse', 'HEAD'))
+
+    def test_four_part_native_hotfix_advances_revision_and_retains_exact_engine(self):
+        self.new_release()
+        sync(self.repo, str(self.up), 'refs/tags/v0.1.40.1')
+        (self.up/'CMakeLists.txt').write_text('project(strata VERSION 0.1.40.2)')
+        self.commit(self.up, 'native hotfix')
+        self.git(self.up, 'tag', 'v0.1.40.2')
+        result = sync(self.repo, str(self.up), 'refs/tags/v0.1.40.2')
+        meta = json.loads((self.repo/'meta.json').read_text())
+        self.assertEqual(result['version'], '0.1.40-t8.2')
+        self.assertEqual(meta['upstream_version'], '0.1.40.2')
+        self.assertEqual(meta['engine_version'], '0.1.40.2')
+        self.assertEqual(meta['upstream_release_tag'], 'v0.1.40.2')
+        self.assertEqual(meta['upstream_commit'], self.git(self.up, 'rev-parse', 'HEAD'))
+        self.assertFalse(sync(self.repo, str(self.up), 'refs/tags/v0.1.40.2')['changed'])
+
+    def test_four_part_source_cannot_be_relabelled_with_another_native_hotfix_tag(self):
+        self.new_release(version='0.1.40.2', tag='v0.1.40.3')
+        before = self.git(self.repo, 'rev-parse', 'HEAD')
+        with self.assertRaisesRegex(ValueError, 'differs'):
+            sync(self.repo, str(self.up), 'refs/tags/v0.1.40.3')
+        self.assertEqual(before, self.git(self.repo, 'rev-parse', 'HEAD'))
+        self.assertFalse(self.git(self.repo, 'status', '--porcelain'))
 
     def test_mismatched_hotfix_base_rolls_back_all_generated_files(self):
         self.new_release(version='0.1.39')
@@ -205,10 +228,19 @@ class HotfixSynchronization(unittest.TestCase):
 
 
 class UpstreamVersionContract(unittest.TestCase):
-    def test_only_upstream_tags_accept_four_segments(self):
+    def test_four_part_source_requires_exact_release_but_old_python_hotfix_is_accepted(self):
+        validate_source_release('0.1.40', 'v0.1.40.1')
+        validate_source_release('0.1.40.2', 'v0.1.40.2')
+        for tag in ['v0.1.40', 'v0.1.40.1', 'v0.1.40.3']:
+            with self.subTest(tag=tag), self.assertRaises(ValueError):
+                validate_source_release('0.1.40.2', tag)
+
+    def test_upstream_source_and_tags_accept_four_segments_but_package_stays_three(self):
         self.assertEqual(upstream_release_key('0.1.40'), (0, 1, 40, 0))
         self.assertGreater(upstream_release_key('0.1.40.1'), upstream_release_key('0.1.40'))
-        for bad in ('0.1.40.1', '0.1.40.01', '01.1.40'):
+        self.assertEqual(upstream_version_key('0.1.40.2'), (0, 1, 40, 2))
+        self.assertEqual(upstream_version_key('0.1.40'), (0, 1, 40, 0))
+        for bad in ('0.1.40.1.2', '0.1.40.01', '01.1.40'):
             with self.assertRaises(ValueError): upstream_version_key(bad)
         with self.assertRaises(ValueError): version_key('0.1.40.1-t8.1')
         for bad in ('v0.1.40.01', 'v0.1.40.1.2', 'v0.1.40-rc1', 'v0.1.40\n'):

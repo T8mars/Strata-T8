@@ -140,6 +140,16 @@ class ReleaseCheckGate(unittest.TestCase):
         self.assertEqual(result.returncode,1,result.stderr)
         self.assertEqual((summary['tests'],summary['failures'],summary['errors'],summary['skipped']),(3,1,0,1))
 
+    def test_posix_group_enforces_the_actual_host_boundary(self):
+        result, summary = self.invoke(strict=True, args=['--group', 'posix'])
+        if os.name == 'nt':
+            self.assertEqual(result.returncode, 2)
+            self.assertIsNone(summary)
+            self.assertIn('POSIX host', result.stderr)
+        else:
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual((summary['tests'], summary['skipped']), (3, 0))
+
 
 if __name__ == '__main__':
     unittest.main()

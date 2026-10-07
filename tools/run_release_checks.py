@@ -19,7 +19,7 @@ sys.path[:0] = [str(ROOT), str(ROOT/'tools')]
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--group', choices=['application', 'setup', 'tokenizer', 'nodes'], default='application')
+    parser.add_argument('--group', choices=['application', 'setup', 'tokenizer', 'nodes', 'posix'], default='application')
     parser.add_argument('--tokenizer', type=Path, help='Existing pack tokenizer for the tokenizer group')
     parser.add_argument('--node-tests', type=Path, help='Independent node test directory for the nodes group')
     parser.add_argument('--strict', action='store_true', help='Require executed tests with no failures, errors or skips')
@@ -43,11 +43,16 @@ def main():
         modules = ['serve.test_detok']
     elif args.group == 'setup':
         modules = ['tools.'+path.stem for path in sorted((ROOT/'tools').glob('test_setup_*.py'))]
+    elif args.group == 'posix':
+        if os.name == 'nt':
+            parser.error('posix checks require a POSIX host')
+        modules = ['tools.test_docker_entrypoint']
     else:
         modules = ['serve.'+path.stem for path in sorted((ROOT/'serve').glob('test_*.py'))
                    if path.stem != 'test_detok']
         modules += ['tools.'+path.stem for path in sorted((ROOT/'tools').glob('test_*.py'))
-                    if not path.stem.startswith('test_setup_')]
+                    if not path.stem.startswith('test_setup_')
+                    and not (os.name == 'nt' and path.stem == 'test_docker_entrypoint')]
     if args.group != 'nodes':
         print(json.dumps({'group': args.group, 'modules': modules, 'strict': args.strict}), flush=True)
         suite = unittest.defaultTestLoader.loadTestsFromNames(modules)

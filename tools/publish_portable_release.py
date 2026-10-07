@@ -11,7 +11,7 @@ import tempfile
 import zipfile
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from portable_version import ROOT, archive_name, source_version, version_key
+from portable_version import ROOT, archive_name, source_version, version_key, upstream_version_key
 from portable_build_provenance import ENGINE_ASSETS, build_identity, validate_engine_build
 from portable_update import update_json, validate_manifest, validate_metadata, safe_path
 from portable_weights import weight_declaration
@@ -42,7 +42,7 @@ def checkout_identity(root):
         raise ValueError('Invalid release repository metadata')
     key = version_key(meta['version'])
     identity = build_identity(meta, source_version(root))
-    if key[:3] != tuple(map(int, identity['engine_version'].split('.'))):
+    if key[:3] != upstream_version_key(identity['engine_version'])[:3]:
         raise ValueError('Package version differs from its source engine version')
     if identity['upstream_commit'] is None or meta.get('upstream_release_tag') != identity['upstream_release_tag']:
         raise ValueError('Publishing requires a frozen stable upstream release and asset pins')

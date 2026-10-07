@@ -210,9 +210,11 @@ def sync_fetched(root, commit, ref, *, release_assets=None):
             validate_source_release(version, release_tag)
         if parsed_version < upstream_version_key(meta['upstream_version']):
             raise ValueError('Upstream source version would downgrade the distribution')
-        meta['revision'] = meta['revision'] + 1 if meta['upstream_version'] == version else 1
+        family = parsed_version[:3]
+        old_family = upstream_version_key(meta['upstream_version'])[:3]
+        meta['revision'] = meta['revision'] + 1 if old_family == family else 1
         meta['upstream_version'] = version
-        meta['version'] = f'{version}-t8.{meta["revision"]}'
+        meta['version'] = '.'.join(map(str, family)) + f'-t8.{meta["revision"]}'
         meta['upstream_commit'] = commit
         meta['engine_version'] = version
         meta['upstream_ref'] = ref

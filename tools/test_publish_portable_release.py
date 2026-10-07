@@ -64,6 +64,24 @@ class GitFixture(unittest.TestCase):
         self.git('push', '-q', 'origin', 'refs/tags/'+self.tag)
 
 
+class FourPartNativeCheckout(GitFixture):
+    def test_exact_native_hotfix_can_publish_three_part_package_family(self):
+        (self.root/'CMakeLists.txt').write_text('project(strata VERSION 0.1.40.2)')
+        self.meta.update(upstream_version='0.1.40.2', engine_version='0.1.40.2',
+                         upstream_release_tag='v0.1.40.2', version='0.1.40-t8.2', revision=2)
+        (self.root/'meta.json').write_text(json.dumps(self.meta))
+        self.commit('exact native hotfix source')
+        meta, head = publish.checkout_identity(self.root)
+        self.assertEqual(meta['version'], '0.1.40-t8.2')
+        self.assertEqual(meta['engine_version'], '0.1.40.2')
+        self.assertEqual(head, self.git('rev-parse', 'HEAD'))
+        self.meta['engine_version'] = '0.1.40'
+        (self.root/'meta.json').write_text(json.dumps(self.meta))
+        self.commit('incorrect old engine')
+        with self.assertRaisesRegex(ValueError, 'versions differ'):
+            publish.checkout_identity(self.root)
+
+
 class GithubBoundary:
     """A GitHub API/CLI transport fake; every Git operation remains real."""
     def __init__(self, fixture, release=None, *, status=None, refuse_target=False, fail_upload=False):
