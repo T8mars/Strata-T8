@@ -8,4 +8,4 @@
 
 两版均内置 Python 3.12.10、锁定依赖及 NVIDIA/AMD 运行库，不含主模型、MTP 或用户配置。VisionReady 另含固定 BF16 视觉权重、配置和许可证；Portable-NoModels 不含任何权重。附 SHA256 和逐文件清单。[下载与模型路径](https://github.com/T8mars/Strata-T8/blob/v0.1.40-t8.2/README.md)
 
-RTX 4060 Ti 16GB / 128GB RAM 上已完成文本、图片、结构化批量到实际绘图；API 十项功能和进程退出已验证，整机显存恢复检查受其他程序占用影响。AMD、Intel 无本机硬件验收；Windows AMD 视觉暂不支持。节点 Registry 审批仍待确认。[本版验证范围](https://github.com/T8mars/Strata-T8/blob/v0.1.40-t8.2/docs/VALIDATION-UPSTREAM-01402-T8.md)
+严格回归通过 1190 项应用、397 项安装器、219 项节点和 8 项分词器测试，无失败或跳过。RTX 4060 Ti 16GB / 128GB RAM 完成文本、图片、结构化批量到实际绘图，以及 API 十项生命周期、双引擎退出和显存恢复复验。AMD、Intel 无本机硬件验收；Windows AMD 视觉暂不支持。节点 Registry 审批仍待确认。[本版验证范围](https://github.com/T8mars/Strata-T8/blob/v0.1.40-t8.2/docs/VALIDATION-UPSTREAM-01402-T8.md)
