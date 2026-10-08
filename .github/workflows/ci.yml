@@ -23,7 +23,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: T8mars/Comfyui-Strata-T8
-          ref: 5e18db0f88c3baae0fb91b1b7d956791621113f7 # Node 1.0.7, eighth audit packaging fixes
+          ref: f597c291cc0c10ee873fb7cca7ebb3626b951284 # Node 1.0.7, native 0.1.40.4 compatibility
           path: .portable-build/node-regression
       - uses: actions/setup-python@v5
         with:

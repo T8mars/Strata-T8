@@ -4,6 +4,8 @@
 
 独立 ComfyUI 节点保持 **1.0.7** 和协议 1。两版均内置 Python **3.12.10** 与运行依赖；VisionReady 另含视觉权重、配置及许可证，主模型/MTP 独立分发。既有模型与用户配置可直接沿用，退出服务后运行 UPDATE-PORTABLE.bat 升级。验证范围见[本版记录](https://github.com/T8mars/Strata-T8/blob/v0.1.40-t8.4/docs/VALIDATION-UPSTREAM-01404-T8.md)。
 
+**1870 项严格回归**通过，零失败、错误或跳过。RTX 4060 Ti 16GB / 128GB RAM 完成三类 ComfyUI 实际绘图、API 十项生命周期、双引擎退出和显存恢复。Windows AMD、Intel、Pascal 未做本机硬件验收；本包使用 CUDA 13，Pascal 修复属于上游 CUDA 12 版。
+
 ## Strata-T8 0.1.40-t8.3
 
 修复 HTTP 慢流可延长读取时限、原生启动返回畸形或零 context 的 READY 时留下子进程，以及连续视觉请求在复制图像嵌入前发生缓存驱逐的问题。非有限环境超时回退默认值，显式 0 仍关闭超时。
