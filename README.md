@@ -51,13 +51,13 @@ Strata-data 可位于运行包内、旁边或导入的其他路径；仅下载�
 
 ## 环境与更新
 
-Windows 10 1903+/11 x64、AVX2 CPU、SSD。NVIDIA RTX 20/30/40/50 系列建议 12GB 以上显存、驱动 580+；IQ3_S 建议 96GB 以上 RAM。RTX 4060 Ti 16GB / 128GB RAM 的验证范围见[本版验收](docs/VALIDATION-UPSTREAM-01402-T8.md)。AMD 文本兼容以[上游列表](docs/AMD_HIP.md)为准，尚无 AMD 实机验收，Windows AMD 视觉暂不支持。
+Windows 10 1903+/11 x64、AVX2 CPU、SSD。NVIDIA RTX 20/30/40/50 系列建议 12GB 以上显存、驱动 580+；IQ3_S 建议 96GB 以上 RAM。RTX 4060 Ti 16GB / 128GB RAM 的验证范围见[本版验收](docs/VALIDATION-UPSTREAM-01404-T8.md)。AMD 文本兼容以[上游列表](docs/AMD_HIP.md)为准，尚无 AMD 实机验收，Windows AMD 视觉暂不支持。
 
 启动时异步检查版本。退出服务后用 **UPDATE-PORTABLE.bat** 校验更新当前发行类型，保留模型和配置，失败回滚。旧 NoModels 用户先更新，再用 **INSTALL-VISION.bat** 切换；节点通过自己的 Manager/仓库更新后重启 ComfyUI。
 
 仓库每日检查上游正式版本，合并及测试通过后自动打包发布；可在 [Actions](https://github.com/T8mars/Strata-T8/actions) 手动同步 main。冲突、测试失败或缺少匹配引擎时停止发布。[更新机制](docs/UPDATING-T8.md)
 
-当前发行版 **0.1.40-t8.3** 基于上游 [v0.1.40.2](https://github.com/Niko1221/Strata/releases/tag/v0.1.40.2)，配套 **0.1.40.2** CUDA/HIP 引擎，支持 ComfyUI Protocol 1 和视觉按需加载。本轮修复启动失败的进程清理、慢速请求超时和连续视觉请求的缓存竞争；配套节点 **1.0.7** 修复发行 ZIP 的托管启动。主模型、MTP 与现有视觉权重可直接沿用。[检查与验证范围](docs/AUDIT-20-ROUND8-T8.md)
+当前发行版 **0.1.40-t8.4** 基于上游 [v0.1.40.4](https://github.com/Niko1221/Strata/releases/tag/v0.1.40.4)，配套 **0.1.40.4** CUDA/HIP 引擎，支持节点 **1.0.7**、ComfyUI Protocol 1 和视觉按需加载。同步 Windows AMD 缓存与运行库修复、网页对话历史、Tokenizer 和 Docker 配置更新，保留 T8 的超时、进程清理及更新回滚。主模型、MTP 与现有视觉权重可直接沿用。[本版验证](docs/VALIDATION-UPSTREAM-01404-T8.md)
 
 OpenAI Base URL：`http://127.0.0.1:8080/v1`；Anthropic：`/v1/messages`；Responses：`/v1/responses`。默认监听本机，对外监听必须设置 API key。
 
