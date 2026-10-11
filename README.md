@@ -57,7 +57,9 @@ Windows 10 1903+/11 x64、AVX2 CPU、SSD。NVIDIA RTX 20/30/40/50 系列建议 1
 
 仓库每日检查上游正式版本，合并及测试通过后自动打包发布；可在 [Actions](https://github.com/T8mars/Strata-T8/actions) 手动同步 main。冲突、测试失败或缺少匹配引擎时停止发布。[更新机制](docs/UPDATING-T8.md)
 
-当前发行版 **0.1.40-t8.4** 基于上游 [v0.1.40.4](https://github.com/Niko1221/Strata/releases/tag/v0.1.40.4)，配套 **0.1.40.4** CUDA/HIP 引擎，支持节点 **1.0.7**、ComfyUI Protocol 1 和视觉按需加载。同步 Windows AMD 缓存与运行库修复、网页对话历史、Tokenizer 和 Docker 配置更新，保留 T8 的超时、进程清理及更新回滚。主模型、MTP 与现有视觉权重可直接沿用。[本版验证](docs/VALIDATION-UPSTREAM-01404-T8.md)
+当前发行版 **0.1.42-t8.1** 基于上游 [v0.1.42](https://github.com/Niko1221/Strata/releases/tag/v0.1.42)，配套 **0.1.42** CUDA/HIP 引擎，支持节点 **1.0.7**、ComfyUI Protocol 1 和视觉按需加载。合入请求排队与取消、工具调用、上下文及 Windows AMD 内存保护等累计修复，保留 T8 的超时、进程清理及更新回滚；主模型、MTP 与现有视觉权重可沿用。
+
+上游在适用 NVIDIA 配置中默认启用专家尾部跳过和实测 PCIe 分配，回答可能略有变化。需要恢复此前行为，可在运行配置的 `env` 对象设置 `"STRATA_ROUTE_TAIL_SKIP":"0"` 和 `"STRATA_PCIE_FRAC_DEFAULT":"old"`，然后重启；已有显式 `--pcie-frac` 参数继续优先。上游性能数字取决于硬件与模型，不代表本机速度。
 
 OpenAI Base URL：`http://127.0.0.1:8080/v1`；Anthropic：`/v1/messages`；Responses：`/v1/responses`。默认监听本机，对外监听必须设置 API key。
 

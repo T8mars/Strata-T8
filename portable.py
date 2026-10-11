@@ -158,7 +158,7 @@ def model_delivery(data):
     family, size = model.get('family'), model.get('model')
     if not isinstance(family, str) or not isinstance(size, str) or family not in upstream.FAMILIES or size not in upstream.MODELS:
         raise RuntimeError('Invalid portable-model.json: unsupported family or model')
-    if family not in upstream.MODELS[size]['families']:
+    if family not in upstream.MODELS[size].get('families', ('qwen', 'swift')):
         raise RuntimeError('Model size does not belong to the selected family')
     relative = model.get('gguf_dir')
     required = model.get('required_files', [])
