@@ -13,7 +13,7 @@ import portable
 from tools import managed_config, prepare_portable_model as prepare_model
 from serve import structured
 from serve.frontend import ChatTemplate
-from serve.server import ByteTokenizer, MockEngine, Service, serve
+from serve.server import ByteTokenizer, MockEngine, Service, body_limit, serve
 
 
 class RequestBoundaries(unittest.TestCase):
@@ -68,7 +68,7 @@ class RequestBoundaries(unittest.TestCase):
         self.assertEqual(status,400,result); load.assert_not_called()
 
     def test_header_only_oversized_generation_and_settings_are_refused(self):
-        for path,size in [('/v1/chat/completions',64*1024**2+1),('/settings',65537),('/config',65537)]:
+        for path,size in [('/v1/chat/completions',body_limit()+1),('/settings',65537),('/config',65537)]:
             with self.subTest(path=path):
                 status,result=self.raw(b'',path=path,lengths=[size],truncated=True)
                 self.assertEqual(status,413,result)
