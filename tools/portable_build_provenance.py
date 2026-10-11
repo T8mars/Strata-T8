@@ -30,7 +30,8 @@ def build_identity(meta, source):
             'upstream_release_tag': tag, 'upstream_commit': commit}
 
 
-def validate_engine_build(build, directory, meta, source):
+def validate_engine_build(build, directory, meta, source, *, allow_vendor=True, root=None,
+                          engine_directory=None, verify_artifacts=True):
     identity = build_identity(meta, source)
     if not isinstance(build, dict) or build.get('version') != identity['engine_version']:
         raise ValueError(f'{directory} does not match the source engine version')
@@ -47,4 +48,20 @@ def validate_engine_build(build, directory, meta, source):
         pin = meta.get('engine_assets_sha256', {}).get(name)
         if pin is not None and pin != digest:
             raise ValueError(f'{directory} upstream asset checksum differs from pinned metadata')
+    from pathlib import Path
+    root = Path(root) if root is not None else Path(__file__).resolve().parents[1]
+    native = build.get('t8_native_build')
+    if native is not None:
+        if directory != 'engine':
+            raise ValueError('T8 native video build is available for CUDA only')
+        from build_native_portable import validate_native_build
+        physical = Path(engine_directory) if engine_directory is not None else root/directory
+        validate_native_build(native, root, physical if verify_artifacts else None)
+    if not allow_vendor:
+        import json
+        features = json.loads((root/'features.json').read_text(encoding='utf-8'))
+        if directory == 'engine' and features.get('native_video_cuda') and native is None:
+            raise ValueError('Native-video release requires a current T8 self-built CUDA engine')
+        if directory == 'engine-hip' and build.get('capabilities', {}).get('native_video'):
+            raise ValueError('HIP native-video capability has not been built or validated')
     return build

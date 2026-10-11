@@ -1,0 +1,48 @@
+name: Native shared-source HIP compile
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Exact tested source commit or branch to compile
+        required: true
+        type: string
+  workflow_call:
+    inputs:
+      ref:
+        required: true
+        type: string
+permissions:
+  contents: read
+jobs:
+  compile:
+    # No AMD devices/driver installation; this gate establishes compile/link only.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    container:
+      image: rocm/dev-ubuntu-24.04@sha256:92f309c51b52cef8762867848f1529dee821624f23cd5df38455e819538f762f # 7.2.4-complete
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+      - name: Prepare host build tools and pinned native sources
+        run: |
+          apt-get update
+          apt-get install -y cmake ninja-build git python3
+          python3 -c "import sys;sys.path.insert(0,'tools');import build_native_portable as b;b.prepare_llama(b.ROOT,b.ROOT/'.portable-build')"
+      - name: Compile and link shared HIP engine and CPU video contract
+        run: |
+          cmake -S . -B .portable-build/hip-compile -G Ninja -DCMAKE_BUILD_TYPE=Release -DSTRATA_ENABLE_HIP=ON -DSTRATA_BUILD_TESTS=OFF -DSTRATA_GGML_DIR="$PWD/third_party/llama.cpp" '-DCMAKE_HIP_ARCHITECTURES=gfx1100;gfx1201' -DCMAKE_PREFIX_PATH=/opt/rocm -DCMAKE_CXX_COMPILER=/opt/rocm/llvm/bin/clang++ -DCMAKE_HIP_COMPILER=/opt/rocm/llvm/bin/clang++
+          cmake --build .portable-build/hip-compile --target strata -j 4
+          /opt/rocm/llvm/bin/clang++ -std=c++17 -O2 -I include tools/vision/native_vision_test.cpp -o .portable-build/hip-compile/native-vision-contract
+          .portable-build/hip-compile/native-vision-contract
+          git rev-parse HEAD > .portable-build/hip-compile/SOURCE-COMMIT.txt
+      - name: Retain HIP compile evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: hip-shared-source-compile
+          path: |
+            .portable-build/hip-compile/CMakeCache.txt
+            .portable-build/hip-compile/CMakeFiles/CMakeConfigureLog.yaml
+            .portable-build/hip-compile/SOURCE-COMMIT.txt
+            .portable-build/hip-compile/strata

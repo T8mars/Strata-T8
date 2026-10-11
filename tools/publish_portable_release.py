@@ -64,7 +64,7 @@ def _zip_json(package, name, limit=32*1024**2):
     return value
 
 
-def audit_archive(archive, checksum, meta, head, edition):
+def audit_archive(archive, checksum, meta, head, edition, *, root=ROOT):
     """Hash the archive and every listed member, without extracting vendor files."""
     archive, checksum = Path(archive), Path(checksum)
     for path in (archive, checksum):
@@ -134,10 +134,21 @@ def audit_archive(archive, checksum, meta, head, edition):
         if not isinstance(engines, dict) or set(engines) != set(ENGINE_ASSETS):
             raise ValueError('Package requires both native engine provenance records')
         for directory in ENGINE_ASSETS:
-            build = _zip_json(package, prefix+f'/{directory}/BUILD.json', 1024**2)
-            validate_engine_build(build, directory, meta, meta['upstream_version'])
+            build = _zip_json(package, prefix+f'/{directory}/BUILD.json', 8*1024**2)
+            # Source verification belongs to the publisher's checkout; binary
+            # verification below uses the ZIP members already hashed above.
+            validate_engine_build(build, directory, meta, meta['upstream_version'],
+                                  root=root, verify_artifacts=False)
             if engines[directory] != build:
                 raise ValueError('Engine manifest differs from its packaged BUILD.json')
+            native = build.get('t8_native_build')
+            if native is not None:
+                if command(root, ['git', 'merge-base', '--is-ancestor', native['source_commit'], head], check=False).returncode:
+                    raise ValueError('Native build source commit is not part of the tested release history')
+                for binary, output in native['outputs'].items():
+                    declared = listed.get(directory+'/'+binary, {})
+                    if declared.get('sha256') != output['sha256'] or declared.get('size') != output.get('size'):
+                        raise ValueError('Packaged native executable differs from its source-bound build: '+binary)
             for binary, patch_key in (('strata.exe', 'engine_utf8'), ('strata-vision.exe', 'vision_utf8')):
                 rel = directory+'/'+binary
                 if rel not in listed:
@@ -161,7 +172,7 @@ def audit_assets(root, meta, head, *, with_digests=False):
     for edition in EDITIONS:
         archive = dist/archive_name(meta['version'], edition)
         checksum = archive.with_name(archive.name+'.sha256')
-        report = audit_archive(archive, checksum, meta, head, edition)
+        report = audit_archive(archive, checksum, meta, head, edition, root=root)
         assets.extend((archive, checksum))
         digests[archive.name] = report['sha256']
         digests[checksum.name] = report['checksum_sha256']

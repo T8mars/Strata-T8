@@ -361,7 +361,59 @@ class ArchiveAudit(GitFixture):
 
     def audit(self, **kwargs):
         archive, checksum, edition = self.build_archive(**kwargs)
-        return publish.audit_archive(archive, checksum, self.meta, self.head, edition)
+        return publish.audit_archive(archive, checksum, self.meta, self.head, edition, root=self.root)
+
+    def native_fixture(self):
+        from tools import build_native_portable as native_build
+        sources = {'setup.py':'LLAMA_CPP_COMMIT = "'+'a'*40+'"\n',
+                   'src/program/generate.cpp':'tested native algorithm\n',
+                   'include/native.hpp':'tested native contract\n',
+                   'tools/build_native_portable.py':'tested build commands\n',
+                   'tools/windows_utf8_manifest.py':'tested manifest patch\n',
+                   'third_party/llama.cpp/CMakeLists.txt':'pinned cmake\n',
+                   'third_party/llama.cpp/src/llama.cpp':'pinned native source\n'}
+        for name, text in sources.items():
+            path = self.root/name; path.parent.mkdir(parents=True, exist_ok=True); path.write_text(text)
+        self.commit('tested native source')
+        self.head = self.git('rev-parse','HEAD')
+        third = {'repository':'ggml-org/llama.cpp', 'commit':'a'*40, 'archive_sha256':'b'*64,
+                 'source_tree_sha256':native_build.canonical_digest(native_build.llama_inputs(self.root)), 'source_file_count':2}
+        native = {'schema':1, 'source_commit':self.head, 'source_identity':native_build.source_identity(self.root,third),
+                  'cuda_architectures':list(native_build.ARCHITECTURES), 'portable':True,
+                  'capabilities':{'native_video':True,'geniv':1,'encv':1,'sve':1}, 'outputs':{}}
+        for name, content in [('strata.exe',b'fixture native executable engine'), ('strata-vision.exe',b'fixture video executable')]:
+            native['outputs'][name] = {'sha256':hashlib.sha256(content).hexdigest(), 'size':len(content),
+                'cuda_architectures':list(native_build.ARCHITECTURES), 'utf8_manifest':'activeCodePage=UTF-8'}
+        def edit_build(build):
+            if build['upstream_asset']['name'] == 'strata-windows-x64.zip':
+                build['t8_native_build'] = native; build['vision'] = 'gpu'
+                build['portable_patches']['vision_utf8'] = {'sha256_before':'1'*64,
+                    'sha256_after':native['outputs']['strata-vision.exe']['sha256'], 'manifest':'activeCodePage=UTF-8'}
+        return native, edit_build
+
+    def test_native_zip_uses_archive_binaries_without_packaging_cpp_sources(self):
+        native, edit_build = self.native_fixture()
+        # No engine exists in the publisher checkout, and no C++ source goes in
+        # this ZIP. Actual ZIP SHA values still prove the native build outputs.
+        self.assertFalse((self.root/'engine').exists())
+        self.assertEqual(self.audit(edit_build=edit_build,
+            extra={'engine/strata-vision.exe':b'fixture video executable'})['source_commit'],self.head)
+
+    def test_native_output_hash_and_current_source_are_both_required(self):
+        native, edit_build = self.native_fixture()
+        extra = {'engine/strata-vision.exe':b'fixture video executable'}
+        native['outputs']['strata.exe']['sha256'] = 'f'*64
+        with self.assertRaisesRegex(ValueError, 'source-bound build'):
+            self.audit(edit_build=edit_build,extra=extra)
+        native['outputs']['strata.exe']['sha256'] = hashlib.sha256(b'fixture native executable engine').hexdigest()
+        (self.root/'src/program/generate.cpp').write_text('untested changed algorithm')
+        with self.assertRaisesRegex(ValueError, 'source changed'):
+            self.audit(edit_build=edit_build,extra=extra)
+
+    def test_native_commit_must_be_in_the_tested_release_history(self):
+        native, edit_build = self.native_fixture(); native['source_commit'] = 'f'*40
+        with self.assertRaisesRegex(ValueError, 'tested release history'):
+            self.audit(edit_build=edit_build,extra={'engine/strata-vision.exe':b'fixture video executable'})
 
     def test_real_zip_member_hashes_and_source_provenance_pass(self):
         self.assertEqual(self.audit()['source_commit'], self.head)

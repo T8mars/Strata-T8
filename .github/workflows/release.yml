@@ -17,9 +17,16 @@ concurrency:
   group: portable-release
   cancel-in-progress: false
 jobs:
+  hip-compile:
+    uses: ./.github/workflows/native-hip.yml
+    with:
+      ref: ${{ inputs.ref || 'main' }}
+    permissions:
+      contents: read
   release:
+    needs: hip-compile
     runs-on: windows-latest
-    timeout-minutes: 90
+    timeout-minutes: 180
     env:
       GH_TOKEN: ${{ github.token }}
     steps:
@@ -36,8 +43,24 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+      - name: Set up portable MSVC compiler
+        uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1.13.0
+        with:
+          arch: x64
+      - name: Install pinned CUDA toolkit for native video builds
+        uses: Jimver/cuda-toolkit@b8bf9c6c28f8a92fbb04dcfcaee872e60c57462d # v0.2.36
+        with:
+          cuda: '13.0.2'
+          method: network
+          sub-packages: '["nvcc", "cudart", "cublas", "cublas_dev", "cuobjdump", "nvrtc", "nvrtc_dev"]'
       - name: Build independent runtime with matching engines
         run: python tools/bootstrap_portable.py
+      - name: Verify self-built native engine identity and contracts
+        run: |
+          runtime/python/python.exe -X utf8 tools/build_native_portable.py --verify
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          runtime/python/python.exe -X utf8 -m unittest discover -s tools -p test_native_build.py
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
       - name: Download and verify pinned vision encoder
         run: runtime/python/python.exe -X utf8 tools/prepare_portable_vision.py
       - name: Validate runtime and application

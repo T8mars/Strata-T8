@@ -62,6 +62,7 @@
 #include "strata/prefill/prefill.hpp"
 #include "strata/core/native_dense.hpp"
 #include "strata/program/batch_read.hpp"
+#include "strata/program/native_vision.hpp"
 #include "strata/program/logits_selection.hpp"
 #include "strata/program/conv_cache.hpp"
 #include "strata/program/split_rules.hpp"
@@ -604,6 +605,7 @@ struct Options {
     bool serve = false;
     /// The vision path: keep a per-cell (t, h, w) rotary position table so --serve can take GENI requests.
     bool vision = false;
+    bool native_video = false; // opt-in ordered image/video SVE1 records, GENIV
     int adapt_swaps = 96;
     /// --serve: how many conversation checkpoints to keep between requests (0 = every request reads its whole
     /// prompt again, the v0.1.2 behaviour).  One is the GDN recurrence of the 36 layers, the QSA indexer tails and
@@ -758,6 +760,7 @@ void usage() {
                  "  --shared-late        A/B: shared expert after the CPU pool (default: overlapped with it)\n"
                  "  --keep-canonical     A/B: also load canonical copies of natively served tensors (more VRAM)\n"
                  "  --vision             --serve takes images too (GENI requests; embeddings from strata-vision)\n"
+                 "  --native-video       --vision --serve accepts ordered video blocks (GENIV)\n"
                  "  --prompt-cache N     --serve: keep N conversation checkpoints between requests (default 6, ~118 MB\n"
                  "                       of RAM each; 0 = read every prompt from the start)\n"
                  "  --conversation-cache-mib N  --serve: RAM budget for parked conversations (default 0 = off)\n"
@@ -1961,6 +1964,7 @@ int main(int argc, char** argv) {
         else if (a == "--pcie-mode") o.pcie_mode = next("--pcie-mode");
         else if (a == "--serve") o.serve = true;
         else if (a == "--vision") o.vision = true;
+        else if (a == "--native-video") o.native_video = true;
         else if (a == "--session-save-reclaim") o.session_save_reclaim = true;
         else if (a == "--prompt-cache") o.prompt_cache = std::max(0, std::atoi(next("--prompt-cache")));
         else if (a == "--conversation-cache-mib" || a == "--conversation-cache-slots" ||
@@ -2471,6 +2475,10 @@ int main(int argc, char** argv) {
     }
     if (!o.no_ple && o.ple_gguf.empty()) {
         std::fprintf(stderr, "strata generate: --ple-gguf is required; --no-ple explicitly enables a diagnostic ablation\n");
+        return 2;
+    }
+    if (o.native_video && (!o.vision || !o.serve || o.batch > 0 || o.max_context > INT32_MAX - 64)) {
+        std::fprintf(stderr, "strata generate: --native-video requires --vision --serve without continuous batching\n");
         return 2;
     }
     // P7 audit: positions, cells and pooled-block indices are cast to int32 on the device path.
@@ -7681,6 +7689,7 @@ int main(int argc, char** argv) {
                     {"keep_canonical", o.keep_canonical}, {"no_fused_gr", o.no_fused_gr},
                     {"no_fast_attn", o.no_fast_attn}, {"no_fused_gdn", o.no_fused_gdn},
                     {"no_fast_select", o.no_fast_select}, {"vision", o.vision}};
+                if (o.native_video) c.switches.push_back({"native_video_v1", true});
                 config_fp = strata::core::session_config_fingerprint(c);
             }
             id.model = *model_fp;
@@ -8837,7 +8846,8 @@ int main(int argc, char** argv) {
                     }
                 }).detach();
         }
-        std::printf("READY %lld stop\n", (long long) o.max_context);   // "stop": this engine honours STOP
+        if (o.native_video) std::printf("READY %lld stop native_video=1 geniv=1\n", (long long) o.max_context);
+        else std::printf("READY %lld stop\n", (long long) o.max_context);   // "stop": this engine honours STOP
         std::fflush(stdout);
         std::string line;
         int64_t rounds = 0;
@@ -9747,13 +9757,21 @@ int main(int argc, char** argv) {
                 std::fflush(stdout);
                 continue;
             }
-            const bool geni = line.rfind("GENI ", 0) == 0;
+            const bool geniv = line.rfind("GENIV ", 0) == 0;
+            if (geniv && !o.native_video) { std::printf("ERR GENIV requires --native-video --vision\n"); continue; }
+            const bool geni = geniv || line.rfind("GENI ", 0) == 0;
             if (!geni && line.rfind("GEN ", 0) != 0) {
                 std::printf("ERR expected: GEN <max_new> <id,id,...> or GENI <max_new> <file> <id,id,...>\n");
                 continue;
             }
             char* endp = nullptr;
-            const long long max_new = std::strtoll(line.c_str() + (geni ? 5 : 4), &endp, 10);
+            const char* max_start = line.c_str() + (geniv ? 6 : geni ? 5 : 4);
+            errno = 0;
+            const long long max_new = std::strtoll(max_start, &endp, 10);
+            if (geniv && (errno == ERANGE || endp == max_start || *endp != ' ' || max_new < 1 ||
+                          max_new > o.max_context - 8)) {
+                std::printf("ERR bad native max_new\n"); continue;
+            }
             // optional sampling keys between max_new and the ids: temperature=F, top_p=F, top_k=N, min_p=F,
             // penalty_last_n=N, penalty_repeat=F, penalty_freq=F, penalty_present=F, seed=N (text requests
             // only).  Absent keys keep today's behavior: greedy, no penalties.
@@ -9825,13 +9843,38 @@ int main(int argc, char** argv) {
             }
             std::vector<int64_t> ids;
             std::string pe;
-            if (max_new < 1 || endp == nullptr || (geni && emb_path.empty()) || !parse_i64_list(endp, ids, pe)) {
+            std::vector<strata::program::native_vision::Span> media_spans;
+            if (geniv && endp != nullptr) {
+                while (*endp == ' ') ++endp;
+                char* gap = std::strchr(endp, ' ');
+                if (gap == nullptr || !strata::program::native_vision::parse_spans(
+                        std::string(endp, (size_t) (gap - endp)), media_spans, pe)) {
+                    std::printf("ERR bad native media spans: %s\n", pe.c_str()); continue;
+                }
+                endp = gap;
+            }
+            const bool parsed_ids = max_new >= 1 && endp != nullptr && (!geni || !emb_path.empty()) && (geniv
+                ? strata::program::native_vision::parse_ids(endp, o.max_context - 8 - max_new, n_vocab, ids, pe)
+                : parse_i64_list(endp, ids, pe));
+            if (max_new < 1 || endp == nullptr || (geni && emb_path.empty()) || !parsed_ids) {
                 std::printf("ERR bad request: %s\n", pe.empty() ? "max_new" : pe.c_str());
                 continue;
             }
             const int64_t n = (int64_t) ids.size();
             req_imgs.clear();
             if (geni && !o.vision) { std::printf("ERR this engine was started without --vision\n"); continue; }
+            strata::program::native_vision::Batch native_media;
+            if (geniv) {
+                std::string ve;
+                try {
+                    if (!strata::program::native_vision::read(emb_path, media_spans, ids, g.n_embd,
+                            (int64_t) mrope_host.size() / 3, o.max_context, max_new, native_media, ve)) {
+                        std::printf("ERR %s\n", ve.c_str()); continue;
+                    }
+                } catch (const std::exception& e) {
+                    std::printf("ERR native embeddings: %s\n", e.what()); continue;
+                }
+            }
             if (geni || !mrope_identity) {
                 // positions for every cell this request can reach; the identity again for a text request
                 std::string ve;
@@ -9844,6 +9887,19 @@ int main(int argc, char** argv) {
                 };
                 if (!geni) {
                     for (int64_t c = 0; c < cells; ++c) put(c, c, c, c);
+                } else if (geniv) {
+                    img_rows = std::move(native_media.rows);
+                    mrope_host = std::move(native_media.positions);
+                    for (const auto& im : native_media.records) {
+                        // Bind media kind, grid and logical position as well as embedding bytes.
+                        const int64_t identity[6] = {1, im.rows, im.nx, im.ny, im.pad, im.pos};
+                        uint64_t h = fnv1a(identity, sizeof identity);
+                        h = fnv1a(img_rows.data() + im.off,
+                                  (size_t) im.rows * (size_t) g.n_embd * sizeof(float), h);
+                        req_imgs.push_back({im.start, h});
+                        for (int64_t j = 0; j < im.rows; ++j)
+                            row_ptr[(size_t) (im.start + j)] = img_rows.data() + im.off + (size_t) j * (size_t) g.n_embd;
+                    }
                 } else {
                     struct Img { int64_t n, nx, ny; size_t off; };
                     std::vector<Img> imgs;

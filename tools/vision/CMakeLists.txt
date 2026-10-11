@@ -59,3 +59,13 @@ add_executable(strata-vision strata_vision.cpp)
 target_link_libraries(strata-vision PRIVATE mtmd llama)
 target_compile_features(strata-vision PRIVATE cxx_std_17)
 set_target_properties(strata-vision PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
+
+# Pure host contract tests; run without a GPU, model or downloaded weights.
+option(STRATA_VISION_CONTRACT_TESTS "build CPU GENIV layout/parser tests" OFF)
+if(STRATA_VISION_CONTRACT_TESTS)
+  enable_testing()
+  add_executable(strata-native-vision-test native_vision_test.cpp)
+  target_include_directories(strata-native-vision-test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/../../include")
+  target_compile_features(strata-native-vision-test PRIVATE cxx_std_17)
+  add_test(NAME native-vision-contract COMMAND strata-native-vision-test)
+endif()

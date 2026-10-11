@@ -28,6 +28,10 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <cmath>
+#include <filesystem>
+#include <fstream>
+#include <iomanip>
 #include <iostream>
 #include <sstream>
 #include <string>
@@ -52,11 +56,85 @@ bool parse_enc(const std::string& line, std::string& img, std::string& out) {
     return !img.empty() && !out.empty();
 }
 
+bool parse_encv(const std::string& line, std::string& first, std::string& second, std::string& out) {
+    if (line.rfind("ENCV ", 0) != 0) return false;
+    std::istringstream in(line.substr(5));
+    if (!(in >> std::quoted(first) >> std::quoted(second) >> std::quoted(out))) return false;
+    in >> std::ws;
+    return in.eof() && !first.empty() && !second.empty() && !out.empty();
+}
+
+// ENCV accepts bounded PNG frames. Validate IHDR before stb allocates decoded RGB.
+bool bounded_png(const std::string& path, std::string& err) {
+    std::ifstream f(std::filesystem::u8path(path), std::ios::binary | std::ios::ate);
+    if (!f || f.tellg() < 24 || f.tellg() > (32LL << 20)) { err = "video PNG size must be 24 bytes..32 MiB"; return false; }
+    f.seekg(0);
+    unsigned char h[24]{};
+    f.read(reinterpret_cast<char*>(h), sizeof h);
+    const unsigned char sig[8] = {137, 80, 78, 71, 13, 10, 26, 10};
+    if (!f || std::memcmp(h, sig, 8) || std::memcmp(h + 12, "IHDR", 4)) { err = "video frame must be PNG"; return false; }
+    auto u32 = [&](int at) { return (uint32_t(h[at]) << 24) | (uint32_t(h[at+1]) << 16) |
+                                  (uint32_t(h[at+2]) << 8) | h[at+3]; };
+    const uint64_t nx = u32(16), ny = u32(20);
+    if (!nx || !ny || nx * ny > (16ULL << 20)) { err = "video PNG exceeds 16M pixels"; return false; }
+    return true;
+}
+
+bool encode_pair(mtmd_context* ctx, mtmd_bitmap* first, mtmd_bitmap* second, int width, int cap,
+                 const std::string& out, int& n, int& nx, int& ny, std::string& err) {
+    if (!first || !second || mtmd_bitmap_get_nx(first) != mtmd_bitmap_get_nx(second) ||
+        mtmd_bitmap_get_ny(first) != mtmd_bitmap_get_ny(second)) {
+        err = "video pair frames must have matching dimensions"; return false;
+    }
+    mtmd_bitmap_set_mergeable(first, true);
+    mtmd_bitmap_set_mergeable(second, true);
+    mtmd_input_chunks* chunks = mtmd_input_chunks_init();
+    // No timestamp text between the two markers: mtmd merges adjacent bitmaps only.
+    const std::string prompt = std::string(mtmd_default_marker()) + mtmd_default_marker();
+    mtmd_input_text txt{prompt.c_str(), prompt.size(), false, true};
+    const mtmd_bitmap* bms[2] = {first, second};
+    const mtmd_input_chunk* image = nullptr;
+    if (mtmd_tokenize(ctx, chunks, &txt, bms, 2)) err = "video pair preprocessing failed";
+    int images = 0;
+    for (size_t i = 0; err.empty() && i < mtmd_input_chunks_size(chunks); ++i) {
+        const auto* ch = mtmd_input_chunks_get(chunks, i);
+        if (mtmd_input_chunk_get_type(ch) == MTMD_INPUT_CHUNK_TYPE_IMAGE) { image = ch; ++images; }
+    }
+    if (err.empty() && images != 1) err = "video pair was not temporally merged into one block";
+    if (err.empty()) {
+        const size_t count = mtmd_input_chunk_get_n_tokens(image);
+        if (!count || count > (size_t) cap) err = "video pair token budget exceeded";
+        else {
+            n = (int) count;
+            const auto last = mtmd_image_tokens_get_decoder_pos(mtmd_input_chunk_get_tokens_image(image), 0, count - 1);
+            nx = (int) last.x + 1; ny = (int) last.y + 1;
+            if (nx < 1 || ny < 1 || (int64_t) nx * ny != n) err = "video pair grid is not rectangular";
+        }
+    }
+    if (err.empty() && mtmd_encode_chunk(ctx, image)) err = "video pair encoder failed";
+    if (err.empty()) {
+        const float* embd = mtmd_get_output_embd(ctx);
+        const size_t count = (size_t) n * (size_t) width;
+        for (size_t i = 0; err.empty() && i < count; ++i)
+            if (!embd || !std::isfinite(embd[i])) err = "non-finite video pair embedding";
+        if (err.empty() && !out.empty()) {
+            std::ofstream f(std::filesystem::u8path(out), std::ios::binary | std::ios::trunc);
+            const int32_t h[5] = {0x31455653, n, nx, ny, width};
+            f.write(reinterpret_cast<const char*>(h), sizeof h);
+            f.write(reinterpret_cast<const char*>(embd), (std::streamsize) (count * sizeof(float)));
+            f.close();
+            if (!f) err = "cannot write video embeddings";
+        }
+    }
+    mtmd_input_chunks_free(chunks);
+    return err.empty();
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
     std::string mmproj, model;
-    bool gpu = false;
+    bool gpu = false, video = false;
     int threads = 0, max_tokens = 0, min_tokens = 0;
     llama_flash_attn_type fa = LLAMA_FLASH_ATTN_TYPE_AUTO;
     bool fa_given = false;
@@ -69,6 +147,7 @@ int main(int argc, char** argv) {
         if (a == "--mmproj") mmproj = next();
         else if (a == "--model") model = next();
         else if (a == "--gpu") gpu = true;
+        else if (a == "--video") video = true;
         else if (a == "--threads") threads = std::atoi(next().c_str());
         else if (a == "--max-tokens") max_tokens = std::atoi(next().c_str());
         else if (a == "--min-tokens") min_tokens = std::atoi(next().c_str());   // mtmd image_min_tokens (#767)
@@ -82,8 +161,12 @@ int main(int argc, char** argv) {
     }
     if (mmproj.empty() || model.empty()) {
         std::fprintf(stderr, "usage: strata-vision --mmproj <mmproj.gguf> --model <model.gguf> [--gpu] [--threads N] "
-                             "[--max-tokens N] [--min-tokens N] [--flash-attn on|off|auto]\n");
+                             "[--max-tokens N] [--min-tokens N] [--flash-attn on|off|auto] [--video]\n");
         return 2;
+    }
+    if (video && max_tokens == 0) max_tokens = 768;
+    if (video && (max_tokens < 1 || max_tokens > 4096 || min_tokens > max_tokens)) {
+        std::fprintf(stderr, "--video requires max-tokens in 1..4096 and min-tokens <= max-tokens\n"); return 2;
     }
     // On the CPU the GPU stays unseen: a CUDA build otherwise opens a context there (measured: 0.4-0.7 GB of VRAM,
     // 150-260 expert slots less for the engine beside it).  Before anything reaches the CUDA runtime.
@@ -143,14 +226,30 @@ int main(int argc, char** argv) {
                  std::chrono::duration<double>(std::chrono::steady_clock::now() - load_t0).count());
     // a vocab-only model reports no hparams, so the width comes from the projector: its output is the model's input
     int n_embd = 0;
+    bool video_layout = false;
     {
         gguf_init_params gp{true, nullptr};
         gguf_context* gg = gguf_init_from_file(mmproj.c_str(), gp);
         const int64_t k = gg ? gguf_find_key(gg, "clip.vision.projection_dim") : -1;
         if (k >= 0) n_embd = (int) gguf_get_val_u32(gg, k);
+        if (video && gg) {
+            const int64_t proj = gguf_find_key(gg, "clip.projector_type");
+            const int64_t patch = gguf_find_key(gg, "clip.vision.patch_size");
+            const int64_t merge = gguf_find_key(gg, "clip.vision.spatial_merge_size");
+            const int64_t deep = gguf_find_key(gg, "clip.vision.is_deepstack_layers");
+            video_layout = proj >= 0 && gguf_get_kv_type(gg, proj) == GGUF_TYPE_STRING &&
+                std::string(gguf_get_val_str(gg, proj)) == "qwen3vl_merger" && n_embd == 2560 &&
+                patch >= 0 && gguf_get_val_u32(gg, patch) == 16 && merge >= 0 && gguf_get_val_u32(gg, merge) == 2;
+            if (deep >= 0 && gguf_get_kv_type(gg, deep) == GGUF_TYPE_ARRAY &&
+                gguf_get_arr_type(gg, deep) == GGUF_TYPE_BOOL) {
+                const auto* flags = static_cast<const bool*>(gguf_get_arr_data(gg, deep));
+                for (size_t i = 0; i < gguf_get_arr_n(gg, deep); ++i) if (flags[i]) video_layout = false;
+            } else video_layout = false;
+        }
         if (gg) gguf_free(gg);
     }
     if (n_embd <= 0) { std::printf("ERR the vision encoder has no projection_dim\n"); std::fflush(stdout); return 1; }
+    if (video && !video_layout) { std::printf("ERR unsupported native-video projector layout\n"); std::fflush(stdout); return 1; }
     // Warm up at the LARGEST picture before READY: the encoder's GPU work buffers are allocated now, not at the first
     // real picture.  The server starts this process before the engine, so the engine sizes its expert cache from
     // what is really left; allocating ~1 GB later, on a GPU the engine has filled, made Windows page GPU memory and
@@ -180,13 +279,47 @@ int main(int argc, char** argv) {
         mtmd_input_chunks_free(chunks);
         if (bm) mtmd_bitmap_free(bm);
     }
-    std::printf("READY %d\n", n_embd);
+    if (video && gpu) {
+        const auto t = std::chrono::steady_clock::now();
+        std::vector<unsigned char> rgb(2048 * 2048 * 3, 128);
+        auto* a = mtmd_bitmap_init(2048, 2048, rgb.data());
+        auto* b = mtmd_bitmap_init(2048, 2048, rgb.data());
+        int n = 0, nx = 0, ny = 0; std::string err;
+        const bool ok = encode_pair(ctx, a, b, n_embd, max_tokens, "", n, nx, ny, err);
+        if (a) mtmd_bitmap_free(a); if (b) mtmd_bitmap_free(b);
+        if (!ok) { std::printf("ERR video warm-up: %s\n", err.c_str()); std::fflush(stdout); return 1; }
+        std::fprintf(stderr, "strata-vision: warmed up native pair at %d tokens in %.1f s\n", n,
+            std::chrono::duration<double>(std::chrono::steady_clock::now() - t).count());
+    }
+    if (video) std::printf("READY %d video=1 encv=1\n", n_embd);
+    else std::printf("READY %d\n", n_embd);
     std::fflush(stdout);
 
     std::string line;
     while (std::getline(std::cin, line)) {
         while (!line.empty() && (line.back() == '\r' || line.back() == '\n')) line.pop_back();
         if (line == "QUIT") break;
+        if (line.rfind("ENCV ", 0) == 0) {
+            std::string first, second, output, err;
+            if (!video) err = "ENCV requires --video";
+            else if (!parse_encv(line, first, second, output)) err = "expected ENCV \"frame0.png\" \"frame1.png\" \"output.sve\"";
+            const auto t = std::chrono::steady_clock::now();
+            mtmd_helper_bitmap_wrapper a{}, b{};
+            int n = 0, nx = 0, ny = 0;
+            try {
+                if (err.empty() && bounded_png(first, err) && bounded_png(second, err)) {
+                    a = mtmd_helper_bitmap_init_from_file(ctx, first.c_str(), false, mtmd_helper_init_opt_default());
+                    b = mtmd_helper_bitmap_init_from_file(ctx, second.c_str(), false, mtmd_helper_init_opt_default());
+                    encode_pair(ctx, a.bitmap, b.bitmap, n_embd, max_tokens, output, n, nx, ny, err);
+                }
+            } catch (const std::exception& e) { err = e.what(); }
+            if (a.bitmap) mtmd_bitmap_free(a.bitmap); if (b.bitmap) mtmd_bitmap_free(b.bitmap);
+            if (a.video_ctx) mtmd_helper_video_free(a.video_ctx); if (b.video_ctx) mtmd_helper_video_free(b.video_ctx);
+            if (err.empty()) std::printf("OK %d %d %d %.0f\n", n, nx, ny,
+                std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t).count());
+            else std::printf("ERR %s\n", err.c_str());
+            std::fflush(stdout); continue;
+        }
         std::string img, out;
         if (!parse_enc(line, img, out)) { std::printf("ERR expected: ENC <image> <output>\n"); std::fflush(stdout); continue; }
         const auto t0 = std::chrono::steady_clock::now();
