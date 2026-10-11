@@ -194,7 +194,7 @@ need model fixtures (`iq_parity`, `ple_parity`) or the tensor-core kernel below 
 | parity test | result |
 |---|---|
 | bf16_gemv, cvec, dequant_s2, elementwise, gdn, gr, kv_q4, kv_q8, kv_stream, qsa, quantize_act, rope, router_top10, s2_gemv, s2_gemv_q8, s_gemv, s_gemv_q8k, sampler, shared_expert | pass |
-| iq_parity, ple_parity | need fixtures (a `logs/iq_fixture` directory, a Q2_0 shard) |
+| iq_parity, ple_parity | `ctest` generates the `iq_parity` fixtures into the build tree (`iq_parity_fixtures`, needs python3 with numpy; skipped without). `ple_parity` needs the Q2_0 shard 2 GGUF and the dense pack: configure with `-DSTRATA_PLE_GGUF=<shard 2 .gguf>` (and `-DSTRATA_PLE_FIXTURE_DIR=<dir with ple_in.bin and ple_out.bin>`); a missing input is a hard error, as in the CUDA build (#1795) |
 | qsa_prompt_attn_parity | needs the tensor-core kernel (below) |
 | kv_hybrid_parity (0.1.27, hybrid K8V4 KV) | appends, gathers and attention pass; its last step is that same tensor-core kernel |
 
@@ -715,6 +715,15 @@ Measured on an Arc A750 (8 GB, `i915`, PCIe 4.0) with the Flash-Next IQ3_XXS in 
   `STRATA_SYCL_SPIN_MAX` (CMake; `SPIN_MAX=` for `sycl/tools/build.sh`): 2,000,000 reads (a few seconds) unless the build is an
   AOT build for a `bmg` card, which keeps 20,000. Before the change 11 of 16 runs of the engine (three requests each, a 26-token prompt) died or gave
   token 0 in the first request; with 2,000,000 reads 4 of 4 were right in all three requests.
+- **Kernels misread memory more than 4 GiB into an allocation (fixed in the build).** On an Arc A770 (16 GB, `xe`, Coder
+  IQ1_M, `--stream-experts`, a 4.46 GiB expert cache) every prompt answered `!!!!` (token 0): the experts in the cache's
+  last 0.46 GiB dequantized to NaN in the prompt path. A copy of those slots read back equal to the GGUF
+  (`STRATA_VERIFY_ALL_SLOTS` passed) and a fresh device copy of the same bytes dequantized clean; only a kernel reading
+  the slot in place got wrong bytes. In a JIT build IGC addresses a kernel's pointer arguments as a 32-bit offset from
+  the allocation's base. The JIT build now passes `-ze-opt-greater-than-4GB-buffer-required` (`sycl/CMakeLists.txt`),
+  which keeps the kernels on 64-bit addresses. After the change, prompts of 73 to 542 tokens had 0 non-finite values
+  (`STRATA_DBG_NAN=1`) and the 542-token prompt answered right. The speed cost is not measured. The AOT (`bmg-*`) build is
+  unchanged. oneMKL's own precompiled kernels do not get the option; the GEMM stages an operand past 4 GiB for that.
 - **Speed.** About 10 to 15 tok/s decode (76 to 92% of the drafts accepted), a 26-token first prompt in 13 s and later short prompts in 0.2 to
   1.3 s; the A750's PCIe link probes at 10.6 GB/s.
 - **A750 and the xe error counters.** The engine segfaults in a worker thread of the CPU pool when it exits (dmesg only, the server
@@ -785,6 +794,8 @@ double ones among them: `sample_tokens` only; the native router, combine, gate a
 now accumulates in `strata::samp_acc_t`, float by default (`-DSTRATA_SYCL_SAMPLER_FP64=1` keeps double): A750 sampled decode
 7.62 -> 8.10 tok/s (medians of 5 interleaved pairs, runs 7.1-9.2), `sampler_parity` 0 failures on both cards, and the B70 gate's
 sampled cases picked the same tokens.
+
+The sampler's launchers also kept dpct's `aspect::fp64` check, which threw "'double' is not supported" at the first sampled token on an A750 without the emulation keys even though the kernels had been float since the accumulator change; 0.1.41 drops the check (it stays in a `-DSTRATA_SYCL_SAMPLER_FP64=1` build). Measured on the A750 (IQ3_XXS, `--spec 4 --mtp`, sampled, 100 tokens, 4 interleaved pairs, one binary): without `IGC_EnableDPEmulation` / `OverrideDefaultFP64Settings` 11.0 / 11.6 / 12.4 / 12.4 tok/s, with them 9.3 / 9.9 / 9.8 / 9.8 (median 12.0 against 9.8, faster in 4 of 4 pairs). Setup still writes the keys for an A-series card: the kernels other than the sampler's that use double (the oracle router, norms, PLE, QSA indexer) were not exercised without them on long contexts or with vision, so the keys stay the safe default.
 
 **XMX.** oneMKL's FP16 GEMMs already run on the matrix engines; per expert the dequant (42 us for a gate/up matrix) costs
 twice the GEMM (20 us), and the fused dequant+XMX kernel (`xmx_gemm_bench`) is 0.22x of the pair on this card. The speed left
