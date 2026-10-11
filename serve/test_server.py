@@ -5161,9 +5161,10 @@ class ToolOrder(unittest.TestCase):
         more = a[::-1] + [{"name": "t1624_new", "input_schema": {}}]       # another set: as sent, then remembered
         self.assertEqual(self.names(more, None), ["t1624_edit", "t1624_read", "t1624_new"])
 
-    def test_duplicate_names_and_one_tool_are_left_alone(self):
+    def test_duplicate_names_are_rejected_and_one_tool_is_left_alone(self):
         d = [{"name": "t1624_x", "input_schema": {}}, {"name": "t1624_x", "input_schema": {"a": 1}}]
-        self.assertEqual(self.names(d, None), ["t1624_x", "t1624_x"])
+        with self.assertRaisesRegex(ValueError, "duplicate name"):
+            self.names(d, None)
         one = [{"name": "t1624_only", "input_schema": {}}]
         self.assertEqual(self.names(one, None), ["t1624_only"])
 

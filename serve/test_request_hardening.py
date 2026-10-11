@@ -85,6 +85,23 @@ class Hardening(unittest.TestCase):
             self.assertEqual(r.status, 400, value)
             c.close()
 
+    def test_configured_limit_rejects_length_and_chunked_before_reading_payload(self):
+        with mock.patch.dict(os.environ, {"STRATA_MAX_BODY_MIB": "1"}):
+            for chunked in (False, True):
+                with self.subTest(chunked=chunked):
+                    c = http.client.HTTPConnection("127.0.0.1", self.port, timeout=5)
+                    try:
+                        c.putrequest("POST", "/v1/chat/completions")
+                        c.putheader("Content-Type", "application/json")
+                        c.putheader("Transfer-Encoding" if chunked else "Content-Length",
+                                    "chunked" if chunked else str((1 << 20) + 1))
+                        c.endheaders()
+                        if chunked:
+                            c.send(b"100001\r\n")
+                        self.assertEqual(c.getresponse().status, 413)
+                    finally:
+                        c.close()
+
     def test_default_limit_is_generous(self):
         with mock.patch.dict(os.environ, {}, clear=False):
             os.environ.pop("STRATA_MAX_BODY_MIB", None)

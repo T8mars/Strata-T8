@@ -39,9 +39,9 @@ class Busy(unittest.TestCase):
         line = "cudaMalloc failed: CUDA-capable device(s) is/are busy or unavailable\n"
         proc = SimpleNamespace(stdin=io.StringIO(), stdout=io.StringIO(line), kill=lambda: None, wait=lambda timeout=None: 0,
                                poll=lambda: None)
-        v = server.Vision.__new__(server.Vision)
+        v = server.Vision({'exe': 'strata-vision', 'mmproj': 'unused', 'model': 'unused'}, lazy=True)
+        self.addCleanup(v.shutdown)
         v.spawn = (["strata-vision"], None, None)
-        v.dir = Path(tempfile.gettempdir())
         with mock.patch.object(server, "popen", lambda *a, **k: proc), mock.patch.object(server, "contain"):
             with self.assertRaises(RuntimeError) as cm:
                 v._start()

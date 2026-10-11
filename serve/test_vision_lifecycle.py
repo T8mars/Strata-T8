@@ -131,8 +131,9 @@ class CompanionCleanup(unittest.TestCase):
         timer = threading.Timer(.2, cancel.set)
         timer.start()
         self.addCleanup(timer.cancel)
-        with self.assertRaises(RequestCancelled):
-            list(self.svc.run([1], False, [], 32, {}, cancel))
+        events = list(self.svc.run([1], False, [], 32, {}, cancel))
+        self.assertEqual(events[-1][0], 'done')
+        self.assertEqual(events[-1][1]['finish'], 'cancel')
         self.assertEqual(self.svc.status['queued'], 0)
         self.assertFalse(self.svc.status['busy'])
         self.assertEqual(self.engine.starts, 0)

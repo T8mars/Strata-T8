@@ -5065,7 +5065,7 @@ def make_handler(svc: Service):
             path = self.path.split("?")[0].rstrip("/")   # issue #55: Claude Code posts /v1/messages?beta=true
             if path.startswith("/v1/") and self._foreign_page():
                 return
-            limit = 65536 if path in ('/settings', '/config', '/load', '/unload', '/v1/load', '/v1/unload', '/v1/vram') else 64*1024**2
+            limit = 65536 if path in ('/settings', '/config', '/load', '/unload', '/v1/load', '/v1/unload', '/v1/vram') else body_limit()
             self.request_body = self._read_body(limit)
             if self.request_body is None:
                 return
@@ -5256,7 +5256,7 @@ def make_handler(svc: Service):
                 timeout = self.connection.gettimeout()
                 self.body_read = True
                 try:
-                    return self._read_chunked(min(limit, CHUNKED_BODY_MAX), deadline=time.monotonic() + self.BODY_SECONDS)
+                    return self._read_chunked(limit, deadline=time.monotonic() + self.BODY_SECONDS)
                 except OSError:
                     raise BadBody(400, 'incomplete chunked request body') from None
                 finally:
@@ -5270,7 +5270,7 @@ def make_handler(svc: Service):
                 self._json(400, {"error": {"message": "invalid Content-Length"}})
                 return None
             if length > limit:
-                self._json(413, {'error': {'message': f'request body is limited to {limit} bytes'}})
+                self._json(413, {'error': {'message': f'request body is limited to {limit} bytes (STRATA_MAX_BODY_MIB configures inference requests)'}})
                 return None
             timeout = self.connection.gettimeout()
             try:

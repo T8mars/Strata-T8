@@ -36,8 +36,6 @@ for line in sys.stdin:
 '''
 
 
-@unittest.skipIf(os.name == "nt", "the .cmd wrapper keeps the pipe open after the kill (only the wrapper dies), so the "
-                                  "close of its stdout waits for the sleeping child; a real engine is one process")
 class ReadyTimeout(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory(); self.addCleanup(self.tmp.cleanup)
@@ -46,18 +44,22 @@ class ReadyTimeout(unittest.TestCase):
                           mock.patch.object(StrataEngine, 'RESTART_RETRY_S', 0.0)]
         for p in self._patchers:
             p.start(); self.addCleanup(p.stop)
+        real_popen = server.popen
+        def python_engine(description, command, **kwargs):
+            if command[:2] == [sys.executable, '--serve']:
+                command = [command[0], *command[2:]]
+            return real_popen(description, command, **kwargs)
+        patcher = mock.patch.object(server, 'popen', python_engine)
+        patcher.start(); self.addCleanup(patcher.stop)
 
     def make_script(self, name, code):
         py = self.root / (name + '.py')
-        if os.name == 'nt':
-            py.write_text(code); script = self.root / (name + '.cmd')
-            script.write_text(f'@"{sys.executable}" "{py}" %*\r\n')
-        else:
-            script = py; py.write_text('#!' + sys.executable + '\n' + code); py.chmod(0o700)
-        return str(script)
+        py.write_text(code, encoding='utf-8')
+        # Launch one real child, like the engine; a Windows cmd wrapper would retain its stdout pipe.
+        return [sys.executable, str(py)]
 
     def service(self, script, extra_args=()):
-        eng = StrataEngine(script, list(extra_args), lazy=True)
+        eng = StrataEngine(script[0], [*script[1:], *extra_args], lazy=True)
         self.addCleanup(eng.close)
         return Service(eng, ByteTokenizer(), ChatTemplate(Path(__file__).parent / 'chat_template.jinja'))
 
@@ -77,24 +79,25 @@ class ReadyTimeout(unittest.TestCase):
             self.assertEqual(e.code, 503)
             body = e.read().decode()
             self.assertIn('did not report READY', body)
-            self.assertIn('next request restarts it', body)
+            self.assertIn('0.5 s', body)
         self.assertLess(time.monotonic() - t0, 60)
 
     def test_ready_timeout_on_lazy_load_answers_the_request(self):
         # lazy start: restart()'s own bookkeeping must not crash on the missing slot_cv either (#1527)
         svc = self.service(self.make_script('silent', SILENT))
         httpd = serve(svc, port=0)
-        self.addCleanup(httpd.shutdown); self.addCleanup(httpd.server_close)
+        self.addCleanup(httpd.server_close); self.addCleanup(httpd.shutdown)
         base = f'http://127.0.0.1:{httpd.server_address[1]}'
         self.assert503(base)
         self.assertFalse(svc.engine.starting)
+        self.assertFalse(svc.engine.alive())
 
     def test_ready_timeout_on_restart_answers_the_request(self):
         # the reporter's case: the engine had answered once, then a restart hangs on the READY read
         hang = self.root / 'hang'
         svc = self.service(self.make_script('hang_on_restart', HANG_ON_RESTART), ('--hang', str(hang)))
         httpd = serve(svc, port=0)
-        self.addCleanup(httpd.shutdown); self.addCleanup(httpd.server_close)
+        self.addCleanup(httpd.server_close); self.addCleanup(httpd.shutdown)
         base = f'http://127.0.0.1:{httpd.server_address[1]}'
         status, _ = self.post(base)                              # first request: the engine works
         self.assertEqual(status, 200)
@@ -102,6 +105,9 @@ class ReadyTimeout(unittest.TestCase):
         hang.touch()                                             # and its restart never reports READY
         self.assert503(base)
         self.assertFalse(svc.engine.starting)
+        self.assertFalse(svc.engine.alive())
+        hang.unlink()
+        self.assertEqual(self.post(base)[0], 200)
 
 
 if __name__ == '__main__':
