@@ -39,7 +39,8 @@ class LazyBiasCapability(unittest.TestCase):
         c = http.client.HTTPConnection('127.0.0.1', self.httpd.server_address[1], timeout=10)
         try:
             c.request('POST', '/v1/chat/completions', json.dumps({'messages':[{'role':'user','content':'hi'}],
-                'max_tokens':4,'logit_bias':bias}), {'Content-Type':'application/json'})
+                'max_tokens':4,'chat_template_kwargs':{'enable_thinking':False},'logit_bias':bias}),
+                {'Content-Type':'application/json'})
             response = c.getresponse()
             return response.status, json.loads(response.read())
         finally:
