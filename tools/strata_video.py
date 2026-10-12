@@ -142,7 +142,10 @@ def sample_video(source, *, start_s=0.0, end_s=None, sampling_fps=1.0,
     Network playlists/protocols are deliberately not inputs. Callers download or
     upload to their own bounded private stream before calling this function.
     """
-    import av
+    try:
+        import av
+    except ImportError as error:
+        raise ValueError('Video decoding requires PyAV; install av==15.0.0 in this Python environment') from error
     start_s, end_s = _limits(start_s, end_s, sampling_fps, max_frames, max_pixels, max_duration_s)
     _integer(max_input_bytes, 'max_input_bytes', 1, 2**31)
     _integer(max_decoded_frames, 'max_decoded_frames', 1, 1_000_000)

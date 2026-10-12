@@ -210,6 +210,11 @@ class VideoSampling(unittest.TestCase):
             with self.subTest(options=options), self.assertRaises(ValueError):
                 V.sample_video(self.cfr, **options)
 
+    def test_missing_optional_decoder_has_an_actionable_error(self):
+        with patch.dict(sys.modules, {'av': None}):
+            with self.assertRaisesRegex(ValueError, 'install av==15.0.0'):
+                V.sample_video(self.cfr)
+
     def test_window_and_decode_limits(self):
         with self.assertRaisesRegex(ValueError, 'outside'):
             V.sample_video(self.cfr, start_s=5)
