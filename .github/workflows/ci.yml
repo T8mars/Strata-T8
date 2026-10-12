@@ -27,7 +27,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: T8mars/Comfyui-Strata-T8
-          ref: 5e585d709812e1b21ba6cea6f105dbf09d8cf2a2 # Node 1.1.0, video and protocol 1 compatibility
+          ref: 4be71db88cbf980200c6f48f91470d06bac88052 # Node 1.1.0, video and protocol 1 compatibility
           path: .portable-build/node-regression
       - uses: actions/setup-python@v5
         with:
