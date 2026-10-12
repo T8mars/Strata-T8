@@ -220,6 +220,31 @@ def executable(name, env, extra=()):
     raise ValueError('Build tool not found: '+name)
 
 
+def msvc_compiler_record(directories, env):
+    """Bind version output to the developer environment and actual CMake tools."""
+    selected = executable('cl', env)
+    caches = {}
+    for kind, directory in directories.items():
+        text = (Path(directory)/'CMakeCache.txt').read_text('utf-8')
+        tools = {}
+        for language in ('C', 'CXX'):
+            match = re.search(r'^CMAKE_' + language + r'_COMPILER:[^=\r\n]+=([^\r\n]+)$', text, re.M)
+            if not match:
+                raise ValueError('CMake compiler identity missing: ' + kind + '/' + language)
+            path = Path(match[1]).resolve()
+            if path != Path(selected).resolve():
+                raise ValueError('CMake compiler differs from developer environment: ' + kind + '/' + language)
+            tools[language] = path.as_posix()
+        caches[kind] = tools
+    # On Windows, env= does not control how a bare executable name is resolved
+    # by the parent CreateProcess call. An absolute path prevents another cl
+    # on the caller's PATH from supplying misleading provenance.
+    result = subprocess.run([selected, '/Bv'], env=env, text=True,
+                            capture_output=True, errors='replace')
+    return {'msvc': (result.stdout + result.stderr)[:12000],
+            'msvc_executable': selected, 'cmake_compilers': caches}
+
+
 def run(command, env, log):
     print('native build: '+subprocess.list2cmdline(list(map(str, command))), flush=True)
     try:
@@ -381,12 +406,12 @@ def main(argv=None):
     outputs = {name: {'sha256': digest(path), 'size': path.stat().st_size,
         'cuda_architectures': cuda_architecture_proof(path, cuobjdump, env),
         'ptx_architectures':cuda_ptx_proof(path,cuobjdump,env)} for name, path in artifacts.items()}
-    compiler = subprocess.run(['cl', '/Bv'], env=env, text=True, capture_output=True, errors='replace')
+    compiler = msvc_compiler_record(directories, env)
     source_commit = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=root, env=env, text=True).strip()
     native = {'schema': 1, 'source_commit': source_commit, 'source_identity': identity,
         'third_party_pin': third_party['commit'], 'cuda_architectures': list(ARCHITECTURES), 'portable': True,
         'cuda_targets':list(CUDA_TARGETS), 'fatbinary_compression':'size',
-        'compiler': {'msvc': (compiler.stdout+compiler.stderr)[:12000], 'cuda': cuda_version,
+        'compiler': {**compiler, 'cuda': cuda_version,
                      'cmake': subprocess.check_output([cmake, '--version'], env=env, text=True).splitlines()[0]},
         'flags': {'common': common, 'engine': engine_flags, 'vision': vision_flags},
         'capabilities': {'native_video': True, 'geniv': 1, 'encv': 1, 'sve': 1},

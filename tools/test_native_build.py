@@ -117,6 +117,56 @@ class NativeBuildTests(unittest.TestCase):
         with patch.object(b.shutil,'which',return_value=spelling):
             self.assertEqual(b.executable('strata',{}),source.resolve().as_posix())
 
+    def test_msvc_record_executes_developer_environment_path_not_parent_path(self):
+        selected = self.root/'developer-tools'/'cl.exe'
+        selected.parent.mkdir(); selected.write_bytes(b'compiler fixture')
+        env = {'PATH': str(selected.parent)}
+        directories = {kind: self.root/(kind+'-build') for kind in ('engine', 'vision')}
+        for directory in directories.values():
+            directory.mkdir()
+            (directory/'CMakeCache.txt').write_text(
+                'CMAKE_C_COMPILER:FILEPATH='+selected.as_posix()+'\n'+
+                'CMAKE_CXX_COMPILER:FILEPATH='+selected.as_posix()+'\n', encoding='utf-8')
+        result = subprocess.CompletedProcess([], 2, stdout='selected MSVC version\n', stderr='no source\n')
+        with patch.dict(os.environ, {'PATH': str(self.root/'unrelated-parent-tools')}), \
+             patch.object(b.shutil, 'which', return_value=str(selected)) as which, \
+             patch.object(b.subprocess, 'run', return_value=result) as child:
+            record = b.msvc_compiler_record(directories, env)
+        which.assert_called_once_with('cl', path=env['PATH'])
+        child.assert_called_once_with([selected.resolve().as_posix(), '/Bv'], env=env,
+                                     text=True, capture_output=True, errors='replace')
+        self.assertEqual(record['msvc'], 'selected MSVC version\nno source\n')
+        self.assertEqual(record['msvc_executable'], selected.resolve().as_posix())
+        self.assertEqual(set(record['cmake_compilers']), {'engine', 'vision'})
+
+    def test_msvc_record_refuses_cache_disagreement_before_executing_compiler(self):
+        selected = self.root/'developer-cl.exe'; selected.write_bytes(b'compiler fixture')
+        different = self.root/'different-cl.exe'; different.write_bytes(b'other compiler')
+        for kind in ('engine', 'vision'):
+            for language in ('C', 'CXX'):
+                with self.subTest(kind=kind, language=language):
+                    directories = {name: self.root/(name+'-build') for name in ('engine', 'vision')}
+                    for name, directory in directories.items():
+                        directory.mkdir(exist_ok=True)
+                        (directory/'CMakeCache.txt').write_text(''.join(
+                            'CMAKE_'+lang+'_COMPILER:FILEPATH='+
+                            (different if name==kind and lang==language else selected).as_posix()+'\n'
+                            for lang in ('C', 'CXX')), encoding='utf-8')
+                    with patch.object(b.shutil, 'which', return_value=str(selected)), \
+                         patch.object(b.subprocess, 'run') as child:
+                        with self.assertRaisesRegex(ValueError, 'differs from developer environment'):
+                            b.msvc_compiler_record(directories, {'PATH': 'developer-tools'})
+                        child.assert_not_called()
+
+    def test_msvc_record_refuses_cache_without_compiler_identity(self):
+        directory = self.root/'engine-build'; directory.mkdir()
+        (directory/'CMakeCache.txt').write_text('CMAKE_BUILD_TYPE:STRING=Release\n')
+        with patch.object(b.shutil, 'which', return_value=str(self.artifacts['strata.exe'])), \
+             patch.object(b.subprocess, 'run') as child:
+            with self.assertRaisesRegex(ValueError, 'compiler identity missing'):
+                b.msvc_compiler_record({'engine': directory}, {'PATH': 'developer-tools'})
+            child.assert_not_called()
+
     def test_package_without_cpp_sources_verifies_its_own_binaries(self):
         portable = self.root/'portable'; (portable/'engine').mkdir(parents=True)
         (portable/'setup.py').write_text((self.root/'setup.py').read_text())
