@@ -29,6 +29,7 @@ class NativeBuildTests(unittest.TestCase):
                  'source_tree_sha256': b.canonical_digest(b.llama_inputs(self.root)), 'source_file_count': 2}
         self.native = {'schema': 1, 'source_commit': 'c'*40, 'portable': True,
             'cuda_architectures': list(b.ARCHITECTURES), 'source_identity': b.source_identity(self.root, third),
+            'compiler': {'cuda':'Cuda compilation tools, release 13.0, V13.0.88'},
             'capabilities': {'native_video': True, 'geniv': 1, 'encv': 1, 'sve': 1}, 'outputs': {}}
         self.engine = self.root/'engine'; self.engine.mkdir()
         self.vendor = {'version': '0.1.42', 'upstream_asset': {'repository': 'Niko1221/Strata',
@@ -133,6 +134,9 @@ class NativeBuildTests(unittest.TestCase):
         self.assertEqual((self.engine/'vendor.dll').read_bytes(), b'vendor DLL remains')
         self.assertEqual((self.engine/'strata.exe').read_bytes(), self.artifacts['strata.exe'].read_bytes())
         self.assertTrue(installed['capabilities']['native_video'])
+        self.assertEqual(installed['source'], 't8_native_build')
+        self.assertEqual(installed['archs'], list(map(int,b.ARCHITECTURES)))
+        self.assertEqual(installed['cuda'], '13.0')
         self.assertEqual(len(list((self.root/'build/vendor-backup').rglob('*.exe'))), 2)
 
     def test_failed_second_copy_keeps_vendor_tree(self):

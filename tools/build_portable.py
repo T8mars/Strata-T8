@@ -38,6 +38,8 @@ DOCS = (
     'VALIDATION-UPSTREAM-01402-T8.md',
     'VALIDATION-UPSTREAM-01404-T8.md',
     'VALIDATION-UPSTREAM-0142-T8.md',
+    'VIDEO-ANALYSIS.zh-CN.md',
+    'VALIDATION-VIDEO-T8.md',
 )
 
 
@@ -96,9 +98,13 @@ def main():
     TARGET = OUT/NAME
     weights = weight_declaration(edition)
     identity = build_identity(META, source_version())
+    features = json.loads((ROOT/'features.json').read_text(encoding='utf-8'))
+    if features.get('video_sampling_cpu'):
+        from prepare_video_runtime import verify as verify_video_runtime
+        verify_video_runtime(ROOT)
     for backend in ['engine', 'engine-hip']:
         validate_engine_build(json.loads((ROOT/backend/'BUILD.json').read_text(encoding='utf-8')),
-                              backend, META, identity['engine_version'])
+                              backend, META, identity['engine_version'], allow_vendor=False, root=ROOT)
     if TARGET.resolve().parent != OUT.resolve() or TARGET.name != NAME or TARGET.is_symlink():
         raise SystemExit('Refusing to rebuild outside the exact distribution directory')
     if TARGET.exists():
@@ -108,6 +114,9 @@ def main():
         copy_tree(name, shutil.ignore_patterns('__pycache__', '*.pyc', 'test_*.py', '*_test.py', '*.log', 'stop_local.ps1'))
     for name in ['serve', 'tools', 'ref']:
         copy_source(name)
+    copy_source('licenses')
+    if features.get('video_sampling_cpu'):
+        verify_video_runtime(TARGET)
     # Patch staged copies too: locally cached vendor engines may predate bootstrap.
     for backend in ['engine', 'engine-hip']:
         patch_engine(TARGET/backend)
@@ -121,7 +130,6 @@ def main():
     for file in ['portable.py', 'setup.py', 'requirements.txt', 'requirements-portable.txt', 'CMakeLists.txt', 'LICENSE', 'README.md', 'README-PORTABLE.zh-CN.md', 'meta.json', 'features.json', 'model-sources.json', 'START-PORTABLE.bat', 'CHECK-ENV.bat', 'IMPORT-MODEL.bat', 'PREPARE-MODEL.bat', 'UPDATE-PORTABLE.bat', 'INSTALL-VISION.bat', 'VERIFY-PACKAGE.bat']:
         shutil.copy2(ROOT/file, TARGET/file)
     (TARGET/'meta.json').write_text(json.dumps({**META, 'edition': edition, 'weights': weights, 'models_included': weights['vision']}, indent=2), encoding='utf-8')
-    features = json.loads((ROOT/'features.json').read_text(encoding='utf-8'))
     features['bundled_vision_weights'] = weights['vision']
     (TARGET/'features.json').write_text(json.dumps(features, indent=2), encoding='utf-8')
     shutil.copy2(ROOT/'START-PORTABLE.bat', TARGET/'START-HERE.bat')

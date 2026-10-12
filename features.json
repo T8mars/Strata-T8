@@ -22,5 +22,10 @@
   "comfyui_same_gpu_handoff": true,
   "amd_vision_supported": false,
   "amd_hardware_verified": false,
-  "comfyui_separate_repository": true
+  "comfyui_separate_repository": true,
+  "video_frame_analysis": true,
+  "video_sampling_cpu": true,
+  "native_video_cuda": true,
+  "native_video_hip": false,
+  "native_video_default": false
 }

@@ -1,0 +1,1510 @@
+{
+  "av_version": "15.0.0",
+  "ffmpeg_version": "7.1.1",
+  "wheel": {
+    "filename": "av-15.0.0-cp312-cp312-win_amd64.whl",
+    "url": "https://files.pythonhosted.org/packages/bd/30/40452705dffbfef0f5505d36218970dfeff0a86048689910219c8717b310/av-15.0.0-cp312-cp312-win_amd64.whl",
+    "size": 31357617,
+    "digests": {
+      "blake2b_256": "bd3040452705dffbfef0f5505d36218970dfeff0a86048689910219c8717b310",
+      "md5": "042dec95e8b4cd920c10c3732bbd1a4f",
+      "sha256": "383f1b57520d790069d85fc75f43cfa32fca07f5fb3fb842be37bd596638602c"
+    }
+  },
+  "license_sources": [
+    {
+      "file": "LICENSE.md",
+      "url": "https://raw.githubusercontent.com/FFmpeg/FFmpeg/n7.1.1/LICENSE.md",
+      "sha256": "cb48bf09a11f5fb576cddb0431c8f5ed0a60157a9ec942adffc13907cbe083f2"
+    },
+    {
+      "file": "COPYING.LGPLv2.1",
+      "url": "https://raw.githubusercontent.com/FFmpeg/FFmpeg/n7.1.1/COPYING.LGPLv2.1",
+      "sha256": "b634ab5640e258563c536e658cad87080553df6f34f62269a21d554844e58bfe"
+    },
+    {
+      "file": "COPYING.LGPLv3",
+      "url": "https://raw.githubusercontent.com/FFmpeg/FFmpeg/n7.1.1/COPYING.LGPLv3",
+      "sha256": "da7eabb7bafdf7d3ae5e9f223aa5bdc1eece45ac569dc21b3b037520b4464768"
+    },
+    {
+      "file": "COPYING.GPLv2",
+      "url": "https://raw.githubusercontent.com/FFmpeg/FFmpeg/n7.1.1/COPYING.GPLv2",
+      "sha256": "8177f97513213526df2cf6184d8ff986c675afb514d4e68a404010521b880643"
+    },
+    {
+      "file": "COPYING.GPLv3",
+      "url": "https://raw.githubusercontent.com/FFmpeg/FFmpeg/n7.1.1/COPYING.GPLv3",
+      "sha256": "8ceb4b9ee5adedde47b31e975c1d90c73ad27b6b165a1dcd80c7c545eb65b903"
+    }
+  ],
+  "runtime_files": [
+    {
+      "path": "av-15.0.0.dist-info/DELVEWHEEL",
+      "size": 391,
+      "sha256": "b1f5705f91bfc1be31fc18c055ae69f21bb3dfe8032ab0f11ee693cccc7fec1c"
+    },
+    {
+      "path": "av-15.0.0.dist-info/METADATA",
+      "size": 4747,
+      "sha256": "3d68adca4e240ccc608df5129b5a7e45481a46428978a476842bc59486943e49"
+    },
+    {
+      "path": "av-15.0.0.dist-info/WHEEL",
+      "size": 101,
+      "sha256": "f143fdc7da6e588d0fd55fddecada831306a7de2cd9b6d424f367f3edaf43575"
+    },
+    {
+      "path": "av-15.0.0.dist-info/entry_points.txt",
+      "size": 42,
+      "sha256": "dd731d337d2287aef79cb4915730ec1cb066198365b7bc10d71c96f31a070338"
+    },
+    {
+      "path": "av-15.0.0.dist-info/licenses/AUTHORS.py",
+      "size": 3231,
+      "sha256": "b9b21e26071d12097af6ff51a2a5a4934037169a363df1506de3af453cf31eb7"
+    },
+    {
+      "path": "av-15.0.0.dist-info/licenses/AUTHORS.rst",
+      "size": 5278,
+      "sha256": "73cfc87df593af27671185e887b8227fc5699ce2d4d4597c40d3b888bcf8dab9"
+    },
+    {
+      "path": "av-15.0.0.dist-info/licenses/LICENSE.txt",
+      "size": 1528,
+      "sha256": "f32ebcb6007dcc05eea369b3820e6391b0a7ef1ed763f30f1aca15dfdbacbe96"
+    },
+    {
+      "path": "av-15.0.0.dist-info/top_level.txt",
+      "size": 3,
+      "sha256": "4ee405facb6f14737c8a57ebdfa72da9ceff311e483a152aad1d22ea2e60351f"
+    },
+    {
+      "path": "av.libs/avcodec-61-7f5ba29974161bb2dc8f58d741e9b107.dll",
+      "size": 15509504,
+      "sha256": "7c94ea46282ebed90e177fd0e50e29ea324fdd4e7e10818879176214692332ae"
+    },
+    {
+      "path": "av.libs/avdevice-61-6f2fc0cba0d24e2c35df8f66e02f4993.dll",
+      "size": 152576,
+      "sha256": "b086618d5efe201d75ab497564bdf2252063d9ad10379f9fcd6b4683aaa5758e"
+    },
+    {
+      "path": "av.libs/avfilter-10-472d979b214dd08748e7582d36fa319a.dll",
+      "size": 4411392,
+      "sha256": "2e9826aeeff0425e1a319df212cef695149900b1d7e43a2156a206a32c6104b0"
+    },
+    {
+      "path": "av.libs/avformat-61-0ff8626c7ae3b343856d4b4269366a65.dll",
+      "size": 2638848,
+      "sha256": "d0653a9ab9ecb6ad1440c650f95019e4260986b77caa0586ae0589a9412eb286"
+    },
+    {
+      "path": "av.libs/avutil-59-741e7750b3ecbd33a733f7b2e9fabfe3.dll",
+      "size": 1089536,
+      "sha256": "70d4754c209947789ad6603b285bed74c9571d51dc7ec6e1b9417c1fe9b44dc0"
+    },
+    {
+      "path": "av.libs/libSvtAv1Enc-8b4a7cdc459d5f652065b0631e819467.dll",
+      "size": 8344064,
+      "sha256": "394f6afe6160db125c1e274b6d7d88f37e3b9127e5e90cf41164b4b2d857ed40"
+    },
+    {
+      "path": "av.libs/libaom-05a6d78fbe8953b2331fd9788db80389.dll",
+      "size": 9858048,
+      "sha256": "657727a786103e77d7c5af65a990030805e48d985398142fae3ae803fee826f4"
+    },
+    {
+      "path": "av.libs/libcrypto-1_1-x64-0d95c8bbfefbc533ef8513ecd31047ae.dll",
+      "size": 3412992,
+      "sha256": "13071dc72a97cf3c84fa754714c99f3b91f3aa784393994401bec0a7869cdb51"
+    },
+    {
+      "path": "av.libs/libdav1d-3d4dca4cc1bcdc51e6f27efe48cdc3ea.dll",
+      "size": 2119168,
+      "sha256": "8a1c3beb8c296f08a529f90731d74ae4d8719de025ed7985c1df4702ad084b30"
+    },
+    {
+      "path": "av.libs/libgcc_s_seh-1-6d88525376bcf43dad77d88623cd0e30.dll",
+      "size": 148480,
+      "sha256": "d99f89e7188dbb8b6cfc7359a68080555d69a1757f2481cdb755d0215039b762"
+    },
+    {
+      "path": "av.libs/libgmp-10-e17cc9023fc0977b98a6e920c19f9af4.dll",
+      "size": 539136,
+      "sha256": "806571db4872ca938b198e9f3a6367cbd018749ab1ffe0bfc4e06f0ed585785a"
+    },
+    {
+      "path": "av.libs/libiconv-2-75531fabaf2376ee87fe618dd74d6702.dll",
+      "size": 1134592,
+      "sha256": "45604fc85208c9544116f9d43732aba77834c261b1d44f9aace3807b2f1d32be"
+    },
+    {
+      "path": "av.libs/libmp3lame-0-1b183ddd52fc82f4b535584159f561ee.dll",
+      "size": 425472,
+      "sha256": "2bf7481fe3401a40e0c16c53b5f38cba1943b96cd0310911229220dea00c5727"
+    },
+    {
+      "path": "av.libs/libogg-0-004d4d989b067c910db559c691f72b9a.dll",
+      "size": 32768,
+      "sha256": "6e0c43b144a0aae2475b032e13228752bea1bdb3f00b97693f4ca9c9f0ae07dc"
+    },
+    {
+      "path": "av.libs/libopencore-amrnb-0-8093204754ed3411dbc38084069ad67d.dll",
+      "size": 179712,
+      "sha256": "c2c0c86dac8215cd5994c652b95a2b4d5bc0ab55ba56b7ecad888dc0509e539a"
+    },
+    {
+      "path": "av.libs/libopencore-amrwb-0-97b27360949f66e57ef986e5a44e78f5.dll",
+      "size": 97280,
+      "sha256": "fe8d9e29d2d9f81aa827023e29db9e3c0829039aed5601c58bc797adc8195326"
+    },
+    {
+      "path": "av.libs/libopenh264-7-0ede3c4a12caec2801f13fef5615b2f5.dll",
+      "size": 888832,
+      "sha256": "84dec1d045d74f78a9ff157dbcca0a2569d0800c960555354f39e02f5d0adb93"
+    },
+    {
+      "path": "av.libs/libopus-0-853c5e1e1c0e5706d8589835c11ea135.dll",
+      "size": 451584,
+      "sha256": "cba63f2777463cf684b0fd6ce516ad980f2bc28c67603973f7393218019a9176"
+    },
+    {
+      "path": "av.libs/libsharpyuv-d88756dae10f95ec8f288bcfed2124c7.dll",
+      "size": 51200,
+      "sha256": "d13501f44c3296fb1293b1874dc552c7ecce4e82d27acc6d39c50876781205a1"
+    },
+    {
+      "path": "av.libs/libspeex-1-e6afb6b326021379a3fd92f621cfe565.dll",
+      "size": 151040,
+      "sha256": "52074b2dfe340b5e6bc001871a71efabfdea653aaac547c0ad2d5f9f748ba5c7"
+    },
+    {
+      "path": "av.libs/libsrt-409892cdc04ee741a69f79e506295d80.dll",
+      "size": 830464,
+      "sha256": "1f173f1efcd46120df4f907df6d477cbf43e3a16ea88b1558aa64a60ffe56596"
+    },
+    {
+      "path": "av.libs/libstdc++-6-13660287bdba2df3286ab7d0a7c0c12f.dll",
+      "size": 2421760,
+      "sha256": "bb14c20e6a02ef3ea7a239b49e0a67ff085e0f7315780860d1a4434ae9a1f65f"
+    },
+    {
+      "path": "av.libs/libtwolame-0-76f9eaeb2b9b0c466c2d98c55d494ebd.dll",
+      "size": 167936,
+      "sha256": "bca3565920e3daab2d06d663b26e314c1de7d7e3b32387b4bd15f06ecdc9c2c1"
+    },
+    {
+      "path": "av.libs/libvorbis-0-424104373ef6db145aa3956b2ad57b46.dll",
+      "size": 261632,
+      "sha256": "c827a49a356a70526ad040805335c66fd06e7e30ff728ba47b7e2b4837a61b19"
+    },
+    {
+      "path": "av.libs/libvorbisenc-2-096cf3c7fb1dc91c64b9c6b228bc8e47.dll",
+      "size": 583168,
+      "sha256": "d0a9b9e8493d3362ec0554798d8664599a2295f937acac6ba1206d2900467a37"
+    },
+    {
+      "path": "av.libs/libvpx-1-1b22a11fde991d24f0cf3f78afe36fee.dll",
+      "size": 2610688,
+      "sha256": "022a8409bb1457bf88f2c49b980d71dcee1dddcaa3497ffd93750504c7964a8e"
+    },
+    {
+      "path": "av.libs/libwebp-229cc063993aa0760bc7ca2a24569984.dll",
+      "size": 728576,
+      "sha256": "cdb1376823497fd37732d1a6d4c8159db98c9820e527b156fb0ce9891701b27a"
+    },
+    {
+      "path": "av.libs/libwebpmux-28fc1392380dd183aac6a8c6296b19cc.dll",
+      "size": 77824,
+      "sha256": "1a98212843f5f009a7f81d21dd6d0afe9e58b2b89291a7b63c73d985e8a33f7a"
+    },
+    {
+      "path": "av.libs/libwinpthread-1-984cdc94d5b60f2dffc581a36f784ae9.dll",
+      "size": 60928,
+      "sha256": "a03a7e892d1eec8c40808ba696b25e917f45ad32d41925e25cd2bbca605fd8db"
+    },
+    {
+      "path": "av.libs/libx264-165-de8de7d5ffe9d75d839a96621ec53cd9.dll",
+      "size": 2376192,
+      "sha256": "61acd10b62783aea048e2d39227c2895def27b5b3a3b2d8fbf071f87be805611"
+    },
+    {
+      "path": "av.libs/libx265-9adc56be88b1827574686b8a839bca58.dll",
+      "size": 22054400,
+      "sha256": "93a921fffd22194601b246e4a6da783c88000adb12b688e5f94f3c0be624b658"
+    },
+    {
+      "path": "av.libs/swresample-5-bdff1e4ddf8a951323b3fa44d9ed1067.dll",
+      "size": 125952,
+      "sha256": "99f2da0e7ef2e16ef53eaf52021f3f447194e8f6792618804f482c3e8c4fd73e"
+    },
+    {
+      "path": "av.libs/swscale-8-8ba1bbeec77aa1e86af9fa166550db4d.dll",
+      "size": 671232,
+      "sha256": "a71d29a5ba351c38ac24e746bccbc716804026393b83151a7136bd503871f9f0"
+    },
+    {
+      "path": "av.libs/zlib1-4a00c7a3a73b44dc307a33a102f9a72b.dll",
+      "size": 118784,
+      "sha256": "70985e2a335c7b83165a1a125b8ce8e2aa52b0bb736392dc79ae072b83a53887"
+    },
+    {
+      "path": "av/__init__.pxd",
+      "size": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "av/__init__.py",
+      "size": 2512,
+      "sha256": "d99b7e32a474b78dc49085801287b949b251f789fc9122315c81459c49de110c"
+    },
+    {
+      "path": "av/__main__.py",
+      "size": 1622,
+      "sha256": "e31ea37b82a822d316262c7af99ed7aebaa835515c27fc217a3ee7008308aabc"
+    },
+    {
+      "path": "av/_core.cp312-win_amd64.pyd",
+      "size": 31744,
+      "sha256": "e6e829d590e6a040555807d1ef692759784161b76eb28d970f44977d652dabf6"
+    },
+    {
+      "path": "av/_core.pyi",
+      "size": 263,
+      "sha256": "c872cae200b7affc9ec5e3990a0963fee140c26d51839db10cb479d943a91a42"
+    },
+    {
+      "path": "av/_core.pyx",
+      "size": 2028,
+      "sha256": "94be3baf840726dbc5466483c01d5ab590eabe1b57da328f3bc30c3675e25dfa"
+    },
+    {
+      "path": "av/about.py",
+      "size": 24,
+      "sha256": "042f0c0b74d7aaef875bba07c39ca0ca1202b2ea18cf9b75962ab5408d070521"
+    },
+    {
+      "path": "av/audio/__init__.pxd",
+      "size": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "av/audio/__init__.py",
+      "size": 64,
+      "sha256": "ea53c46eabcdeb1058546811fa5c6850ae76df29f10f77c32517c2d5efb90993"
+    },
+    {
+      "path": "av/audio/__init__.pyi",
+      "size": 275,
+      "sha256": "8d7f0c44837360c5e82ede7c27db2ce2b13f7a9a2fd8f087ea2be2ac0598b4ae"
+    },
+    {
+      "path": "av/audio/codeccontext.cp312-win_amd64.pyd",
+      "size": 43008,
+      "sha256": "3c2f922fab875cb45f70df93c02bc5011416e53e778e5adcbe141bc9102a809f"
+    },
+    {
+      "path": "av/audio/codeccontext.pxd",
+      "size": 345,
+      "sha256": "e0ea7580c2e4e7007e3d48dca087e6e1d7c93b120902e404f59a3e0512a6357d"
+    },
+    {
+      "path": "av/audio/codeccontext.py",
+      "size": 3116,
+      "sha256": "eff8f1aaca602737f4a28b3b9424da9262e95f38303ec9ff71b24d2ef467ef75"
+    },
+    {
+      "path": "av/audio/codeccontext.pyi",
+      "size": 1043,
+      "sha256": "1981cd68f2528e8ef90e9484037f9aede59707aff7a8c2e6638338ffe2351aee"
+    },
+    {
+      "path": "av/audio/fifo.cp312-win_amd64.pyd",
+      "size": 55296,
+      "sha256": "7ef26e900011ae8913ce50245411643f63f3903ffe2866116189ca9b09db4f7f"
+    },
+    {
+      "path": "av/audio/fifo.pxd",
+      "size": 480,
+      "sha256": "2ac5d1b63b56d90316f77e6430663097f1746ccecd21161f1e4cd71abf894e48"
+    },
+    {
+      "path": "av/audio/fifo.pyi",
+      "size": 734,
+      "sha256": "d60e2a97f7d03592105d8da6878c952c8352fdf64d558c93e9a583ab979ceee6"
+    },
+    {
+      "path": "av/audio/fifo.pyx",
+      "size": 6828,
+      "sha256": "ab406bbe8d2365ff04a790c7c17e351f3c42eb30bf62ffddba8cb5879da9f0a7"
+    },
+    {
+      "path": "av/audio/format.cp312-win_amd64.pyd",
+      "size": 39936,
+      "sha256": "5630c387278df806219d5d77394f6e407eba553d8241f76a02ad04406e198f5e"
+    },
+    {
+      "path": "av/audio/format.pxd",
+      "size": 155,
+      "sha256": "4cbd018310573166b33b0db4a959ef293ac81588cfd7c9279ef4d0c07507e272"
+    },
+    {
+      "path": "av/audio/format.py",
+      "size": 3711,
+      "sha256": "fb527f9a378c36c859282050ac96baa02dee4880f9f7cb46a341d3999a20c625"
+    },
+    {
+      "path": "av/audio/format.pyi",
+      "size": 247,
+      "sha256": "c8a64de7b317b08fa900138914af5fe969d5edb32be4f7456cca32b9f2d08cba"
+    },
+    {
+      "path": "av/audio/frame.cp312-win_amd64.pyd",
+      "size": 65536,
+      "sha256": "6d53a32afb77201ac33c9847bf534628945f3c015e824f480fffbd48c5f9b359"
+    },
+    {
+      "path": "av/audio/frame.pxd",
+      "size": 770,
+      "sha256": "4697543e985b6724608e9a8785df0fc2a7b100e3468f5bcb4a5dfa608adbe963"
+    },
+    {
+      "path": "av/audio/frame.py",
+      "size": 6243,
+      "sha256": "4741e9776ad022e87a6e679e063497a8dcd010de44eed50a9ce47bdf4b3a0d66"
+    },
+    {
+      "path": "av/audio/frame.pyi",
+      "size": 1468,
+      "sha256": "92e4f29b888284cc3d13107b05f9dfc5e26429f9c59416908b3e65549272ae6c"
+    },
+    {
+      "path": "av/audio/layout.cp312-win_amd64.pyd",
+      "size": 55296,
+      "sha256": "1a9df0e77c9171d69df284ca765fa80143f339ed697db2f81aeccd85c7e48aa0"
+    },
+    {
+      "path": "av/audio/layout.pxd",
+      "size": 205,
+      "sha256": "fc87bd11e0cbbc4a43a38242b8659c5947bdcbb0599bd58c960179f62d535b39"
+    },
+    {
+      "path": "av/audio/layout.pyi",
+      "size": 262,
+      "sha256": "3b0c8548ed8eb223ce7c3bc5fa5998a761fab7371d128ce6a011bfef572f398d"
+    },
+    {
+      "path": "av/audio/layout.pyx",
+      "size": 2658,
+      "sha256": "e3f21810e1e548f2cbe122bac8f0c7df2cfb40f85be6ca90edd2192182d432f0"
+    },
+    {
+      "path": "av/audio/plane.cp312-win_amd64.pyd",
+      "size": 35328,
+      "sha256": "0c8626605d37ee84777ed3061101f25ec3c29311c962a649e85c51d4ec9e3637"
+    },
+    {
+      "path": "av/audio/plane.pxd",
+      "size": 138,
+      "sha256": "56e94d442d6efd8389b5b576e314f8b1d2f3d6e2fecea60e3005ace4474f56ce"
+    },
+    {
+      "path": "av/audio/plane.py",
+      "size": 420,
+      "sha256": "21f74067fdb6e4dc9892ec15f634466d964662d6680ff9d6e7a490aa32a034ed"
+    },
+    {
+      "path": "av/audio/plane.pyi",
+      "size": 78,
+      "sha256": "8fca2a4cd049d49b75d4791fa0aa75592673f912238116039f13163d0628ae0c"
+    },
+    {
+      "path": "av/audio/resampler.cp312-win_amd64.pyd",
+      "size": 57856,
+      "sha256": "2c1c1b3f78c363743970b36dab296405ff37975c55fa8d24c527265a6b78c335"
+    },
+    {
+      "path": "av/audio/resampler.pxd",
+      "size": 508,
+      "sha256": "7dea4c512adddc912e2d1f9c42cf75c72cbd76bf119a870a3d5c69497a679bbb"
+    },
+    {
+      "path": "av/audio/resampler.py",
+      "size": 4257,
+      "sha256": "29c0131d7070f08172cf1fca6bf50709abf5909b86a38d13bf7bc49418b18685"
+    },
+    {
+      "path": "av/audio/resampler.pyi",
+      "size": 562,
+      "sha256": "414b3290e66071551bee18d5b5470dd2be9e666123e60e7fb87dfa9febaf1b9c"
+    },
+    {
+      "path": "av/audio/stream.cp312-win_amd64.pyd",
+      "size": 41984,
+      "sha256": "753b41de377747bc1d7121b66510bfad8f283bb617dc2e1c80cfcace09ab2ffe"
+    },
+    {
+      "path": "av/audio/stream.pxd",
+      "size": 218,
+      "sha256": "0afc9763998549a12166f38b7ab9a5f19e16d3ca45ac0a51c407e7c2874fef87"
+    },
+    {
+      "path": "av/audio/stream.py",
+      "size": 1371,
+      "sha256": "4da0fe1f078fb730f666475284f43a5af305fd7de9044fbfdc895c56758642dd"
+    },
+    {
+      "path": "av/audio/stream.pyi",
+      "size": 1021,
+      "sha256": "7d4110dd65d2fdf1eadbd3971688b86e85cbf5bd3508587cd2ed9c4c6ffd7bf5"
+    },
+    {
+      "path": "av/bitstream.cp312-win_amd64.pyd",
+      "size": 41472,
+      "sha256": "b1e4737aea7ec7bd6cd86d471e9a22908454abd9a759a757224638ca73e5b3bf"
+    },
+    {
+      "path": "av/bitstream.pxd",
+      "size": 195,
+      "sha256": "bbf5db06174d4e264d2cb93b18bd1da6d92758cc5a047abf9f13706f2e532581"
+    },
+    {
+      "path": "av/bitstream.pyi",
+      "size": 403,
+      "sha256": "2ade3a9429439402f5735d8b3c468656f5c1dfd0527290beb5ac3ef5703d86f2"
+    },
+    {
+      "path": "av/bitstream.pyx",
+      "size": 2895,
+      "sha256": "97cc3223b292fc6baf7252792aa007012d9d7e1a528d37d7cca1ec1df06dc672"
+    },
+    {
+      "path": "av/buffer.cp312-win_amd64.pyd",
+      "size": 41472,
+      "sha256": "3419020a8fb9725eb2bcf36c44325cadf5b6c02f8e0219ad06181355d28564e2"
+    },
+    {
+      "path": "av/buffer.pxd",
+      "size": 132,
+      "sha256": "76200d754b4ed62ddb8db79e8c329915e82835cb1ec054514f664e02a976aeab"
+    },
+    {
+      "path": "av/buffer.pyi",
+      "size": 325,
+      "sha256": "b6ce99fd91d7c3f2c6b31152544b4000bf2c9bfbd3a61a2fc7574eae5637ee3f"
+    },
+    {
+      "path": "av/buffer.pyx",
+      "size": 1688,
+      "sha256": "a11e4b02df4ac057749ca3a93539202cf8e9be879b88b52730c2b441a6c271c1"
+    },
+    {
+      "path": "av/bytesource.cp312-win_amd64.pyd",
+      "size": 31232,
+      "sha256": "af5ab869976bdf813bdf10c2904cfe7ba440bb1d6bc4c62d2ef041f6ba3ace9f"
+    },
+    {
+      "path": "av/bytesource.pxd",
+      "size": 255,
+      "sha256": "465e494ac3f2d9b4fa0a5050befd2689666c0cdd96b61294127f85818cd8dea9"
+    },
+    {
+      "path": "av/bytesource.pyx",
+      "size": 1138,
+      "sha256": "ea6c14d5879d77fefb387ec547cf8f8770d605cb33bf725dc794670ef24d89cc"
+    },
+    {
+      "path": "av/codec/__init__.pxd",
+      "size": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "av/codec/__init__.py",
+      "size": 266,
+      "sha256": "0d914dddd72e74fa3424450e5739d61812f5199d75039a3415bfe0d43256949a"
+    },
+    {
+      "path": "av/codec/codec.cp312-win_amd64.pyd",
+      "size": 76800,
+      "sha256": "e2ad37ed9e529f4376391febb186a10433e4c20c6397acc74378e071eabc2c75"
+    },
+    {
+      "path": "av/codec/codec.pxd",
+      "size": 278,
+      "sha256": "54009deafd9bce037acf8fd5fc5ff131b52f56379969aa0b4572aa35f2c1a86a"
+    },
+    {
+      "path": "av/codec/codec.pyi",
+      "size": 3662,
+      "sha256": "06462b0cdf3bba28f5db2f69623e8ae8d86e187065e2309f7feb957778e48d36"
+    },
+    {
+      "path": "av/codec/codec.pyx",
+      "size": 11298,
+      "sha256": "8646ea89f18d5dc6a4db5e6753180779a6d8ee32d9f4737f696af0b0589e993c"
+    },
+    {
+      "path": "av/codec/context.cp312-win_amd64.pyd",
+      "size": 120320,
+      "sha256": "4bbe64c46c938f5c3aee512a20801e1b32baa3e28a29f35ec5acbe7d78ce5a1c"
+    },
+    {
+      "path": "av/codec/context.pxd",
+      "size": 2493,
+      "sha256": "fbb4d7b7e3b5c9a1b1bee8faaf0c1191b6594fc790d52f459ce67852b919a346"
+    },
+    {
+      "path": "av/codec/context.pyi",
+      "size": 3617,
+      "sha256": "84dc84cac6357f4764cac0e01c56c27ddd8fd398bc9e16c0a20c5900516e9855"
+    },
+    {
+      "path": "av/codec/context.pyx",
+      "size": 22778,
+      "sha256": "df2418c79994fc1b76b943194ebad9080d90e7f08662527531df1ae132980cdd"
+    },
+    {
+      "path": "av/codec/hwaccel.cp312-win_amd64.pyd",
+      "size": 64512,
+      "sha256": "57fa8fc13c6bbac46443219499ceef5fa1ebfa4fd0ed3662b09e08ee05140965"
+    },
+    {
+      "path": "av/codec/hwaccel.pxd",
+      "size": 531,
+      "sha256": "3a37616a479b5e9abb05491440f43223fa55304ad265b0f1a56a0b9b18c17ba8"
+    },
+    {
+      "path": "av/codec/hwaccel.pyi",
+      "size": 1367,
+      "sha256": "31bb779199436427fc80ca745028ae020901c988ce74d132ec7c66b6b725fa05"
+    },
+    {
+      "path": "av/codec/hwaccel.pyx",
+      "size": 5131,
+      "sha256": "9944353730bedbe0c2f55844211eb27b57222132330dcacde531c2144ae04071"
+    },
+    {
+      "path": "av/container/__init__.pxd",
+      "size": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "av/container/__init__.py",
+      "size": 114,
+      "sha256": "10a815e68a3d1530cf528d3356160912619aaab928e4f942fbc43587f4a4cba2"
+    },
+    {
+      "path": "av/container/__init__.pyi",
+      "size": 66,
+      "sha256": "5ed45b788c7e601b023b79a5746d19152215201fe269cc0bdee129e6a3353c20"
+    },
+    {
+      "path": "av/container/core.cp312-win_amd64.pyd",
+      "size": 105984,
+      "sha256": "6c2099d625d26bcb6284fb83b1328ec012e704bda779184281ef09a3c633e759"
+    },
+    {
+      "path": "av/container/core.pxd",
+      "size": 1350,
+      "sha256": "fcd709f6a9e5472cba377e998d9a232de384b01c70a566a7ba6d80cc043833f5"
+    },
+    {
+      "path": "av/container/core.pyi",
+      "size": 5256,
+      "sha256": "f714180f055d717f9499bb8b1208cdc1ea6e4847d87f40e9f69c94f6179a2ebd"
+    },
+    {
+      "path": "av/container/core.pyx",
+      "size": 17592,
+      "sha256": "4582c83f32ec52a96af1851ee1109de261e8950a5d9d190df93553c4aec5912a"
+    },
+    {
+      "path": "av/container/input.cp312-win_amd64.pyd",
+      "size": 78848,
+      "sha256": "7a6a168d2955d4b0a975a632f5433d5c5256132a6791db719f2b4535e33e50ae"
+    },
+    {
+      "path": "av/container/input.pxd",
+      "size": 172,
+      "sha256": "b51a54b35aa428266b3a7251ae30505f098d194c5aff78ee987e5ab1fd9644a2"
+    },
+    {
+      "path": "av/container/input.pyi",
+      "size": 1659,
+      "sha256": "79041736708bbf96820b80e85ce13c9c867d485cadd5dab89118e0dd3cb423d9"
+    },
+    {
+      "path": "av/container/input.pyx",
+      "size": 11285,
+      "sha256": "6ba0d84f3715c1d353c33eae701adaf7cd4347d6a830ca659f0cb4b402505265"
+    },
+    {
+      "path": "av/container/output.cp312-win_amd64.pyd",
+      "size": 76800,
+      "sha256": "12fe57ff12a9e46f9e6a62bcd33e8884befb37c4f8f84fb5eb73902a23f71a22"
+    },
+    {
+      "path": "av/container/output.pxd",
+      "size": 255,
+      "sha256": "fefa4ad89bbf620249052098758206f4e091ac82d94a318dd9eede82a521a208"
+    },
+    {
+      "path": "av/container/output.py",
+      "size": 15524,
+      "sha256": "2f83b8c36bec76b5f015fdc7fbe5538b21164da4b22d7c713cbc79fdce93e80a"
+    },
+    {
+      "path": "av/container/output.pyi",
+      "size": 1974,
+      "sha256": "2a7caf2beae636e0ca15e82a9b3ad642b0aed73d8b5f00338b108ca41b01f991"
+    },
+    {
+      "path": "av/container/pyio.cp312-win_amd64.pyd",
+      "size": 46080,
+      "sha256": "d725313be962fb57f5a1233a5917481d9df35a453cffd42dc8c2f8b131c73790"
+    },
+    {
+      "path": "av/container/pyio.pxd",
+      "size": 753,
+      "sha256": "2ecdb66f949be93fb99aaa11c91cc2c192bb51c1ff8fcc4ff4e3f8a3a65f8be8"
+    },
+    {
+      "path": "av/container/pyio.pyx",
+      "size": 5487,
+      "sha256": "d0ba5758b52e920a02c5e90b11bfa323dc9d78547258a1780b1cebc183bcabec"
+    },
+    {
+      "path": "av/container/streams.cp312-win_amd64.pyd",
+      "size": 71680,
+      "sha256": "ed0c5e4afccab54aa44638538b64fcdd9272382019d0bf744f831099e1daff1e"
+    },
+    {
+      "path": "av/container/streams.pxd",
+      "size": 535,
+      "sha256": "ef15ad6e8599142f57f598b3ca0cc586b72fbabf18943cc86ae809980cc7cbaa"
+    },
+    {
+      "path": "av/container/streams.pyi",
+      "size": 1205,
+      "sha256": "983d959b7ec076d81eeb30d016d0e5f7e1315f2ccb774ad5a939a651ec6fa70c"
+    },
+    {
+      "path": "av/container/streams.pyx",
+      "size": 5546,
+      "sha256": "3e3e97bf0d4599d7b2481ee2a95c4328fdbdb06df83564ddecc5743f76368054"
+    },
+    {
+      "path": "av/datasets.py",
+      "size": 3217,
+      "sha256": "3ae48c68bda8248f129ee05436ee5736a21c797a66ca338735934b4b5220a29f"
+    },
+    {
+      "path": "av/descriptor.cp312-win_amd64.pyd",
+      "size": 35840,
+      "sha256": "d5fae8e964c32cd6edc908acf0e6ae7d5d45b23bb7a46504feeef48c229cbc29"
+    },
+    {
+      "path": "av/descriptor.pxd",
+      "size": 539,
+      "sha256": "0c318b32acc24ac1af42cd64d3fe8d2cf6f8386171e0254b3c4aeab655a8695d"
+    },
+    {
+      "path": "av/descriptor.pyi",
+      "size": 128,
+      "sha256": "c5870bf323b0e81f01b0769831fc1131328ff7c7fe14bab2d42ad554e47ec6c4"
+    },
+    {
+      "path": "av/descriptor.pyx",
+      "size": 2320,
+      "sha256": "7e993e9c2ff0e5621e8c7a4d94396a9d4573532c7959bf1fbca8f082b4f3ef5d"
+    },
+    {
+      "path": "av/dictionary.cp312-win_amd64.pyd",
+      "size": 56320,
+      "sha256": "2c9fa62ade9a2b6ba9081d5795266ee4dea624ab72381b958b44ec5ebef4b2c7"
+    },
+    {
+      "path": "av/dictionary.pxd",
+      "size": 185,
+      "sha256": "214f4ba0ecbed5a9f5f2385f452fd756ebd7d8e4bc729e0f78aa1aceb62bd30e"
+    },
+    {
+      "path": "av/dictionary.pyi",
+      "size": 398,
+      "sha256": "81098f619875b000f067668c1a7ff0f6f288bdc5852578497266f542db7771cc"
+    },
+    {
+      "path": "av/dictionary.pyx",
+      "size": 1615,
+      "sha256": "5bd8287a48c8c147cb2654069fbd426c43fcb0d3df943ba03973ee4229c89947"
+    },
+    {
+      "path": "av/error.cp312-win_amd64.pyd",
+      "size": 130560,
+      "sha256": "d821e9e2c2909d6514b13d0fada35a6bf2ddf44d0faefe8c88475e60d4132bae"
+    },
+    {
+      "path": "av/error.pxd",
+      "size": 92,
+      "sha256": "3fe021dd8637fa084234ad98ecb24a0e82dda61ed889b943b6a643d7194fc0d3"
+    },
+    {
+      "path": "av/error.pyi",
+      "size": 3272,
+      "sha256": "d6447064594ffca92f35298b6536b12512d83f1ae9b5d27d1e9e03e945cea9a8"
+    },
+    {
+      "path": "av/error.pyx",
+      "size": 12876,
+      "sha256": "38ef3989e35e978e894c83112921ce97f975e6bb69a2692a6036d59e10f39629"
+    },
+    {
+      "path": "av/filter/__init__.pxd",
+      "size": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "av/filter/__init__.py",
+      "size": 134,
+      "sha256": "3d65f867db1602b2ddecf0873e3d0cdb641dc92df04356411a85cd73d24db3d6"
+    },
+    {
+      "path": "av/filter/__init__.pyi",
+      "size": 94,
+      "sha256": "ee58cb837041f88157f28f9b5d9e0b44e700e86e35b6e450e43d97d442223ed2"
+    },
+    {
+      "path": "av/filter/context.cp312-win_amd64.pyd",
+      "size": 60928,
+      "sha256": "603d5951343d06f7dfba2bab14117015ed3f9ae527ec7088a5c5c8e9f343953d"
+    },
+    {
+      "path": "av/filter/context.pxd",
+      "size": 407,
+      "sha256": "a906c0d7cd1bfe46cc80a3a2a3753f69c1734b94c3f08e44be002f2a57f573bc"
+    },
+    {
+      "path": "av/filter/context.pyi",
+      "size": 554,
+      "sha256": "6a5c9be6f4d4fb69a4f2d93c88ccc1c20c7ee1bca14badcab913efa14661986b"
+    },
+    {
+      "path": "av/filter/context.pyx",
+      "size": 4473,
+      "sha256": "01de57647436c586a0f34d1805412725e7505ffac20260f6f3c4afe691a8412d"
+    },
+    {
+      "path": "av/filter/filter.cp312-win_amd64.pyd",
+      "size": 43008,
+      "sha256": "353739545ba54d370a81fedec62c36537d368ac9b9be9df17499240ba3265a76"
+    },
+    {
+      "path": "av/filter/filter.pxd",
+      "size": 263,
+      "sha256": "075bc01341d5e16ab74b482c69662e54de5fae37a70c8cf534dc75ef30f0c94f"
+    },
+    {
+      "path": "av/filter/filter.pyi",
+      "size": 523,
+      "sha256": "6533d97ecc4b4dc1d764ec6c45d81a2abbfaf0432025637eddc09360cb004bb0"
+    },
+    {
+      "path": "av/filter/filter.pyx",
+      "size": 2869,
+      "sha256": "b355cbd3d9b82b719ef1d4fe43048e84e467c37fa7f4a13511aedc73d20caf1f"
+    },
+    {
+      "path": "av/filter/graph.cp312-win_amd64.pyd",
+      "size": 81408,
+      "sha256": "7fc53b25efd94333396140185b4eea6adc5eafd239b8c61c8bc79268ebe6f326"
+    },
+    {
+      "path": "av/filter/graph.pxd",
+      "size": 540,
+      "sha256": "caf7407a95eeaad418022f1c9a03ef2fe66c53cc5b72e23fe00a6b1afcdfa3a3"
+    },
+    {
+      "path": "av/filter/graph.pyi",
+      "size": 1707,
+      "sha256": "2163cb47df87345d7ef74e59df4d78c3c600413e7cb6ecf8292e7722dd04b600"
+    },
+    {
+      "path": "av/filter/graph.pyx",
+      "size": 8440,
+      "sha256": "38d8c36a35e3de0592dfb6b9e0eb74c6bb8dc02d2d5cf45d9e4478686472d022"
+    },
+    {
+      "path": "av/filter/link.cp312-win_amd64.pyd",
+      "size": 36352,
+      "sha256": "2d045645e39d7c00acc5156bc2d56c475b74f8f0ab80c63df816f484b1b3f809"
+    },
+    {
+      "path": "av/filter/link.pxd",
+      "size": 343,
+      "sha256": "b2729474f2a08438af29aa9a169e7296bd9ec7c1a5838949833d6ef110cc2887"
+    },
+    {
+      "path": "av/filter/link.pyi",
+      "size": 115,
+      "sha256": "beba510c90a864de22a0a398db9bb78bae52aefaca09e4383c3f1d2c12cdc57e"
+    },
+    {
+      "path": "av/filter/link.pyx",
+      "size": 1591,
+      "sha256": "658c7198ee1df2546bdd9a3e1f1644f48c4ad7856875217a326bd2247b4ab3ec"
+    },
+    {
+      "path": "av/filter/loudnorm.cp312-win_amd64.pyd",
+      "size": 38400,
+      "sha256": "3d17ff038c59d770f39c3f6b8d71fa0c1939fa0b740c2eaae1049dd68f9440c5"
+    },
+    {
+      "path": "av/filter/loudnorm.pxd",
+      "size": 483,
+      "sha256": "fda5b1d2455d85a84cda8688d10aa2f1255c8fa21d055e6d1a7f6d5ce0fab514"
+    },
+    {
+      "path": "av/filter/loudnorm.py",
+      "size": 1487,
+      "sha256": "36cecbe9c673e939b70d4a453520d6a8b837e2a26849b408c459dd8f68fa5dc9"
+    },
+    {
+      "path": "av/filter/loudnorm.pyi",
+      "size": 109,
+      "sha256": "53d3f9ff6e618afedfa75e7c2faf27acdb2b2b8ea113a895f4fa9206fb418d94"
+    },
+    {
+      "path": "av/filter/loudnorm_impl.c",
+      "size": 6373,
+      "sha256": "46247c5369b7d2b985ec70a1a294e4e36770d5f66e27222beebe0adb206e1b90"
+    },
+    {
+      "path": "av/filter/loudnorm_impl.h",
+      "size": 251,
+      "sha256": "fe4273770ab95eaf40043ff67e7197ca325a6d5ef195c39e2759c65447121be0"
+    },
+    {
+      "path": "av/filter/pad.cp312-win_amd64.pyd",
+      "size": 45056,
+      "sha256": "ba67828f4884c3a38f36016933fa779bdccea2bb3988872c959d4dd4ad077157"
+    },
+    {
+      "path": "av/filter/pad.pxd",
+      "size": 541,
+      "sha256": "b3880d1a1a374230b750cf2461d4c81d2ec184bfb7ab4d90c81c7a73b68940d4"
+    },
+    {
+      "path": "av/filter/pad.pyi",
+      "size": 205,
+      "sha256": "c5b1f1c75d5333f87d210b31d34d8a401961e3189ccf782ad11a9f3b6dbc0abf"
+    },
+    {
+      "path": "av/filter/pad.pyx",
+      "size": 2877,
+      "sha256": "619bee6c9ff35e7ea12cfe3b3d7c6566f2d08b16c02a5b75ad508739dc012b33"
+    },
+    {
+      "path": "av/format.cp312-win_amd64.pyd",
+      "size": 49664,
+      "sha256": "12ab09869df09e49f15254679410ba6ff89ee69c72e973a57249a2cbea144e9f"
+    },
+    {
+      "path": "av/format.pxd",
+      "size": 246,
+      "sha256": "c4bd65b06f5ffc012957194b01e06ec2e9246ad4175567c140b6b52e5dd9af2a"
+    },
+    {
+      "path": "av/format.pyi",
+      "size": 1445,
+      "sha256": "7d7ae3a28c7f406b0771b0e693a1568b998c9ad4cc703e4bc9b13eaeaa42883c"
+    },
+    {
+      "path": "av/format.pyx",
+      "size": 5877,
+      "sha256": "54aeaf0cd31ea951816ab5b52679bde522cad3f2a7d243484772e76b16fdd588"
+    },
+    {
+      "path": "av/frame.cp312-win_amd64.pyd",
+      "size": 46592,
+      "sha256": "6e52db49c09fb8eab85746d995d579520acd37e7c85cd56f723a3af4cf615bf2"
+    },
+    {
+      "path": "av/frame.pxd",
+      "size": 425,
+      "sha256": "f5ab8c7d1145da4944b1deb2c618fdf7a918cfde1518a81e71c3bdca83dfd237"
+    },
+    {
+      "path": "av/frame.pyi",
+      "size": 554,
+      "sha256": "807979e9ae5919749ecbeddeacc5be7d1f29b19db9fd61dc1a8722699fda1090"
+    },
+    {
+      "path": "av/frame.pyx",
+      "size": 5659,
+      "sha256": "50b1015c775e5dfde71615b4df3f098f0edb5b3cdbe509f5d0390a0c8e84e1e1"
+    },
+    {
+      "path": "av/logging.cp312-win_amd64.pyd",
+      "size": 69632,
+      "sha256": "e323e77107492501eba2342cfbf5f5accebbf50239a87497cfa9897466ebd365"
+    },
+    {
+      "path": "av/logging.pxd",
+      "size": 26,
+      "sha256": "0bd1c4904324d7e9d4f523f1f945bb2520db47993f1122444bdfca2c7024de09"
+    },
+    {
+      "path": "av/logging.pyi",
+      "size": 918,
+      "sha256": "0ca7811f9ebceff7d41c1e801f1b98638f2148bb14d63a69da1abf04284eed66"
+    },
+    {
+      "path": "av/logging.pyx",
+      "size": 9418,
+      "sha256": "22202af5fc837d0512d6e91c66e655655ffecfbd9e95d895416c8930aa22ef15"
+    },
+    {
+      "path": "av/opaque.cp312-win_amd64.pyd",
+      "size": 33792,
+      "sha256": "a96e226c14dca993516117fa2a91ce3ac6b22d6cb4a9a7dd4bb1ceef643ded55"
+    },
+    {
+      "path": "av/opaque.pxd",
+      "size": 249,
+      "sha256": "aed1f555dd793781575829c7182c3764d6f39c22c0db544d3f1e0d46dda7dfc2"
+    },
+    {
+      "path": "av/opaque.pyx",
+      "size": 865,
+      "sha256": "8c34e40087c0e62a62f0f1bde0363972e5c46fbf5724d69b934fcc9cfba31385"
+    },
+    {
+      "path": "av/option.cp312-win_amd64.pyd",
+      "size": 54784,
+      "sha256": "0097e7452c448fce53b01359514b7609bd68da8c8602475443755f44f8106784"
+    },
+    {
+      "path": "av/option.pxd",
+      "size": 387,
+      "sha256": "5baef16ff773ea070db399c3ec8c2f4294a17f75daf8579f15352f4f3fa06c38"
+    },
+    {
+      "path": "av/option.pyi",
+      "size": 1368,
+      "sha256": "0b06b3d1ecdb285895911e9725b774cc7418cc3f27724e455441773a32f1f766"
+    },
+    {
+      "path": "av/option.pyx",
+      "size": 5310,
+      "sha256": "3560d75a48192baf511672d775504f4b04f0646ce80feee9a22885bb9a7c1b41"
+    },
+    {
+      "path": "av/packet.cp312-win_amd64.pyd",
+      "size": 52224,
+      "sha256": "4a40d27d8f1790a938582a1b58ad02ce2113711e0284c7910d9ef28f117b1f94"
+    },
+    {
+      "path": "av/packet.pxd",
+      "size": 468,
+      "sha256": "3a3f121cb558e16fd9859a99a655420adc1fa85ba30151b251bf4476ccfb45a5"
+    },
+    {
+      "path": "av/packet.py",
+      "size": 6468,
+      "sha256": "9328c6852ac9773507ce49603e656938a69cab8af54b9adb212d16aa126ab6fd"
+    },
+    {
+      "path": "av/packet.pyi",
+      "size": 591,
+      "sha256": "3049b6dfe72ef9c1eb0f86358b213915b60f84333039ca6fd805aed40abebe03"
+    },
+    {
+      "path": "av/plane.cp312-win_amd64.pyd",
+      "size": 38400,
+      "sha256": "da2abffc87d295a162c1464241c0f8c9ab24812c4a132ef759863a217913b647"
+    },
+    {
+      "path": "av/plane.pxd",
+      "size": 207,
+      "sha256": "cb5df9326e4caee5f8fc71d45f7f568bc67ad02eab2ad4f607bbd1f5bf349262"
+    },
+    {
+      "path": "av/plane.pyi",
+      "size": 177,
+      "sha256": "b232c0596af7b92bef2252cb3a5762970360e7d4c20c761381c510ae31351507"
+    },
+    {
+      "path": "av/plane.pyx",
+      "size": 584,
+      "sha256": "a59a970ea05189037e545f31bf828a7fc0833f4722956e20263f2323c0f98fcc"
+    },
+    {
+      "path": "av/py.typed",
+      "size": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "av/sidedata/__init__.pxd",
+      "size": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "av/sidedata/__init__.py",
+      "size": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "av/sidedata/motionvectors.cp312-win_amd64.pyd",
+      "size": 55808,
+      "sha256": "9c91383477e2140b1167b595eb6511df89f6cb2dcfcdfeebbef44c8433bd0e2d"
+    },
+    {
+      "path": "av/sidedata/motionvectors.pxd",
+      "size": 282,
+      "sha256": "c7bba8ea77b58ce4ddc69153f7fc88fdf9a3ceec86816b8afadf363946683d9f"
+    },
+    {
+      "path": "av/sidedata/motionvectors.pyi",
+      "size": 624,
+      "sha256": "d8b0628380ed6b44f9bc3a333b8978a73316d53a3e28d30994ba0df9b2331b36"
+    },
+    {
+      "path": "av/sidedata/motionvectors.pyx",
+      "size": 2738,
+      "sha256": "92de1ffbfe959efc061513aa75a1218a5d0e0c56ebe3af2b5785bd7704b8e5c0"
+    },
+    {
+      "path": "av/sidedata/sidedata.cp312-win_amd64.pyd",
+      "size": 65024,
+      "sha256": "6a9f5edda8c388ccbf4ba0a1531b2501d4a19063ff511d73db6ee45517ca3b25"
+    },
+    {
+      "path": "av/sidedata/sidedata.pxd",
+      "size": 476,
+      "sha256": "926c4cb5fbddc2192d2d037b60ddd9250badfbd32895f9c734c4fe8a2dd07c9f"
+    },
+    {
+      "path": "av/sidedata/sidedata.pyi",
+      "size": 2021,
+      "sha256": "58d03e58764462bbd11a814450f5f5eb5644e5c0f2e36eeb71643f98326f4fe0"
+    },
+    {
+      "path": "av/sidedata/sidedata.pyx",
+      "size": 4174,
+      "sha256": "a352f3567c694d5f79e3878c57447b8afe1721629c30d010a70e4949b054087c"
+    },
+    {
+      "path": "av/stream.cp312-win_amd64.pyd",
+      "size": 63488,
+      "sha256": "b6ae8480747088f686d07b54b0b6d1d3f2bdc29dfbd74a01b0e9fffb599aa60d"
+    },
+    {
+      "path": "av/stream.pxd",
+      "size": 719,
+      "sha256": "edceb4be15d2af5d4f9a4dc35827c5818b6b3035796cd8cf69abe05c94551152"
+    },
+    {
+      "path": "av/stream.py",
+      "size": 8791,
+      "sha256": "19e361c61a3487c63f6eee5548ac6f3f2d08e45413c3bbb2b03a979109cb70bd"
+    },
+    {
+      "path": "av/stream.pyi",
+      "size": 1651,
+      "sha256": "f4df32364c652a0a5cadc613733bb0082fae09a84031999e83661b1e736e5202"
+    },
+    {
+      "path": "av/subtitles/__init__.pxd",
+      "size": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "av/subtitles/__init__.py",
+      "size": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "av/subtitles/codeccontext.cp312-win_amd64.pyd",
+      "size": 37888,
+      "sha256": "624b014d3455c3792e4084266417a45f2805fb00999336ad1f1dbd9fa288b97d"
+    },
+    {
+      "path": "av/subtitles/codeccontext.pxd",
+      "size": 167,
+      "sha256": "dadcce3301b8720eddd57ef42fe17344def911595968758fb8449a506eaf8451"
+    },
+    {
+      "path": "av/subtitles/codeccontext.py",
+      "size": 1538,
+      "sha256": "a857ef6dfa62436c0ff954e5037f26c885a2c613ab690ea2e8abe330b068caaf"
+    },
+    {
+      "path": "av/subtitles/codeccontext.pyi",
+      "size": 292,
+      "sha256": "e4dd68e7c625652645ce7f3687c6ed9f06ef1098726be90aaa13c6a3da1a25cd"
+    },
+    {
+      "path": "av/subtitles/stream.cp312-win_amd64.pyd",
+      "size": 36352,
+      "sha256": "c9c94c84954134d9ba4bda2285a98290c9191fae73513ab4fe361f2d1058c95a"
+    },
+    {
+      "path": "av/subtitles/stream.pxd",
+      "size": 143,
+      "sha256": "5298847df2a3aac7c3e11947c9682e2206cc741fb8fa0e236b09e0e59ea9aa3a"
+    },
+    {
+      "path": "av/subtitles/stream.py",
+      "size": 654,
+      "sha256": "c61872fe3efb1c4463e12417083ef4e3a02360beaa05f2e615f21e6e45954ad0"
+    },
+    {
+      "path": "av/subtitles/stream.pyi",
+      "size": 352,
+      "sha256": "e05d18578187ea66d908e8e9e8a40a267319dcc30886cd1b99e46ea4d527da31"
+    },
+    {
+      "path": "av/subtitles/subtitle.cp312-win_amd64.pyd",
+      "size": 88576,
+      "sha256": "6f1d567b99cfdc78a5a9d93bf884ea824d086f8f1d16d6f066e8790d7f8ee622"
+    },
+    {
+      "path": "av/subtitles/subtitle.pxd",
+      "size": 623,
+      "sha256": "3ec222d0df0322584f61f9d6f2d738689841b0cd8eb8665db0d4691a58d79433"
+    },
+    {
+      "path": "av/subtitles/subtitle.py",
+      "size": 6781,
+      "sha256": "09030d7330cbbeee8e518eb42842b6f64b3222c5aa5fc61674bdc2edf066e50c"
+    },
+    {
+      "path": "av/subtitles/subtitle.pyi",
+      "size": 841,
+      "sha256": "508db29dec0c0be91134104c956ee696f5f58ceca359e12cd4fadb3e5be1bbde"
+    },
+    {
+      "path": "av/utils.cp312-win_amd64.pyd",
+      "size": 32768,
+      "sha256": "e612d11415ccee88980c854fe8b844fd2980826d7edffe5e50b58cda6ade34a0"
+    },
+    {
+      "path": "av/utils.pxd",
+      "size": 464,
+      "sha256": "db45623a5ad8b2471a75e187c62677608bc50189224b10a5f9a5940edd553ff2"
+    },
+    {
+      "path": "av/utils.pyx",
+      "size": 2189,
+      "sha256": "5f47829e8b341149b39d1a8a176c0a363f577a3da7c2a55af7ce9edb20086463"
+    },
+    {
+      "path": "av/video/__init__.pxd",
+      "size": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "av/video/__init__.py",
+      "size": 64,
+      "sha256": "bd824c4a255d8f4121c0424a91ccfdb198549d54c2dc675ece14e4f584883148"
+    },
+    {
+      "path": "av/video/__init__.pyi",
+      "size": 279,
+      "sha256": "feb613d89276b619f67dd0ce94a21143039b1bc6d913f89289cb78628e128c40"
+    },
+    {
+      "path": "av/video/codeccontext.cp312-win_amd64.pyd",
+      "size": 60416,
+      "sha256": "7a78fdf98062fa214898e26688e0935659326a7cce418fbb5e1180ce99f40d31"
+    },
+    {
+      "path": "av/video/codeccontext.pxd",
+      "size": 1093,
+      "sha256": "6df8a80c508785dd9e0d187300a8d57025895351e31c94b8d1b05a54118131cf"
+    },
+    {
+      "path": "av/video/codeccontext.pyi",
+      "size": 1003,
+      "sha256": "a761f8198956f963bef9b84cd1331b9a0356a03f1c36ac9d951059517c470e44"
+    },
+    {
+      "path": "av/video/codeccontext.pyx",
+      "size": 11189,
+      "sha256": "4791e3e7420d9dc6325e9a07f13a97ced30e3d9ab22f159e53d139100798e17d"
+    },
+    {
+      "path": "av/video/format.cp312-win_amd64.pyd",
+      "size": 72192,
+      "sha256": "d355aeadf6b4ab3dc48348d777ad3121a977222b64b54b409ae1859859ab2014"
+    },
+    {
+      "path": "av/video/format.pxd",
+      "size": 754,
+      "sha256": "fa80b7cf69fd27515a6aebd6e2016432d845c58fb50237a7395cfeefb76b8516"
+    },
+    {
+      "path": "av/video/format.pyi",
+      "size": 805,
+      "sha256": "49e022f4c435346384886af49b2d8915ae38821546c7c1e1cc4e7c67b26a272f"
+    },
+    {
+      "path": "av/video/format.pyx",
+      "size": 6133,
+      "sha256": "880b795a21e53e8562e1a41f72b561ca1464162fe5c6f25cb4624fb8403e5050"
+    },
+    {
+      "path": "av/video/frame.cp312-win_amd64.pyd",
+      "size": 268800,
+      "sha256": "9c0ffab64e338677acda673cce9ccbbb9124309301a2a63dc5eb971f760c6411"
+    },
+    {
+      "path": "av/video/frame.pxd",
+      "size": 681,
+      "sha256": "a8bf0376cb2a51ee3ce8ef79d97e96432851e5bdb491a22549c03b5364173928"
+    },
+    {
+      "path": "av/video/frame.py",
+      "size": 43118,
+      "sha256": "6df3a30202a27037839b0dc3c2fe96be9d347f3c9c12bddae2a8815ef90c782b"
+    },
+    {
+      "path": "av/video/frame.pyi",
+      "size": 2380,
+      "sha256": "713ba8e816319bb7e64c7e3091bc0a48ee8e34bf08398896bac3b55bff7d122f"
+    },
+    {
+      "path": "av/video/plane.cp312-win_amd64.pyd",
+      "size": 41472,
+      "sha256": "95c929987558fafc90e6afbe31d1342545dee5c7fc4aced915bbc2fa1ea83b1b"
+    },
+    {
+      "path": "av/video/plane.pxd",
+      "size": 201,
+      "sha256": "b2de10f22e215c3daccd0a022eb3129f0f76eac7ffd28089485c5a7e11312736"
+    },
+    {
+      "path": "av/video/plane.pyi",
+      "size": 234,
+      "sha256": "42426049128d2428d9a753ddfb023edc121d0fe691fddc8185d18cff7e87e680"
+    },
+    {
+      "path": "av/video/plane.pyx",
+      "size": 1331,
+      "sha256": "8e6820a609717ae82202862651c0121efc52f9e036a10cdd83972376a578360a"
+    },
+    {
+      "path": "av/video/reformatter.cp312-win_amd64.pyd",
+      "size": 59392,
+      "sha256": "46c12cd00d5a7baa79af6e9960ff37d6dadeb96ad7a05ed37b46394f194ae150"
+    },
+    {
+      "path": "av/video/reformatter.pxd",
+      "size": 386,
+      "sha256": "7d882205ed461305bd1de41470f059209226e4c0fd98384f9f76a1a9c3b83ef1"
+    },
+    {
+      "path": "av/video/reformatter.pyi",
+      "size": 1435,
+      "sha256": "87b611a409a8991a027259486c9fb40795a159f615dd156393061c486ba29b2b"
+    },
+    {
+      "path": "av/video/reformatter.pyx",
+      "size": 8641,
+      "sha256": "3db37bccd568dcac6b02b5e3d1e5197fd64024c327a7ff2d67b751db777db3d2"
+    },
+    {
+      "path": "av/video/stream.cp312-win_amd64.pyd",
+      "size": 48640,
+      "sha256": "fc360024b2680ee76a6e93ee38a1a6d286615497241db7b1fecf1ae70aa7f0b7"
+    },
+    {
+      "path": "av/video/stream.pxd",
+      "size": 218,
+      "sha256": "5dd44b82199c8e35b160f7ac5100b206181f5c58ab2674942432baee1d9a6d5f"
+    },
+    {
+      "path": "av/video/stream.py",
+      "size": 4095,
+      "sha256": "a8ef5d4048a10592d0e33ae92c8afccac53e63c53b063caaece6685cf01bfebc"
+    },
+    {
+      "path": "av/video/stream.pyi",
+      "size": 1230,
+      "sha256": "d70344e658561ec1d2fbcc4ec345054fe3ea65deb5bda2a382bf448831e1b3e8"
+    }
+  ],
+  "dynamic_files": [
+    {
+      "path": "avcodec-61-7f5ba29974161bb2dc8f58d741e9b107.dll",
+      "size": 15509504,
+      "sha256": "7c94ea46282ebed90e177fd0e50e29ea324fdd4e7e10818879176214692332ae"
+    },
+    {
+      "path": "avdevice-61-6f2fc0cba0d24e2c35df8f66e02f4993.dll",
+      "size": 152576,
+      "sha256": "b086618d5efe201d75ab497564bdf2252063d9ad10379f9fcd6b4683aaa5758e"
+    },
+    {
+      "path": "avfilter-10-472d979b214dd08748e7582d36fa319a.dll",
+      "size": 4411392,
+      "sha256": "2e9826aeeff0425e1a319df212cef695149900b1d7e43a2156a206a32c6104b0"
+    },
+    {
+      "path": "avformat-61-0ff8626c7ae3b343856d4b4269366a65.dll",
+      "size": 2638848,
+      "sha256": "d0653a9ab9ecb6ad1440c650f95019e4260986b77caa0586ae0589a9412eb286"
+    },
+    {
+      "path": "avutil-59-741e7750b3ecbd33a733f7b2e9fabfe3.dll",
+      "size": 1089536,
+      "sha256": "70d4754c209947789ad6603b285bed74c9571d51dc7ec6e1b9417c1fe9b44dc0"
+    },
+    {
+      "path": "libSvtAv1Enc-8b4a7cdc459d5f652065b0631e819467.dll",
+      "size": 8344064,
+      "sha256": "394f6afe6160db125c1e274b6d7d88f37e3b9127e5e90cf41164b4b2d857ed40"
+    },
+    {
+      "path": "libaom-05a6d78fbe8953b2331fd9788db80389.dll",
+      "size": 9858048,
+      "sha256": "657727a786103e77d7c5af65a990030805e48d985398142fae3ae803fee826f4"
+    },
+    {
+      "path": "libcrypto-1_1-x64-0d95c8bbfefbc533ef8513ecd31047ae.dll",
+      "size": 3412992,
+      "sha256": "13071dc72a97cf3c84fa754714c99f3b91f3aa784393994401bec0a7869cdb51"
+    },
+    {
+      "path": "libdav1d-3d4dca4cc1bcdc51e6f27efe48cdc3ea.dll",
+      "size": 2119168,
+      "sha256": "8a1c3beb8c296f08a529f90731d74ae4d8719de025ed7985c1df4702ad084b30"
+    },
+    {
+      "path": "libgcc_s_seh-1-6d88525376bcf43dad77d88623cd0e30.dll",
+      "size": 148480,
+      "sha256": "d99f89e7188dbb8b6cfc7359a68080555d69a1757f2481cdb755d0215039b762"
+    },
+    {
+      "path": "libgmp-10-e17cc9023fc0977b98a6e920c19f9af4.dll",
+      "size": 539136,
+      "sha256": "806571db4872ca938b198e9f3a6367cbd018749ab1ffe0bfc4e06f0ed585785a"
+    },
+    {
+      "path": "libiconv-2-75531fabaf2376ee87fe618dd74d6702.dll",
+      "size": 1134592,
+      "sha256": "45604fc85208c9544116f9d43732aba77834c261b1d44f9aace3807b2f1d32be"
+    },
+    {
+      "path": "libmp3lame-0-1b183ddd52fc82f4b535584159f561ee.dll",
+      "size": 425472,
+      "sha256": "2bf7481fe3401a40e0c16c53b5f38cba1943b96cd0310911229220dea00c5727"
+    },
+    {
+      "path": "libogg-0-004d4d989b067c910db559c691f72b9a.dll",
+      "size": 32768,
+      "sha256": "6e0c43b144a0aae2475b032e13228752bea1bdb3f00b97693f4ca9c9f0ae07dc"
+    },
+    {
+      "path": "libopencore-amrnb-0-8093204754ed3411dbc38084069ad67d.dll",
+      "size": 179712,
+      "sha256": "c2c0c86dac8215cd5994c652b95a2b4d5bc0ab55ba56b7ecad888dc0509e539a"
+    },
+    {
+      "path": "libopencore-amrwb-0-97b27360949f66e57ef986e5a44e78f5.dll",
+      "size": 97280,
+      "sha256": "fe8d9e29d2d9f81aa827023e29db9e3c0829039aed5601c58bc797adc8195326"
+    },
+    {
+      "path": "libopenh264-7-0ede3c4a12caec2801f13fef5615b2f5.dll",
+      "size": 888832,
+      "sha256": "84dec1d045d74f78a9ff157dbcca0a2569d0800c960555354f39e02f5d0adb93"
+    },
+    {
+      "path": "libopus-0-853c5e1e1c0e5706d8589835c11ea135.dll",
+      "size": 451584,
+      "sha256": "cba63f2777463cf684b0fd6ce516ad980f2bc28c67603973f7393218019a9176"
+    },
+    {
+      "path": "libsharpyuv-d88756dae10f95ec8f288bcfed2124c7.dll",
+      "size": 51200,
+      "sha256": "d13501f44c3296fb1293b1874dc552c7ecce4e82d27acc6d39c50876781205a1"
+    },
+    {
+      "path": "libspeex-1-e6afb6b326021379a3fd92f621cfe565.dll",
+      "size": 151040,
+      "sha256": "52074b2dfe340b5e6bc001871a71efabfdea653aaac547c0ad2d5f9f748ba5c7"
+    },
+    {
+      "path": "libsrt-409892cdc04ee741a69f79e506295d80.dll",
+      "size": 830464,
+      "sha256": "1f173f1efcd46120df4f907df6d477cbf43e3a16ea88b1558aa64a60ffe56596"
+    },
+    {
+      "path": "libstdc++-6-13660287bdba2df3286ab7d0a7c0c12f.dll",
+      "size": 2421760,
+      "sha256": "bb14c20e6a02ef3ea7a239b49e0a67ff085e0f7315780860d1a4434ae9a1f65f"
+    },
+    {
+      "path": "libtwolame-0-76f9eaeb2b9b0c466c2d98c55d494ebd.dll",
+      "size": 167936,
+      "sha256": "bca3565920e3daab2d06d663b26e314c1de7d7e3b32387b4bd15f06ecdc9c2c1"
+    },
+    {
+      "path": "libvorbis-0-424104373ef6db145aa3956b2ad57b46.dll",
+      "size": 261632,
+      "sha256": "c827a49a356a70526ad040805335c66fd06e7e30ff728ba47b7e2b4837a61b19"
+    },
+    {
+      "path": "libvorbisenc-2-096cf3c7fb1dc91c64b9c6b228bc8e47.dll",
+      "size": 583168,
+      "sha256": "d0a9b9e8493d3362ec0554798d8664599a2295f937acac6ba1206d2900467a37"
+    },
+    {
+      "path": "libvpx-1-1b22a11fde991d24f0cf3f78afe36fee.dll",
+      "size": 2610688,
+      "sha256": "022a8409bb1457bf88f2c49b980d71dcee1dddcaa3497ffd93750504c7964a8e"
+    },
+    {
+      "path": "libwebp-229cc063993aa0760bc7ca2a24569984.dll",
+      "size": 728576,
+      "sha256": "cdb1376823497fd37732d1a6d4c8159db98c9820e527b156fb0ce9891701b27a"
+    },
+    {
+      "path": "libwebpmux-28fc1392380dd183aac6a8c6296b19cc.dll",
+      "size": 77824,
+      "sha256": "1a98212843f5f009a7f81d21dd6d0afe9e58b2b89291a7b63c73d985e8a33f7a"
+    },
+    {
+      "path": "libwinpthread-1-984cdc94d5b60f2dffc581a36f784ae9.dll",
+      "size": 60928,
+      "sha256": "a03a7e892d1eec8c40808ba696b25e917f45ad32d41925e25cd2bbca605fd8db"
+    },
+    {
+      "path": "libx264-165-de8de7d5ffe9d75d839a96621ec53cd9.dll",
+      "size": 2376192,
+      "sha256": "61acd10b62783aea048e2d39227c2895def27b5b3a3b2d8fbf071f87be805611"
+    },
+    {
+      "path": "libx265-9adc56be88b1827574686b8a839bca58.dll",
+      "size": 22054400,
+      "sha256": "93a921fffd22194601b246e4a6da783c88000adb12b688e5f94f3c0be624b658"
+    },
+    {
+      "path": "swresample-5-bdff1e4ddf8a951323b3fa44d9ed1067.dll",
+      "size": 125952,
+      "sha256": "99f2da0e7ef2e16ef53eaf52021f3f447194e8f6792618804f482c3e8c4fd73e"
+    },
+    {
+      "path": "swscale-8-8ba1bbeec77aa1e86af9fa166550db4d.dll",
+      "size": 671232,
+      "sha256": "a71d29a5ba351c38ac24e746bccbc716804026393b83151a7136bd503871f9f0"
+    },
+    {
+      "path": "zlib1-4a00c7a3a73b44dc307a33a102f9a72b.dll",
+      "size": 118784,
+      "sha256": "70985e2a335c7b83165a1a125b8ce8e2aa52b0bb736392dc79ae072b83a53887"
+    }
+  ]
+}

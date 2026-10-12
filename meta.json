@@ -12,8 +12,8 @@
     "strata-windows-x64-hip.zip": "ba96786ecd56ab2eb2d1393f7fbb715b4ae751b42564b8465f02654396ee1b42",
     "strata-windows-x64.zip": "bbf2fca32f98e490bc3c53c05c29136dcc53c606fbb619d842558ea69c50c9d6"
   },
-  "revision": 1,
-  "version": "0.1.42-t8.1",
+  "revision": 2,
+  "version": "0.1.42-t8.2",
   "python_version": "3.12.10",
   "python_zip_sha256": "4acbed6dd1c744b0376e3b1cf57ce906f9dc9e95e68824584c8099a63025a3c3",
   "model_family": "qwen",

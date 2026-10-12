@@ -89,7 +89,7 @@ def config_path(state):
 def environment_check():
     if os.name == 'nt' and sys.getwindowsversion().build < 18362:
         raise RuntimeError('Windows 10 1903 (build 18362) or later is required for UTF-8 model paths')
-    modules = ['numpy', 'jinja2', 'regex', 'yaml', 'tqdm', 'requests', 'PIL', 'psutil']
+    modules = ['numpy', 'jinja2', 'regex', 'yaml', 'tqdm', 'requests', 'PIL', 'psutil', 'av']
     for name in modules:
         __import__(name)
     for line in upstream.requirement_lines() + upstream.requirement_lines(ROOT/'requirements-portable.txt') + upstream.CUDA_WHEELS:
@@ -245,7 +245,7 @@ def _refresh_updated_config(cfg_path, state, current, *, enable_vision=False, vi
         from portable_version import metadata
         if metadata(ROOT).get('edition') == 'Portable-NoModels':
             config.pop('vision')
-            config['args'] = [arg for arg in config.get('args', []) if arg != '--vision']
+            config['args'] = [arg for arg in config.get('args', []) if arg not in ('--vision', '--native-video')]
             print('NoModels edition: bundled vision is disabled. Run INSTALL-VISION.bat to restore it.', flush=True)
         else:
             config['vision']['exe'] = str(ROOT/'engine/strata-vision.exe')
@@ -287,7 +287,23 @@ def attach_vision(config, model, mode='gpu', tokens=None):
     return config
 
 
-def configure(data, context=None, backend=None, vision=None, vision_tokens=None, port=None):
+def set_native_video(config, enabled):
+    if enabled is None:
+        return config
+    if enabled:
+        if config.get('backend') == 'hip' or not isinstance(config.get('vision'), dict):
+            raise RuntimeError('Native video requires the NVIDIA engine and an enabled vision encoder')
+        build = read_json(ROOT/'engine/BUILD.json')
+        if (build.get('capabilities') or {}).get('native_video') is not True:
+            raise RuntimeError('This package does not contain the T8 native-video engine; update the package first')
+    if isinstance(config.get('vision'), dict):
+        config['vision']['native_video'] = bool(enabled)
+    if not enabled:
+        config['args'] = [arg for arg in config['args'] if arg != '--native-video']
+    return config
+
+
+def configure(data, context=None, backend=None, vision=None, vision_tokens=None, port=None, native_video=None):
     model = model_delivery(data)
     tag = upstream.FAMILIES[model['family']]['tag'] + model['model']
     cfg_path = ROOT/f'strata-{tag.lower()}.json'
@@ -368,6 +384,9 @@ def configure(data, context=None, backend=None, vision=None, vision_tokens=None,
         state['portable_config'] = cfg_path.name
         state['portable_fingerprint'] = current_fingerprint
         save_json(STATE, state)
+        if native_video is not None:
+            generated = set_native_video(read_config(cfg_path), native_video)
+            save_json(cfg_path, generated)
         completed = True
     finally:
         if not completed:
@@ -385,6 +404,8 @@ def main():
     ap.add_argument('--port', type=int)
     ap.add_argument('--vision', choices=['no', 'gpu', 'cpu'], help='use the bundled vision encoder (offline)')
     ap.add_argument('--vision-tokens', type=int)
+    ap.add_argument('--native-video', action=argparse.BooleanOptionalAction, default=None,
+                    help='opt in to NVIDIA native temporal video encoding (--no-native-video disables it)')
     ap.add_argument('--no-browser', action='store_true')
     args = ap.parse_args()
     if args.vision_tokens is not None and args.vision_tokens < 1:
@@ -416,7 +437,11 @@ def main():
         vision = args.vision
         if vision is None and (ROOT/'vision/catalog.json').is_file() and (ROOT/'vision/weights'/read_json(ROOT/'vision/catalog.json')['file']).is_file():
             vision = 'auto'
-        result, cfg = configure(data, args.context, args.backend, vision, args.vision_tokens, args.port)
+        if args.native_video is None:
+            result, cfg = configure(data, args.context, args.backend, vision, args.vision_tokens, args.port)
+        else:
+            result, cfg = configure(data, args.context, args.backend, vision, args.vision_tokens, args.port,
+                                    native_video=args.native_video)
         if result or args.action in ('configure', 'import'):
             return result
     elif previous.get('version') != current['version'] or previous.get('edition') != current.get('edition'):
@@ -430,10 +455,13 @@ def main():
     if args.vision is not None or args.vision_tokens is not None:
         if args.vision == 'no':
             config.pop('vision', None)
-            config['args'] = [arg for arg in config['args'] if arg != '--vision']
+            config['args'] = [arg for arg in config['args'] if arg not in ('--vision', '--native-video')]
         else:
             mode = args.vision or ('gpu' if (config.get('vision') or {}).get('gpu') else 'cpu')
             config = attach_vision(config, model_delivery(data), mode, args.vision_tokens)
+    if args.native_video is not None:
+        config = set_native_video(config, args.native_video)
+    if args.vision is not None or args.vision_tokens is not None or args.native_video is not None:
         save_json(cfg, config)
     port = args.port or config.get('port', 8080)
     command = [sys.executable, '-X', 'utf8', '-u', str(ROOT/'serve/server.py'), '--engine', 'strata', '--config', str(cfg), '--port', str(port)]

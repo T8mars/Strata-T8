@@ -100,8 +100,12 @@ let health = {model: "strata", images: false, max_context: 0};
 async function loadHealth() {
   try {
     health = await (await fetch("health")).json();
-    $("attach-btn").title = health.images ? "Attach a text file or a picture (or drop it here)"
+    $("attach-btn").title = health.images ? "Attach a text file, picture or video (or drop it here)"
                                           : "Attach a text file (or drop it here)";
+    const videoStatus = await (await fetch('v1/status', {headers: headers()})).json();
+    const modes = videoStatus.capabilities?.video?.modes || [];
+    $('video-mode').hidden = !modes.includes('frames');
+    $('video-native').disabled = !modes.includes('native');
     $("chat-empty-sub").textContent = `${health.model} runs on this PC. Nothing leaves it.`;
   } catch (e) {
     setTimeout(loadHealth, 2000);
@@ -565,6 +569,7 @@ let busy = null;                      // {controller, msg}
 
 function saveChat() {
   store.set("chat", messages.map((m) => ({...m, images: (m.images || []).map((i) => ({name: i.name})),
+                                           videos: (m.videos || []).map((v) => ({name: v.name, manifest: v.manifest})),
                                            files: (m.files || []).map((f) => ({name: f.name}))})));
 }
 function timeStr(t) { return new Date(t).toLocaleTimeString([], {hour: "2-digit", minute: "2-digit"}); }
@@ -574,6 +579,15 @@ function msgEl(m, i) {
   el.className = `st-msg st-msg--${m.role}`;
   el.dataset.i = i;
   if (m.role === "user") {
+    for (const video of m.videos || []) {
+      const chip = document.createElement('span');
+      chip.className = 'chip';
+      const coverage = video.manifest?.coverage;
+      chip.textContent = `${video.name}: ${coverage?.sample_count || 0} samples, ` +
+        `${Number(coverage?.first_sample_s || 0).toFixed(2)}–${Number(coverage?.last_sample_s || 0).toFixed(2)} s`;
+      chip.title = 'Sampled visual evidence; audio is not decoded. Reattach after reloading this page.';
+      el.appendChild(chip);
+    }
     if (m.files && m.files.length) {
       const wrap = document.createElement("div");
       wrap.className = "msg-images";
@@ -726,9 +740,10 @@ function apiMessages() {
   for (const m of messages) {
     if (m.role === "user") {
       const imgs = (m.images || []).filter((i) => i.url);
+      const videos = (m.videos || []).filter((v) => v.part).map((v) => v.part);
       const text = userText(m);
-      out.push({role: "user", content: imgs.length ? [{type: "text", text},
-        ...imgs.map((i) => ({type: "image_url", image_url: {url: i.url}}))] : text});
+      out.push({role: "user", content: imgs.length || videos.length ? [{type: "text", text},
+        ...imgs.map((i) => ({type: "image_url", image_url: {url: i.url}})), ...videos] : text});
     } else if (!(busy && busy.msg === m)) {            // the answer being asked for now is not history yet
       out.push(...assistantMessages(m));
     }
@@ -771,7 +786,12 @@ function setBusy(on) {
 async function send() {
   const text = $("input").value.trim();
   if ((!text && !attachments.length) || busy) return;
-  messages.push({role: "user", text, images: attachments.filter((a) => a.kind !== "file"),
+  if (attachments.some((a) => a.kind === 'video_pending')) {
+    toast('info', 'Video sampling in progress', 'Wait for sampling to finish or remove the video to cancel.');
+    return;
+  }
+  messages.push({role: "user", text, images: attachments.filter((a) => a.kind === "image"),
+                 videos: attachments.filter((a) => a.kind === 'video'),
                  files: attachments.filter((a) => a.kind === "file"), time: Date.now()});
   attachments = [];
   renderAttachments();
@@ -902,12 +922,52 @@ $("export-btn").onclick = () => {
 // pictures and text files: the attach button, dropping them on the chat, or pasting a picture (issue #30)
 const TEXT_EXT = /\.(txt|md|markdown|rst|tex|py|pyi|ipynb|js|mjs|cjs|ts|tsx|jsx|vue|svelte|json|jsonl|csv|tsv|log|ya?ml|toml|ini|cfg|conf|env|xml|html?|css|scss|less|c|cc|cpp|cxx|h|hh|hpp|cu|cuh|rs|go|java|kt|kts|swift|rb|php|pl|lua|r|jl|scala|sql|sh|bash|zsh|fish|ps1|psm1|bat|cmd|diff|patch|gradle|cmake|mk|dockerfile|gitignore|proto|graphql)$/i;
 const MAX_TEXT_FILE = 512 * 1024;
+async function addVideo(file) {
+  if (!health.images) { toast('warn', 'Vision is off', 'Enable a vision model to analyze video.'); return; }
+  if (file.size > 128 * 1024**2) { toast('warn', 'Video too large', 'Upload up to 128 MiB; trim longer files first.'); return; }
+  if (attachments.some((a) => a.kind.startsWith('video'))) {
+    toast('warn', 'One video per message', 'Send the current video before adding another.'); return;
+  }
+  const controller = new AbortController();
+  const pending = {kind: 'video_pending', name: `${file.name} (sampling…)`, controller};
+  attachments.push(pending);
+  renderAttachments();
+  try {
+    const encoded = await new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      controller.signal.addEventListener('abort', () => { reader.abort(); reject(new DOMException('Cancelled', 'AbortError')); }, {once: true});
+      reader.onload = () => resolve(String(reader.result).split(',')[1]);
+      reader.onerror = () => reject(reader.error);
+      reader.readAsDataURL(file);
+    });
+    if (controller.signal.aborted) throw new DOMException('Cancelled', 'AbortError');
+    const response = await fetch('v1/video/sample', {method: 'POST', headers: headers(true), signal: controller.signal,
+      body: JSON.stringify({data: encoded, mode: $('video-mode').value, max_frames: 8, sampling_fps: 1})});
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error?.message || `HTTP ${response.status}`);
+    result.part.mode = $('video-mode').value;
+    if (!controller.signal.aborted && attachments.includes(pending)) {
+      attachments.splice(attachments.indexOf(pending), 1, {kind: 'video', name: file.name, ...result});
+      toast('info', 'Video sampled', `${result.manifest.coverage.sample_count} frames. Audio is not decoded; attach SRT/VTT or transcript text if needed.`);
+    }
+  } catch (error) {
+    if (error.name !== 'AbortError') toast('warn', 'Video could not be sampled', error.message);
+    attachments = attachments.filter((a) => a !== pending);
+  }
+  renderAttachments();
+}
 function isTextFile(f) {
-  return f.type.startsWith("text/") || /json|xml|javascript|yaml|toml|x-sh|x-python/.test(f.type) ||
+  return f.type.startsWith("text/") || /\.(srt|vtt)$/i.test(f.name) || /json|xml|javascript|yaml|toml|x-sh|x-python/.test(f.type) ||
          TEXT_EXT.test(f.name) || /(^|[\\/])(makefile|dockerfile|readme|license)$/i.test(f.name);
 }
+$('video-mode').addEventListener('change', () => {
+  for (const attachment of attachments) {
+    if (attachment.kind === 'video') attachment.part.mode = $('video-mode').value;
+  }
+});
 function addFiles(files) {
   for (const f of files) {
+    if (f.type.startsWith('video/') || /\.(mp4|mkv|webm|mov|avi|mpeg|mpg)$/i.test(f.name)) { addVideo(f); continue; }
     if (f.type.startsWith("image/")) {
       if (!health.images) { toast("warn", "Pictures are off", "This model was set up for text only."); continue; }
       if (f.size > 20e6) { toast("warn", "Picture too large", `${f.name} is over 20 MB.`); continue; }
@@ -946,11 +1006,12 @@ function renderAttachments() {
     const c = document.createElement("span");
     c.className = "chip";
     c.innerHTML = icon(a.kind === "file" ? "attach" : "image", "st-icon st-icon--sm");
-    c.append(a.name);
+    const coverage = a.manifest?.coverage;
+    c.append(a.name + (coverage ? ` · ${coverage.sample_count} frames · ${Number(coverage.first_sample_s).toFixed(1)}–${Number(coverage.last_sample_s).toFixed(1)}s` : ''));
     const x = document.createElement("button");
     x.type = "button"; x.className = "st-btn st-btn--icon"; x.setAttribute("aria-label", "Remove");
     x.innerHTML = icon("trash");
-    x.onclick = () => { attachments.splice(i, 1); renderAttachments(); };
+    x.onclick = () => { if (a.controller) a.controller.abort(); attachments.splice(i, 1); renderAttachments(); };
     c.appendChild(x);
     box.appendChild(c);
   });

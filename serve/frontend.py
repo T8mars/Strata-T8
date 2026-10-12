@@ -170,6 +170,7 @@ def _text_of(content) -> str:
 
 
 IMAGE_PARTS = ("image_url", "input_image", "image")
+VIDEO_PARTS = ("strata_video",)
 
 # Thinking levels.  The model's template knows low, medium and xhigh (its default; "high" means xhigh), and
 # enable_thinking=false for none.  Clients spell these many ways; everything maps onto those four.
@@ -200,7 +201,7 @@ def budget_effort(tokens) -> dict:
 
 
 def _has_image(content) -> bool:
-    return isinstance(content, list) and any(isinstance(p, dict) and p.get("type") in IMAGE_PARTS for p in content)
+    return isinstance(content, list) and any(isinstance(p, dict) and p.get("type") in IMAGE_PARTS + VIDEO_PARTS for p in content)
 
 
 def _image_source(part: dict) -> str:
@@ -239,6 +240,9 @@ def _parts_of(content):
             continue
         if part.get("type") in IMAGE_PARTS:
             items.append({"type": "image", "source": _image_source(part)})
+        elif part.get('type') in VIDEO_PARTS:
+            from serve.video import video_part
+            items.append(video_part(part))
         elif part.get("type") in TEXT_PARTS and "text" in part:
             items.append({"type": "text", "text": _text(part.get("text", ""))})
     return items
@@ -518,7 +522,9 @@ def openai_to_messages(req: dict) -> tuple[list[dict], list[dict] | None, dict]:
         # an image is read in a user, tool or assistant message; the system prompt takes text only, as _text_of reads
         images = role in ("user", "tool", "assistant")
         content = _check_parts(m.get("content"), f"messages[{i}].content",
-                               TEXT_PARTS + IMAGE_PARTS if images else TEXT_PARTS)
+                               TEXT_PARTS + IMAGE_PARTS + VIDEO_PARTS if images else TEXT_PARTS)
+        if not images and isinstance(content, list) and any(isinstance(p, dict) and p.get('type') in VIDEO_PARTS for p in content):
+            raise ValueError('Video content requires a user, assistant or tool message')
         out = {"role": role, "content": _parts_of(content) if images else _text_of(content)}
         if m.get("reasoning_content") is not None:
             reasoning_text = _text(m["reasoning_content"], 'reasoning_content')

@@ -75,6 +75,8 @@ main { flex: 1; min-height: 0; display: flex; }
         background: var(--st-surface-2); border: 1px solid var(--st-line); font-size: var(--st-fs-xs); color: var(--st-ink-soft); }
 .chip .st-btn--icon { width: 22px; height: 22px; border-radius: 50%; }
 .chip .st-btn--icon .st-icon { width: 14px; height: 14px; }
+#video-mode { max-width: 220px; padding: 6px 10px; border: 1px solid var(--st-line); border-radius: var(--st-r-pill);
+  background: var(--st-surface); color: var(--st-ink); font: inherit; font-size: 12px; }
 
 /* ---------------------------------------------------------------- monitor */
 .view--monitor, .view--about { overflow-y: auto; }

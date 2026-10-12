@@ -64,10 +64,12 @@ from serve import logit_bias as bias_api  # noqa: E402
 from serve.winjob import contain  # noqa: E402
 from serve.structured import StructuredOutputError, prepare_format, validated_json  # noqa: E402
 from serve import responses as responses_api  # noqa: E402
+from serve import video as video_api  # noqa: E402
 from serve.responses import ResponsesError, error_body as responses_error_body  # noqa: E402
 
 IM_END = "<|im_end|>"
 IMAGE_PAD = "<|image_pad|>"
+VIDEO_PAD = "<|video_pad|>"
 
 
 def popen(what: str, args: list, **kw):
@@ -649,6 +651,8 @@ class StrataEngine:
         self.ended, self.unloaded = True, True
         self.max_context = int(args[args.index("--max-context") + 1]) if "--max-context" in args else 4096
         self.can_stop = False            # the engine honours a STOP line mid-request (READY <ctx> stop)
+        self.native_video = False
+        self.native_video_build = False
         self.last = {}
         self.info = {}                   # INFO key=value facts (engine 0.1.8+): kv, expert slots, ... (Monitor tab)
         self.prefill_tok_s_mean = None
@@ -658,7 +662,9 @@ class StrataEngine:
         self.silent_note = None
         self.last_err = None
         try:                            # a ready-made engine's BUILD.json says its version
-            self.info["version"] = json.loads((Path(exe).parent / "BUILD.json").read_text()).get("version")
+            build = json.loads((Path(exe).parent / "BUILD.json").read_text())
+            self.info["version"] = build.get("version")
+            self.native_video_build = (build.get('capabilities') or {}).get('native_video') is True
         except (OSError, ValueError):
             self.info["version"] = None
         if lazy:
@@ -701,6 +707,7 @@ class StrataEngine:
                     f = line.split()
                     self.max_context = int(f[1])
                     self.can_stop = "stop" in f[2:]
+                    self.native_video = 'native_video=1' in f[2:] and 'geniv=1' in f[2:]
         except Exception:
             self.close()
             raise
@@ -1565,13 +1572,16 @@ class StrataEngine:
                          "tok_s": round(r["generated"] / max(1e-6, now - ft), 1) if ft else None})
         return view
 
-    def generate(self, ids, max_new, sampling, cancel, embeddings=None):
+    def generate(self, ids, max_new, sampling, cancel, embeddings=None, media_spans=None):
         """Yields token ids, and None as a heartbeat every 10 s while the engine is quiet (reading a long prompt):
         the HTTP layer turns it into an SSE comment, which keeps clients' watchdogs calm and notices a client that
         has gone.  A consumer that stops early (or `cancel`) makes the engine STOP, so it does not run to max_new."""
         if not self.alive():
             raise EngineDied("the engine is unavailable; this request was not sent")
         bias_api.validate_request(sampling or {}, self, None)
+        if media_spans is not None:
+            if not embeddings or not self.native_video or getattr(self, 'batch', 0):
+                raise ValueError('Native video requires a serial engine with GENIV capability')
         if getattr(self, "batch", 0):
             yield from self.generate_batched(ids, max_new, sampling, cancel, embeddings)
             return
@@ -1580,6 +1590,8 @@ class StrataEngine:
         # an image request takes the same sampling keys as text (#75: it used to decode greedily whatever was asked)
         head = f"GENI {int(max_new)}{self.sampling_keys(sampling or {})} {embeddings}" if embeddings else \
             f"GEN {int(max_new)}{self.sampling_keys(sampling or {})}"
+        if media_spans is not None:
+            head = f'GENIV {int(max_new)}{self.sampling_keys(sampling or {})} {embeddings} {media_spans}'
         try:
             self.proc.stdin.write(f"{head} {','.join(str(int(t)) for t in ids)}\n")
             self.proc.stdin.flush()
@@ -2011,6 +2023,10 @@ class Vision:
         args = [absolute(cfg["exe"]), "--mmproj", absolute(cfg["mmproj"]), "--model", absolute(cfg["model"])]
         if cfg.get("gpu"):
             args.append("--gpu")
+        self.video_requested = cfg.get('native_video') is True
+        self.native_video = False
+        if self.video_requested:
+            args.append('--video')
         if cfg.get("threads"):
             args += ["--threads", str(cfg["threads"])]
         if cfg.get("max_tokens"):
@@ -2031,6 +2047,7 @@ class Vision:
 
     def _start(self, cancel=None):
         check_cancel(cancel)
+        self.native_video = False
         args, log, env = self.spawn
         # cwd is the encoder's directory: the ENC lines name the files relative to it (#480: no space in the line)
         self.proc = popen("the image encoder", args, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
@@ -2044,8 +2061,14 @@ class Vision:
                 last = line
                 if line.startswith('READY'):
                     ready = True
+                    fields = line.split()
+                    flags = fields[2:]
+                    self.native_video = (len(fields) >= 2 and fields[0] == 'READY' and fields[1] == '2560'
+                                         and 'video=1' in flags and 'encv=1' in flags)
             if not ready:
                 raise RuntimeError(vision_start_error(last, self.spawn[1]))
+            if self.video_requested and not self.native_video:
+                raise ValueError('Configured native video requires an ENCV-capable vision helper')
         except Exception:
             self.close(force=True)
             raise
@@ -2236,6 +2259,63 @@ class Vision:
                     self.cache.pop(old)[0].unlink(missing_ok=True)
             return self.cache[key]
 
+    def encode_pair(self, first: bytes, second: bytes, cancel=None, keep=()) -> tuple[Path, int]:
+        """Opt-in temporal pair. Ordered bytes and protocol version identify the cache."""
+        if not self.native_video:
+            raise ValueError('Vision helper does not support native video')
+        for data in (first, second):
+            if not isinstance(data, bytes) or len(data) > 32 * 1024**2:
+                raise ValueError('Native video frame exceeds its 32 MiB limit')
+        check_cancel(cancel)
+        digest = hashlib.sha256(b'ENCV1\0')
+        for data in (first, second):
+            digest.update(struct.pack('<Q', len(data)))
+            digest.update(data)
+        key = 'v-' + digest.hexdigest()[:32]
+        with self.lock:
+            check_cancel(cancel)
+            if key in self.cache:
+                self.cache[key] = self.cache.pop(key)
+                return self.cache[key]
+            images = [self.dir / f'{key}-{i}.png' for i in range(2)]
+            out = self.dir / f'{key}.sve'
+            try:
+                images[0].write_bytes(first)
+                images[1].write_bytes(second)
+                self.proc.stdin.write(f'ENCV "{images[0].name}" "{images[1].name}" "{out.name}"\n')
+                self.proc.stdin.flush()
+                end = (None if self.encode_timeout_s is None or self.encode_timeout_s <= 0
+                       else time.monotonic() + self.encode_timeout_s)
+                while True:
+                    if (cancel is not None and cancel.is_set()) or (end is not None and time.monotonic() >= end):
+                        self.close(force=True)
+                        check_cancel(cancel)
+                        raise EngineStarting('The video encoder timed out; the next request restarts it')
+                    try:
+                        line = (self.lines.get(timeout=0.1) or '').strip()
+                        break
+                    except queue.Empty:
+                        continue
+                fields = line.split()
+                if len(fields) < 2 or fields[0] != 'OK':
+                    raise ValueError('The video pair could not be encoded: ' + line)
+                rows = int(fields[1])
+                video_api.embedding_rows(out, rows)
+                self.cache[key] = (out, rows)
+                held = {str(p) for p in keep} | {str(out)}
+                for old in list(self.cache):
+                    if len(self.cache) <= 64:
+                        break
+                    if str(self.cache[old][0]) not in held:
+                        self.cache.pop(old)[0].unlink(missing_ok=True)
+                return out, rows
+            except Exception:
+                out.unlink(missing_ok=True)
+                raise
+            finally:
+                for image in images:
+                    image.unlink(missing_ok=True)
+
     def close(self, force=False):
         with self.lock:
             proc = self.proc
@@ -2390,6 +2470,8 @@ def engine_args(cfg: dict) -> list[str]:
             note += " and --vram-reserve-mib 700"
         print(f'[strata] the config has a "vision" section but no --vision in its args: {note} (run setup again with '
               "--vision to write them)", flush=True)
+    if isinstance(cfg.get('vision'), dict) and cfg['vision'].get('native_video') is True and '--native-video' not in args:
+        args.append('--native-video')
     if layer_split_of(cfg) and "--layer-split" not in args:
         args += ["--layer-split", layer_split_value(cfg)]
     # opt-in: an auto split runs on the first card alone when it holds every profiled expert and the KV
@@ -2667,7 +2749,7 @@ def vision_env(cfg: dict, env: dict) -> dict:
 
 class ByteTokenizer:
     """Tiny stand-in tokenizer for tests without the pack: one id per UTF-8 byte, specials as ids >= 256."""
-    SPECIALS = ["<|im_start|>", "<|im_end|>", "<|endoftext|>", "<|vision_start|>", "<|image_pad|>", "<|vision_end|>"]
+    SPECIALS = ["<|im_start|>", "<|im_end|>", "<|endoftext|>", "<|vision_start|>", "<|image_pad|>", "<|vision_end|>", "<|video_pad|>"]
 
     ALWAYS = ()                                     # specials matched without parse_special (type 4, as <think>)
 
@@ -3466,6 +3548,16 @@ class Service:
             "concurrency": {"serving": max(1, int(getattr(self.engine, "batch", 0) or 0)),
                             "requested": max(1, int(getattr(self.engine, "batch", 0) or 0))},
             "dialects": ["/v1/chat/completions", "/v1/messages", "/v1/responses"],
+            'capabilities': {'video': {
+                'contract_version': 1,
+                'modes': (['frames'] if images else []) + (['native'] if
+                    getattr(self.vision, 'video_requested', False) and
+                    getattr(self.engine, 'native_video_build', False) and not getattr(self.engine, 'batch', 0) else []),
+                'native_verified': bool(getattr(self.vision, 'native_video', False) and
+                                        getattr(self.engine, 'native_video', False) and self.loaded()),
+                'limits': {'max_frames': 64, 'max_frame_pixels': 589824, 'max_input_bytes': video_api.MAX_VIDEO_BYTES,
+                           'max_duration_s': 3600, 'max_segment_frames': 16},
+            }},
             "vision": {"enabled": images, "available": images, "loaded": process_state(self.vision)['loaded'],
                        "error": None},
             "activity": {"requests": totals["requests"] + int(busy), "in_flight": int(busy) + int(s.get("queued") or 0),
@@ -3547,6 +3639,7 @@ class Service:
         if path is not None:
             path.unlink(missing_ok=True)
             self.embeddings.path = None
+        self.embeddings.spans = None
 
     def prepare(self, messages, tools, kwargs, max_new=None, cancel=None, force=None, req=None):
         try:
@@ -3555,17 +3648,126 @@ class Service:
             self.discard_embeddings()
             raise
 
+    def _prepare_native(self, ids, media, cancel):
+        if self.vision is None or not getattr(self.vision, 'video_requested', False):
+            raise ValueError('Native video is opt-in: enable vision.native_video with a compatible T8 build')
+        if getattr(self.engine, 'batch', 0):
+            raise ValueError('Native video requires parallel=1')
+        if len(media) > 256:
+            raise ValueError('Native media span count exceeds 256')
+        prepared = []
+        for item in media:
+            check_cancel(cancel)
+            if item['type'] == 'image':
+                source = item['source']
+                source = Vision.download(source) if isinstance(source, str) and source.startswith(('http://', 'https://')) else source
+                prepared.append(('image', source))
+            else:
+                prepared.append(('video', item['pairs']))
+        with cancel_lock(self.fifo, cancel):
+            self.ensure_loaded(cancel)
+            if not getattr(self.engine, 'native_video', False) or not getattr(self.vision, 'native_video', False):
+                raise ValueError('Loaded engine/helper do not advertise GENIV/ENCV support')
+            encoded, groups = [], []
+            for kind, data in prepared:
+                check_cancel(cancel)
+                group = []
+                sources = data if kind == 'video' else [{'source': data}]
+                for source in sources:
+                    check_cancel(cancel)
+                    keep = [p for p, _ in encoded]
+                    result = (self.vision.encode_pair(*source['pair'], cancel=cancel, keep=keep) if kind == 'video'
+                              else self.vision.encode(source['source'], cancel=cancel, keep=keep))
+                    video_api.embedding_rows(Path(result[0]), result[1])
+                    encoded.append(result)
+                    group.append((result[1], source.get('timestamp_s')))
+                groups.append(group)
+            check_cancel(cancel)
+            size = sum(Path(p).stat().st_size for p, _ in encoded)
+            if size > 256 * 1024**2:
+                raise ValueError('Native media embeddings exceed the 256 MiB request limit')
+            combined = combined_embeddings_path(self.vision.dir, size)
+            self.embeddings.path = combined
+            write_temporary(combined, [p for p, _ in encoded])
+        pad_ids = {kind: self.tok.encode(tag, parse_special=True)[0]
+                   for kind, tag in (('image', IMAGE_PAD), ('video', VIDEO_PAD))}
+        start = self.tok.encode(VISION_START, parse_special=True)[0]
+        out, spans, index = [], [], 0
+        for pos, token in enumerate(ids):
+            if token in pad_ids.values() and pos > 0 and ids[pos-1] == start:
+                if index >= len(groups) or token != pad_ids[prepared[index][0]]:
+                    raise ValueError('Prompt and ordered media spans do not match')
+                for rows, timestamp in groups[index]:
+                    if timestamp is not None:
+                        out.extend(self.tok.encode(f'<{timestamp:.1f} seconds>{VISION_START}', parse_special=True))
+                    spans.append(f'{len(out)}:{token}:{rows}')
+                    out.extend([token] * rows)
+                    if timestamp is not None:
+                        out.extend(self.tok.encode('<|vision_end|>', parse_special=True))
+                index += 1
+            elif token in pad_ids.values():
+                tag = IMAGE_PAD if token == pad_ids['image'] else VIDEO_PAD
+                out.extend(self.tok.encode(tag, parse_special=False))
+            else:
+                out.append(token)
+        if index != len(groups):
+            raise ValueError('Prompt and ordered media spans do not match')
+        self.embeddings.spans = ','.join(spans)
+        return out
+
+    def _video_context_precheck(self, ids, max_new=None):
+        ctx = self.engine.max_context or getattr(self.engine, 'known_ctx', 0)
+        if ctx > 0 and len(ids) + CTX_SLACK >= ctx:
+            raise ValueError('Video prompt already exceeds the context window before encoding')
+        if ctx > 0 and max_new is not None and max_new > 0 and not self.fit_max_tokens and len(ids) + CTX_SLACK + max_new > ctx:
+            raise ValueError('Video prompt plus max_tokens exceeds the context window before encoding')
+
+    def video_precheck(self, messages, tools, kwargs, max_new=None, force=None):
+        if not video_api.has_video(messages):
+            return
+        placeholder = []
+        for message in messages:
+            content = message.get('content')
+            if not isinstance(content, list):
+                placeholder.append(message)
+                continue
+            items = []
+            for item in content:
+                if item.get('type') == 'strata_video':
+                    part = video_api.video_part(item)
+                    if part['mode'] == 'native':
+                        items.append({'type': 'video'})
+                    else:
+                        items.extend({'type': 'image', 'source': frame['source']} for frame in part['frames'])
+                else:
+                    items.append(item)
+            placeholder.append({**message, 'content': items})
+        ids = self.encode_prompt(placeholder, tools, kwargs)
+        if force and kwargs.get('enable_thinking', True) is False:
+            ids += self.tok.encode(force, parse_special=True)
+        self._video_context_precheck(ids, max_new)
+
     def _prepare(self, messages, tools, kwargs, max_new=None, cancel=None, force=None, req=None):
         """-> (ids, thinking, max_new). An unset or non-positive max_new (some clients send -1) means "unlimited":
         the rest of the context."""
         check_cancel(cancel)
+        self.embeddings.spans = None
+        has_video = video_api.has_video(messages)
+        if has_video:
+            messages = video_api.expand_videos(messages, Vision.load, lambda: check_cancel(cancel))
+        native_media = [item for m in messages if isinstance(m.get('content'), list)
+                        for item in m['content'] if item.get('type') in ('image', 'video')]
+        native = any(item.get('type') == 'video' for item in native_media)
         fetched = self._note_unreadable_tool_images(messages, cancel=cancel)
         ids = self.encode_prompt(messages, tools, kwargs)
         if force and kwargs.get("enable_thinking", True) is False:
             ids = ids + self.tok.encode(force, parse_special=True)
         self.embeddings.path = None
         images = images_of(messages)
-        if images:
+        if native:
+            self._video_context_precheck(ids, max_new)
+            ids = self._prepare_native(ids, native_media, cancel)
+        elif images:
             if self.vision is None:
                 raise ValueError("this server was started without the vision encoder (run setup again and choose "
                                  "'vision'), so it cannot read images")
@@ -3641,7 +3843,7 @@ class Service:
                                  "model's strata-<model>.json to shorten it to the room left (#545)")
             max_new = max(1, room)          # --fit-max-tokens: a shorter completion beats a 400
         if req is not None and req.get("strata_prefix") is not None:
-            req["strata_prefix"] = self.resolve_prefix(req["strata_prefix"], messages, tools, kwargs, ids, bool(images))
+            req["strata_prefix"] = self.resolve_prefix(req["strata_prefix"], messages, tools, kwargs, ids, bool(images) or native)
         return ids, kwargs.get("enable_thinking", True) is not False, max_new
 
     PREFIX_END = "\u0001strata-prefix-end\u0001"          # marks where a message's shared part ends in the rendered prompt
@@ -3723,6 +3925,7 @@ class Service:
         ends): a request can end before its answer starts - its client gone, anything raised after prepare() - and
         then nothing else would.  The handler calls this when a request is done."""
         path, self.embeddings.path = getattr(self.embeddings, "path", None), None
+        self.embeddings.spans = None
         if path is not None:
             Path(path).unlink(missing_ok=True)
 
@@ -3828,6 +4031,7 @@ class Service:
         looped, next_loop_check = False, LOOP_CHECK_EVERY       # #728: reasoning that repeats whole passages
         raw_ids = []                                    # every generated id (STRATA_DEBUG: dump raw model text)
         emb, self.embeddings.path = getattr(self.embeddings, "path", None), None   # this run's to delete now
+        media_spans, self.embeddings.spans = getattr(self.embeddings, 'spans', None), None
         # Only a DONE line replaces engine.last, so a request that died, errored or was disconnected must not have
         # the PREVIOUS request's decode figures recorded as its own: each pass keeps its own DONE (a segment) if
         # one arrived.  A reasoning-budget continuation is another native generation, not another API request,
@@ -3894,8 +4098,12 @@ class Service:
                         yield "event", ev
                     while True:
                         segment_before = getattr(self.engine, "last", None)
-                        gen = self.engine.generate(prompt, max_new - n, sampling, cancel, embeddings=emb) if emb \
-                            else self.engine.generate(prompt, max_new - n, sampling, cancel)
+                        if media_spans is not None:
+                            gen = self.engine.generate(prompt, max_new - n, sampling, cancel,
+                                                       embeddings=emb, media_spans=media_spans)
+                        else:
+                            gen = self.engine.generate(prompt, max_new - n, sampling, cancel, embeddings=emb) if emb \
+                                else self.engine.generate(prompt, max_new - n, sampling, cancel)
                         recover_prompt = None
                         seg, wrap, leaving = [], False, False   # this pass's tokens; the budget is reached; closed
                         opens = False                   # the thinking is over: write the forced call's opening
@@ -5100,9 +5308,22 @@ def make_handler(svc: Service):
                 req = self._request_json()
                 if not isinstance(req, dict):
                     raise ValueError("send a JSON object")
-                if path in ('/v1/load', '/v1/chat/completions', '/v1/messages', '/v1/responses'):
+                if path in ('/v1/load', '/v1/chat/completions', '/v1/messages', '/v1/responses', '/v1/video/sample'):
                     self.cancel = threading.Event()
                     self._watch_client(self.cancel)
+                if path == '/v1/video/sample':
+                    if svc.vision is None:
+                        raise ValueError('Video sampling requires a vision-enabled model')
+                    if req.get('mode') == 'native' and 'native' not in svc.v1_status()['capabilities']['video']['modes']:
+                        raise ValueError('Native video is not enabled in this server')
+                    try:
+                        result = video_api.sample_upload(req, cancel=self.cancel)
+                    except video_api.VideoCancelled:
+                        raise RequestCancelled()
+                    except TimeoutError as error:
+                        raise ValueError(str(error)) from error
+                    self._json(200, result)
+                    return
                 if path.startswith("/v1/responses/"):        # retrieve/delete/cancel/compact: nothing is stored
                     self._json(404, responses_error_body("this server keeps no responses (stateless); send the "
                                                          "whole conversation to POST /v1/responses", code="not_found"))
@@ -5474,6 +5695,7 @@ def make_handler(svc: Service):
             svc.reasoning_budget(req)                         # a bad value is a 400 before anything is sent
             stop_strings(req)
             check_request_sampling(req)
+            svc.video_precheck(messages, tools, kw, max_new, force)
             svc.load(self.cancel)
             bias_api.validate_request(req, svc.engine, len(getattr(svc.tok, "tokens", ())) or None)
             ids, thinking, max_new = svc.prepare(messages, tools, kw, max_new, cancel=self.cancel, force=force, req=req)

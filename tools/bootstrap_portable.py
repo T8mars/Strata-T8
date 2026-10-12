@@ -143,7 +143,8 @@ def bootstrap_engines(meta, version, cache, destination):
                                        'sha256': sha, 'upstream_commit': identity['upstream_commit']}
             path.write_text(json.dumps(build, indent=2)+'\n', encoding='utf-8')
             patch_engine(staged)
-            builds[directory] = validate_engine_build(json.loads(path.read_text(encoding='utf-8')), directory, meta, version)
+            builds[directory] = validate_engine_build(json.loads(path.read_text(encoding='utf-8')), directory, meta, version,
+                                                      allow_vendor=True)
             backup = temporary/'previous'
             if target.exists():
                 target.rename(backup)
@@ -253,8 +254,13 @@ def main():
     subprocess.run([str(python), str(getpip), '--no-warn-script-location'], check=True)
     subprocess.run([str(python), '-m', 'pip', 'install', '--no-warn-script-location', '-r', str(ROOT/'requirements.txt'), '-r', str(ROOT/'requirements-portable.txt'), *setup.CUDA_WHEELS], check=True)
     subprocess.run([str(python), '-m', 'pip', 'check'], check=True)
+    features = json.loads((ROOT/'features.json').read_text(encoding='utf-8'))
+    if features.get('video_frame_analysis') or features.get('native_video_cuda'):
+        subprocess.run([str(python), '-X', 'utf8', str(ROOT/'tools/prepare_video_runtime.py')], check=True)
     bootstrap_engines(meta, version, cache, ROOT)
     bootstrap_gguf(cache)
+    if features.get('native_video_cuda'):
+        subprocess.run([str(python), '-X', 'utf8', str(ROOT/'tools/build_native_portable.py')], check=True)
     print(f'Runtime ready for Strata {version}', flush=True)
 
 

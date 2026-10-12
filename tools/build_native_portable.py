@@ -126,7 +126,7 @@ def source_identity(root, third_party):
     return {**value, 'sha256': canonical_digest(value)}
 
 
-def validate_native_build(native, root, engine_directory=None, check_source=True):
+def validate_native_build(native, root, engine_directory=None, check_source=True, require_source=False):
     if not isinstance(native, dict) or native.get('schema') != 1 or native.get('capabilities') != {
         'native_video': True, 'geniv': 1, 'encv': 1, 'sve': 1}:
         raise ValueError('Missing native-video build capability/contract')
@@ -141,6 +141,8 @@ def validate_native_build(native, root, engine_directory=None, check_source=True
     third = identity.get('third_party', {})
     if third.get('commit') != llama_pin(root) or not re.fullmatch('[a-f0-9]{64}', third.get('source_tree_sha256', '')):
         raise ValueError('Native third-party pin differs from the source')
+    if require_source and not (Path(root)/'src/program/generate.cpp').is_file():
+        raise ValueError('Publisher requires the complete native source checkout')
     if check_source and (Path(root)/'src/program/generate.cpp').is_file():
         if native_inputs(root) != identity.get('inputs'):
             raise ValueError('Native source changed: rebuild T8 binaries before packaging')
@@ -253,6 +255,13 @@ def install_build(root, destination, artifacts, native, build_root):
             key = 'engine_utf8' if name == 'strata.exe' else 'vision_utf8'
             build.setdefault('portable_patches', {})[key] = patch
         build['capabilities'] = {**build.get('capabilities', {}), 'native_video': True, 'geniv': 1, 'encv': 1}
+        cuda_series = re.search(r'release ([0-9]+\.[0-9]+)', native.get('compiler', {}).get('cuda', ''))
+        if not cuda_series:
+            raise ValueError('Native build compiler has no CUDA toolkit series')
+        # These fields describe the installed executables. The original vendor
+        # release remains fully identified in the untouched upstream_asset.
+        build.update(source='t8_native_build', archs=list(map(int, ARCHITECTURES)),
+                     cuda=cuda_series[1], portable=True, vision='gpu')
         build['t8_native_build'] = native
         (incoming/'BUILD.json').write_text(json.dumps(build, ensure_ascii=False, indent=2)+'\n', encoding='utf-8')
         validate_native_build(native, root, incoming)

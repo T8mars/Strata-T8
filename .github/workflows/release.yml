@@ -17,14 +17,27 @@ concurrency:
   group: portable-release
   cancel-in-progress: false
 jobs:
+  source:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    outputs:
+      commit: ${{ steps.freeze.outputs.commit }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || 'main' }}
+      - id: freeze
+        run: echo "commit=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
   hip-compile:
+    needs: source
     uses: ./.github/workflows/native-hip.yml
     with:
-      ref: ${{ inputs.ref || 'main' }}
+      ref: ${{ needs.source.outputs.commit }}
     permissions:
       contents: read
   release:
-    needs: hip-compile
+    needs: [source, hip-compile]
     runs-on: windows-latest
     timeout-minutes: 180
     env:
@@ -32,7 +45,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.ref || 'main' }}
+          ref: ${{ needs.source.outputs.commit }}
           fetch-depth: 0
       - name: Check independent node compatibility
         uses: actions/checkout@v4

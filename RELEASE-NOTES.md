@@ -1,3 +1,11 @@
+## Strata-T8 0.1.42-t8.2
+
+新增本地视频上传、真实 PTS 采样及带时间戳的视觉分析，配套 ComfyUI 节点 **1.1.0** 的视频采样、分段分析、汇总和证据输出。NVIDIA 另提供主动开启的双帧原生编码，保留官方视频 token、时间前缀和位置布局；默认文字、图片和协议 1 继续兼容。声音可附字幕或转写文本。
+
+整合包内置固定 PyAV/FFmpeg 依赖及许可记录，CUDA 引擎和视觉 helper 由 T8 固定源码构建并记录七架构、来源和 SHA256。HIP 仍使用上游发行引擎。两版都含 Python；VisionReady 含视觉权重和配置，主模型/MTP 独立安装。退出服务后运行 UPDATE-PORTABLE.bat 升级，原生模式使用 `START-HERE.bat --native-video` 开启。
+
+官方完整处理器黄金对照、CPU/CUDA 视觉数值、官方 IQ3_S 与 SC117 短视频真值、真实 Comfy 队列和资源释放均已有验收；具体范围见[视频说明](https://github.com/T8mars/Strata-T8/blob/v0.1.42-t8.2/docs/VIDEO-ANALYSIS.zh-CN.md)。抽帧覆盖不能代表连续观察，长视频质量与 AMD 原生视频不在本次实机结论内。
+
 ## Strata-T8 0.1.42-t8.1
 
 同步 [上游 v0.1.42](https://github.com/Niko1221/Strata/releases/tag/v0.1.42)，含 0.1.41 至 0.1.42 的累计变化，CUDA/HIP 引擎升级到 **0.1.42**。包括请求排队保活、取消后缓存恢复、工具调用与思考处理、上下文边界、Windows AMD RAM/commit 保护，以及多卡、Intel 和旧卡修复。上游适用 NVIDIA 配置的两个新默认加速选项可能改变回答，README 提供恢复旧行为的设置；不把上游速度作为本机测量。

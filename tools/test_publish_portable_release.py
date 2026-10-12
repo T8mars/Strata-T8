@@ -415,6 +415,12 @@ class ArchiveAudit(GitFixture):
         with self.assertRaisesRegex(ValueError, 'tested release history'):
             self.audit(edit_build=edit_build,extra={'engine/strata-vision.exe':b'fixture video executable'})
 
+    def test_publisher_cannot_mistake_a_missing_source_file_for_a_portable_recipient(self):
+        native, edit_build = self.native_fixture()
+        (self.root/'src/program/generate.cpp').unlink()
+        with self.assertRaisesRegex(ValueError, 'complete native source checkout'):
+            self.audit(edit_build=edit_build,extra={'engine/strata-vision.exe':b'fixture video executable'})
+
     def test_real_zip_member_hashes_and_source_provenance_pass(self):
         self.assertEqual(self.audit()['source_commit'], self.head)
 

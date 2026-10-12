@@ -31,7 +31,7 @@ def build_identity(meta, source):
 
 
 def validate_engine_build(build, directory, meta, source, *, allow_vendor=True, root=None,
-                          engine_directory=None, verify_artifacts=True):
+                          engine_directory=None, verify_artifacts=True, require_native_source=False):
     identity = build_identity(meta, source)
     if not isinstance(build, dict) or build.get('version') != identity['engine_version']:
         raise ValueError(f'{directory} does not match the source engine version')
@@ -56,7 +56,8 @@ def validate_engine_build(build, directory, meta, source, *, allow_vendor=True, 
             raise ValueError('T8 native video build is available for CUDA only')
         from build_native_portable import validate_native_build
         physical = Path(engine_directory) if engine_directory is not None else root/directory
-        validate_native_build(native, root, physical if verify_artifacts else None)
+        validate_native_build(native, root, physical if verify_artifacts else None,
+                              require_source=require_native_source)
     if not allow_vendor:
         import json
         features = json.loads((root/'features.json').read_text(encoding='utf-8'))

@@ -61,3 +61,9 @@ OpenAI API：`http://127.0.0.1:8080/v1`；默认仅监听本机。
 VisionReady 内置固定 BF16 mmproj、模板、来源和许可证；主模型/MTP 不包含。可用 START-HERE.bat --vision gpu、--vision cpu、--vision no 切换，--vision-tokens 指定图片 token 预算。更新保留用户编码方式和 token 设置。
 
 ComfyUI 节点在 [Comfyui-Strata-T8](https://github.com/T8mars/Comfyui-Strata-T8) 独立维护，可通过 Manager 安装与更新；[安装、模型路径与工作流](https://github.com/T8mars/Comfyui-Strata-T8#readme)。
+
+## 视频分析
+
+网页支持上传本地视频，保留真实时间戳并抽取最多 8 帧，可询问内容、动作、颜色变化或运镜。节点 1.1.0 提供官方 VIDEO / IMAGE 输入、分段分析与全片汇总，输出报告、JSON、证据帧和采样覆盖范围。视频解码依赖已内置；声音需另附 SRT/VTT 或转写文本。
+
+NVIDIA 原生双帧编码需主动启用：`START-HERE.bat --native-video`；关闭用 `--no-native-video`。它复用现有 Qwen 主模型和 VisionReady 视觉权重，无需额外模型。网页的视频模式可切换抽帧或原生编码；AMD 目前只保留既有文本引擎能力。详细限制、API 与验收见 [视频分析说明](docs/VIDEO-ANALYSIS.zh-CN.md)。

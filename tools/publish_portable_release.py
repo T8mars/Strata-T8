@@ -138,7 +138,7 @@ def audit_archive(archive, checksum, meta, head, edition, *, root=ROOT):
             # Source verification belongs to the publisher's checkout; binary
             # verification below uses the ZIP members already hashed above.
             validate_engine_build(build, directory, meta, meta['upstream_version'],
-                                  root=root, verify_artifacts=False)
+                                  root=root, verify_artifacts=False, require_native_source=True)
             if engines[directory] != build:
                 raise ValueError('Engine manifest differs from its packaged BUILD.json')
             native = build.get('t8_native_build')
