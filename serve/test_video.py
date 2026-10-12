@@ -63,10 +63,23 @@ class VideoContract(unittest.TestCase):
         self.assertEqual(messages[0]['content'][0]['mode'], 'native')
 
     def test_reject_bad_contract_before_gpu(self):
-        for change in ({'contract_version': True}, {'contract_version': 2}, {'mode': 'auto'},
+        for change in ({'contract_version': True}, {'contract_version': 1.0}, {'contract_version': 2}, {'mode': 'auto'},
                        {'frames': []}, {'frames': [None]}):
             with self.subTest(change=change), self.assertRaises(ValueError):
                 video.video_part({**part(), **change})
+
+    def test_clip_window_and_declared_sampling_rate_are_bounded(self):
+        for metadata in ({'duration_s': 3601}, {'sampling_fps': True},
+                         {'sampling_fps': 0}, {'sampling_fps': 121}):
+            data = part()
+            data['metadata'].update(metadata)
+            with self.subTest(metadata=metadata), self.assertRaises(ValueError):
+                video.video_part(data)
+        data = part(count=2)
+        data['metadata'].pop('duration_s')
+        data['frames'][1].update(timestamp_s=3600, source_timestamp_s=3612)
+        with self.assertRaises(ValueError):
+            video.video_part(data)
 
     def test_reject_times_indices_and_remote_sources(self):
         for key, value in [('timestamp_s', float('nan')), ('timestamp_s', 0),

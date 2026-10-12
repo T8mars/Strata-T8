@@ -380,9 +380,11 @@ class ArchiveAudit(GitFixture):
                  'source_tree_sha256':native_build.canonical_digest(native_build.llama_inputs(self.root)), 'source_file_count':2}
         native = {'schema':1, 'source_commit':self.head, 'source_identity':native_build.source_identity(self.root,third),
                   'cuda_architectures':list(native_build.ARCHITECTURES), 'portable':True,
+                  'cuda_targets':list(native_build.CUDA_TARGETS), 'fatbinary_compression':'size',
                   'capabilities':{'native_video':True,'geniv':1,'encv':1,'sve':1}, 'outputs':{}}
         for name, content in [('strata.exe',b'fixture native executable engine'), ('strata-vision.exe',b'fixture video executable')]:
             native['outputs'][name] = {'sha256':hashlib.sha256(content).hexdigest(), 'size':len(content),
+                'ptx_architectures':['120a'] if name=='strata-vision.exe' else ['120'],
                 'cuda_architectures':list(native_build.ARCHITECTURES), 'utf8_manifest':'activeCodePage=UTF-8'}
         def edit_build(build):
             if build['upstream_asset']['name'] == 'strata-windows-x64.zip':

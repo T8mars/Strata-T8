@@ -28,6 +28,7 @@ class NativeBuildTests(unittest.TestCase):
         third = {'repository': 'ggml-org/llama.cpp', 'commit': 'a'*40, 'archive_sha256': 'b'*64,
                  'source_tree_sha256': b.canonical_digest(b.llama_inputs(self.root)), 'source_file_count': 2}
         self.native = {'schema': 1, 'source_commit': 'c'*40, 'portable': True,
+            'cuda_targets':list(b.CUDA_TARGETS), 'fatbinary_compression':'size',
             'cuda_architectures': list(b.ARCHITECTURES), 'source_identity': b.source_identity(self.root, third),
             'compiler': {'cuda':'Cuda compilation tools, release 13.0, V13.0.88'},
             'capabilities': {'native_video': True, 'geniv': 1, 'encv': 1, 'sve': 1}, 'outputs': {}}
@@ -42,6 +43,7 @@ class NativeBuildTests(unittest.TestCase):
             self.artifacts[name] = artifact
             (self.engine/name).write_bytes(b'old '+name.encode())
             self.native['outputs'][name] = {'sha256': b.digest(artifact), 'size': artifact.stat().st_size,
+                'ptx_architectures':['120a'] if name=='strata-vision.exe' else ['120'],
                 'cuda_architectures': list(b.ARCHITECTURES), 'utf8_manifest': 'activeCodePage=UTF-8'}
 
     def test_current_source_and_hashes(self):
@@ -99,6 +101,17 @@ class NativeBuildTests(unittest.TestCase):
         self.native['outputs']['strata.exe']['cuda_architectures'] = ['89']
         with self.assertRaisesRegex(ValueError, 'architecture proof'):
             b.validate_native_build(self.native, self.root)
+
+    def test_repeated_ptx_build_is_not_the_bounded_release_recipe(self):
+        self.native['outputs']['strata-vision.exe']['ptx_architectures'] = ['75','120a']
+        with self.assertRaisesRegex(ValueError, 'latest-only PTX proof'):
+            b.validate_native_build(self.native,self.root)
+
+    def test_windows_executable_spelling_is_normalized_for_cmake_cache_reuse(self):
+        source = self.artifacts['strata.exe']
+        spelling = str(source.with_suffix('.EXE')) if sys.platform=='win32' else str(source)
+        with patch.object(b.shutil,'which',return_value=spelling):
+            self.assertEqual(b.executable('strata',{}),source.resolve().as_posix())
 
     def test_package_without_cpp_sources_verifies_its_own_binaries(self):
         portable = self.root/'portable'; (portable/'engine').mkdir(parents=True)

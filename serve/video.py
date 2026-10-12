@@ -54,7 +54,7 @@ def sample_upload(request, cancel=None):
 
 
 def video_part(part):
-    if part.get('contract_version') != CONTRACT_VERSION or isinstance(part.get('contract_version'), bool):
+    if type(part.get('contract_version')) is not int or part['contract_version'] != CONTRACT_VERSION:
         raise ValueError('strata_video requires contract_version=1')
     mode = part.get('mode', 'frames')
     if mode not in ('frames', 'native'):
@@ -68,6 +68,10 @@ def video_part(part):
     duration = metadata.get('duration_s')
     if duration is not None:
         duration = finite(duration, 'video duration_s', positive=True)
+        if duration > 3600:
+            raise ValueError('Video clip exceeds the 3600-second window limit')
+    if 'sampling_fps' in metadata and finite(metadata['sampling_fps'], 'video sampling_fps', positive=True) > 120:
+        raise ValueError('Video sampling_fps must not exceed 120')
     origin = finite(metadata.get('time_origin_s', 0), 'video time_origin_s', minimum=-1e12)
     last, source_last, seen, total, out = -math.inf, -math.inf, set(), 0, []
     for index, frame in enumerate(frames):
@@ -86,7 +90,8 @@ def video_part(part):
         number = frame.get('index', index)
         if isinstance(number, bool) or not isinstance(number, int) or number < 0 or number in seen:
             raise ValueError('Video frame indices must be unique nonnegative integers')
-        if timestamp <= last or pts <= source_last or (duration is not None and timestamp >= duration + 1e-6):
+        if (timestamp >= 3600 or timestamp <= last or pts <= source_last
+                or (duration is not None and timestamp >= duration + 1e-6)):
             raise ValueError('Video timestamps must increase within the clip')
         seen.add(number)
         last, source_last = timestamp, pts

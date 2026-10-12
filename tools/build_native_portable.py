@@ -19,6 +19,7 @@ import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
 ARCHITECTURES = ('75', '80', '86', '89', '90', '100', '120')
+CUDA_TARGETS = tuple(a+'-real' for a in ARCHITECTURES[:-1]) + (ARCHITECTURES[-1],)
 LLAMA_DIRS = ('cmake', 'ggml', 'include', 'src', 'tools/mtmd', 'vendor', 'common')
 SOURCE_SUFFIXES = {'.cpp', '.c', '.cc', '.h', '.hpp', '.cuh', '.cu', '.cmake', '.txt', '.in', '.inc', '.inl', '.s', '.m', '.mm', '.py', '.rc'}
 
@@ -132,6 +133,8 @@ def validate_native_build(native, root, engine_directory=None, check_source=True
         raise ValueError('Missing native-video build capability/contract')
     if native.get('cuda_architectures') != list(ARCHITECTURES) or native.get('portable') is not True:
         raise ValueError('Native release must contain the full portable CUDA architecture set')
+    if native.get('cuda_targets') != list(CUDA_TARGETS) or native.get('fatbinary_compression') != 'size':
+        raise ValueError('Native release requires seven SASS architectures and latest-only PTX with size compression')
     if not re.fullmatch('[a-f0-9]{40}', native.get('source_commit', '')):
         raise ValueError('Native build has no frozen source commit')
     identity = native.get('source_identity', {})
@@ -158,6 +161,9 @@ def validate_native_build(native, root, engine_directory=None, check_source=True
             raise ValueError('Native executable lacks a positive byte size')
         if item.get('cuda_architectures') != list(ARCHITECTURES):
             raise ValueError('Native executable architecture proof differs')
+        ptx = item.get('ptx_architectures')
+        if not isinstance(ptx,list) or not ptx or ptx != sorted(set(ptx)) or any(x not in ('120','120a') for x in ptx):
+            raise ValueError('Native executable latest-only PTX proof differs')
         if engine_directory is not None:
             artifact = Path(engine_directory)/name
             if artifact.stat().st_size != item['size'] or digest(artifact) != item['sha256']:
@@ -201,10 +207,13 @@ def developer_environment(vsdevcmd=None, temp_directory=None):
 def executable(name, env, extra=()):
     path = shutil.which(name, path=env.get('PATH'))
     if path:
-        return path
+        # Windows which() appends PATHEXT as .EXE. Resolve actual filesystem
+        # spelling and use CMake's forward slashes so a cache sees the same
+        # compiler rather than deleting itself for nvcc.EXE vs nvcc.exe.
+        return Path(path).resolve().as_posix()
     for candidate in extra:
         if Path(candidate).is_file():
-            return str(candidate)
+            return Path(candidate).resolve().as_posix()
     raise ValueError('Build tool not found: '+name)
 
 
@@ -221,6 +230,16 @@ def cuda_architecture_proof(exe, cuobjdump, env):
     if not set(ARCHITECTURES).issubset(found):
         raise ValueError(f'Actual CUDA fatbinary architecture coverage failed: {exe}: {sorted(found)}')
     return list(ARCHITECTURES)
+
+
+def cuda_ptx_proof(exe, cuobjdump, env):
+    result = subprocess.check_output([cuobjdump, '--list-ptx', str(exe)], env=env, text=True, errors='replace')
+    found = sorted(set(re.findall(r'sm_([0-9]+a?)\.', result)))
+    # Fixed ggml specializes Blackwell's target to 120a; record that exact fact
+    # rather than claiming its PTX is generic/forward compatible with all GPUs.
+    if not found or any(x not in ('120','120a') for x in found):
+        raise ValueError(f'Actual CUDA latest-only PTX coverage failed: {exe}: {found}')
+    return found
 
 
 def install_build(root, destination, artifacts, native, build_root):
@@ -318,7 +337,8 @@ def main(argv=None):
         raise ValueError('CUDA 13.x required for this portable native release')
     common = ['-G', 'Ninja', '-DCMAKE_BUILD_TYPE=Release', '-DSTRATA_PORTABLE=ON',
         '-DCMAKE_MAKE_PROGRAM='+ninja, '-DCMAKE_CUDA_COMPILER='+nvcc,
-        '-DCMAKE_CUDA_ARCHITECTURES='+';'.join(ARCHITECTURES)]
+        '-DCMAKE_CUDA_ARCHITECTURES='+';'.join(CUDA_TARGETS),
+        '-DCMAKE_CUDA_FLAGS=-D_WINDOWS -Xcompiler=" /EHsc" --compress-mode=size']
     directories = {'engine': build_root/'engine-portable', 'vision': build_root/'vision-portable'}
     engine_flags = ['-DSTRATA_ENABLE_CUDA=ON', '-DSTRATA_BUILD_TESTS=OFF', '-DSTRATA_GGML_DIR='+str(root/'third_party/llama.cpp')]
     vision_flags = ['-DSTRATA_VISION_CUDA=ON', '-DSTRATA_VISION_CONTRACT_TESTS=ON', '-DLLAMA_DIR='+str(root/'third_party/llama.cpp')]
@@ -332,11 +352,13 @@ def main(argv=None):
     cuobjdump = executable('cuobjdump', env, [Path(nvcc).parent/'cuobjdump.exe'])
     artifacts = {'strata.exe': directories['engine']/'strata.exe', 'strata-vision.exe': directories['vision']/'bin/strata-vision.exe'}
     outputs = {name: {'sha256': digest(path), 'size': path.stat().st_size,
-        'cuda_architectures': cuda_architecture_proof(path, cuobjdump, env)} for name, path in artifacts.items()}
+        'cuda_architectures': cuda_architecture_proof(path, cuobjdump, env),
+        'ptx_architectures':cuda_ptx_proof(path,cuobjdump,env)} for name, path in artifacts.items()}
     compiler = subprocess.run(['cl', '/Bv'], env=env, text=True, capture_output=True, errors='replace')
     source_commit = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=root, env=env, text=True).strip()
     native = {'schema': 1, 'source_commit': source_commit, 'source_identity': identity,
         'third_party_pin': third_party['commit'], 'cuda_architectures': list(ARCHITECTURES), 'portable': True,
+        'cuda_targets':list(CUDA_TARGETS), 'fatbinary_compression':'size',
         'compiler': {'msvc': (compiler.stdout+compiler.stderr)[:12000], 'cuda': cuda_version,
                      'cmake': subprocess.check_output([cmake, '--version'], env=env, text=True).splitlines()[0]},
         'flags': {'common': common, 'engine': engine_flags, 'vision': vision_flags},
