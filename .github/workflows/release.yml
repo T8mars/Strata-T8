@@ -38,7 +38,7 @@ jobs:
       contents: read
   release:
     needs: [source, hip-compile]
-    runs-on: windows-latest
+    runs-on: windows-2022
     timeout-minutes: 180
     env:
       GH_TOKEN: ${{ github.token }}
@@ -60,12 +60,13 @@ jobs:
         uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1.13.0
         with:
           arch: x64
+          vsversion: '2022'
       - name: Install pinned CUDA toolkit for native video builds
         uses: Jimver/cuda-toolkit@b8bf9c6c28f8a92fbb04dcfcaee872e60c57462d # v0.2.36
         with:
           cuda: '13.0.2'
           method: network
-          sub-packages: '["nvcc", "cudart", "cublas", "cublas_dev", "cuobjdump", "nvrtc", "nvrtc_dev"]'
+          sub-packages: '["nvcc", "crt", "nvvm", "nvptxcompiler", "thrust", "cudart", "cublas", "cublas_dev", "cuobjdump", "nvrtc", "nvrtc_dev"]'
       - name: Build independent runtime with matching engines
         run: python tools/bootstrap_portable.py
       - name: Verify self-built native engine identity and contracts
