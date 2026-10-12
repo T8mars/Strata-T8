@@ -3725,7 +3725,7 @@ class Service:
     def video_precheck(self, messages, tools, kwargs, max_new=None, force=None):
         if not video_api.has_video(messages):
             return
-        placeholder = []
+        placeholder, total_frames = [], 0
         for message in messages:
             content = message.get('content')
             if not isinstance(content, list):
@@ -3735,7 +3735,16 @@ class Service:
             for item in content:
                 if item.get('type') == 'strata_video':
                     part = video_api.video_part(item)
+                    total_frames += len(part['frames'])
+                    if total_frames > video_api.MAX_REQUEST_FRAMES:
+                        raise ValueError('Request exceeds 64 total video frames')
+                    if self.vision is None:
+                        raise ValueError('Video analysis requires an enabled vision encoder')
                     if part['mode'] == 'native':
+                        if not getattr(self.vision, 'video_requested', False):
+                            raise ValueError('Native video is not enabled in this server')
+                        if getattr(self.engine, 'batch', 0) > 1:
+                            raise ValueError('Native video requires serial inference')
                         items.append({'type': 'video'})
                     else:
                         items.extend({'type': 'image', 'source': frame['source']} for frame in part['frames'])

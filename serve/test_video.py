@@ -245,8 +245,8 @@ class VideoUploadHTTP(unittest.TestCase):
         self.assertFalse(self.vision.alive())
         self.assertEqual(self.vision.calls, [])
 
-    def post(self, body, *, raw=None, headers=None):
-        request = urllib.request.Request(self.base + '/v1/video/sample',
+    def post(self, body, *, raw=None, headers=None, path='/v1/video/sample'):
+        request = urllib.request.Request(self.base + path,
             data=raw if raw is not None else json.dumps(body).encode(),
             headers={'Content-Type': 'application/json', **(headers or {})})
         try:
@@ -255,6 +255,16 @@ class VideoUploadHTTP(unittest.TestCase):
         except urllib.error.HTTPError as error:
             with error:
                 return error.code, json.loads(error.read())
+
+    def test_chat_rejects_invalid_video_before_loading_or_encoding(self):
+        for parts, enabled in (([part(count=40), part(count=40)], True), ([part()], False)):
+            with self.subTest(frame_counts=[len(p['frames']) for p in parts], enabled=enabled), \
+                 mock.patch.object(self.vision, 'video_requested', enabled, create=True), \
+                 mock.patch.object(self.service, 'load') as load:
+                status, result = self.post({'messages':[{'role':'user','content':parts}], 'max_tokens':32},
+                                           path='/v1/chat/completions')
+                self.assertEqual(status, 400, result)
+                load.assert_not_called()
 
     def test_actual_upload_preserves_pts_and_does_not_load_model(self):
         status, result = self.post({'data': self.encoded, 'max_frames': 8})
