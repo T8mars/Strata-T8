@@ -514,6 +514,31 @@ class VideoEncoderProcesses(unittest.TestCase):
         obj.restart()
         self.assertEqual(obj.encode_pair(png('red'), png('blue'))[1], 2)
 
+    def test_exited_helper_with_buffered_stdin_closes_and_restarts(self):
+        obj = self.make()
+        cached, rows = obj.encode_pair(png('red'), png('blue'))
+        proc, pump = obj.proc, obj.pump
+        proc.kill()
+        proc.wait(timeout=5)
+        pump.join(timeout=2)
+        self.assertFalse(pump.is_alive())
+        # No newline: keep bytes buffered until close flushes to the dead child.
+        proc.stdin.write('pending-buffered-command')
+        obj.close()
+        self.assertTrue(proc.stdin.closed)
+        self.assertTrue(proc.stdout.closed)
+        self.assertIsNone(obj.proc)
+        self.assertIsNone(obj.pump)
+        self.assertTrue(obj.stopped)
+        self.assertTrue(cached.is_file())
+        obj.close()
+        obj.restart()
+        self.assertTrue(obj.alive())
+        self.assertEqual(obj.encode_pair(png('red'), png('blue')), (cached, rows))
+        reverse, count = obj.encode_pair(png('blue'), png('red'))
+        self.assertNotEqual(reverse, cached)
+        self.assertEqual(video.embedding_rows(reverse, count), 2)
+
     def test_legacy_ready_rejected_and_child_closed(self):
         obj = Vision({'exe': 'unused', 'mmproj': 'unused', 'model': 'unused',
                       'native_video': True}, lazy=True)

@@ -12,7 +12,7 @@ import threading
 import time
 import unittest
 from unittest import mock
-from serve.server import Vision, RequestCancelled, EngineStarting, EngineStuck, vision_temp_dir
+from serve.server import Vision, StrataEngine, RequestCancelled, EngineStarting, EngineStuck, vision_temp_dir
 from serve.test_lifecycle import Lifecycle
 
 
@@ -92,6 +92,65 @@ class VisionProcesses(unittest.TestCase):
         self.assertIs(obj.proc, proc)
         self.assertEqual(proc.wait.call_count, 2)
         proc.poll.return_value = 0
+
+    def test_exited_helper_pipe_errors_still_complete_cleanup(self):
+        obj = self.make('')
+        proc = mock.Mock()
+        proc.poll.return_value = 0
+        proc.stdin.close.side_effect = OSError(22, 'Invalid argument')
+        proc.stdout.close.side_effect = ValueError('already closed')
+        pump = mock.Mock()
+        obj.proc, obj.pump, obj.stopped = proc, pump, False
+        obj.close()
+        proc.stdin.close.assert_called_once()
+        proc.stdout.close.assert_called_once()
+        proc.kill.assert_not_called()
+        proc.wait.assert_not_called()
+        pump.join.assert_called_once_with(timeout=2)
+        self.assertIsNone(obj.proc)
+        self.assertIsNone(obj.pump)
+        self.assertTrue(obj.stopped)
+        obj.close()
+
+
+class NativeCleanup(unittest.TestCase):
+    def test_exited_engine_pipe_errors_still_close_all_resources(self):
+        engine = StrataEngine('unused', [], lazy=True)
+        proc, pump, log = mock.Mock(), mock.Mock(), mock.Mock()
+        proc.poll.return_value = 0
+        proc.stdin.close.side_effect = OSError(22, 'Invalid argument')
+        proc.stdout.close.side_effect = ValueError('already closed')
+        log.close.side_effect = OSError(28, 'log flush failed')
+        engine.proc, engine.pump, engine.log = proc, pump, log
+        engine.ended = False
+        engine.progress, engine.last = (1, 2), {'tokens': 1}
+        engine.close()
+        for resource in (proc.stdin, proc.stdout, log):
+            resource.close.assert_called_once()
+        proc.kill.assert_not_called()
+        proc.wait.assert_not_called()
+        pump.join.assert_called_once_with(timeout=2)
+        self.assertIsNone(engine.proc)
+        self.assertTrue(engine.ended)
+        self.assertIsNone(engine.progress)
+        self.assertEqual(engine.last, {})
+        engine.close()
+
+    def test_stuck_engine_keeps_process_and_open_output_for_retry(self):
+        engine = StrataEngine('unused', [], lazy=True)
+        proc, log = mock.Mock(), mock.Mock()
+        proc.poll.return_value = None
+        proc.wait.side_effect = subprocess.TimeoutExpired('engine', 20)
+        engine.proc, engine.log, engine.ended = proc, log, False
+        with self.assertRaises(EngineStuck):
+            engine.close()
+        self.assertIs(engine.proc, proc)
+        self.assertFalse(engine.ended)
+        proc.stdout.close.assert_not_called()
+        log.close.assert_not_called()
+        self.assertEqual(proc.wait.call_count, 3)
+        proc.poll.return_value = 0
+        engine.close()
 
 
 class CompanionCleanup(unittest.TestCase):

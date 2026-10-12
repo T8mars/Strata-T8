@@ -1876,13 +1876,14 @@ class StrataEngine:
             if self.proc.poll() is not None:
                 if self.pump is not None and self.pump.ident is not None:   # a restart can stop before starting it
                     self.pump.join(timeout=2)
-                try:
-                    self.proc.stdin.close()             # buffered data may flush again after the engine has exited
-                except OSError:
-                    pass
-                self.proc.stdout.close()
+                pipes = [self.proc.stdin, self.proc.stdout]
                 if self.log not in (None, subprocess.DEVNULL):
-                    self.log.close()
+                    pipes.append(self.log)
+                for pipe in pipes:
+                    try:
+                        pipe.close()  # buffered writes may flush after the child has exited
+                    except (OSError, ValueError):
+                        pass
                 self.proc = None
                 self.ended = True
                 self.progress, self.last = None, {}
@@ -2343,7 +2344,10 @@ class Vision:
                         self.pump.join(timeout=2)
                     for pipe in (proc.stdin, proc.stdout):
                         if pipe is not None:
-                            pipe.close()
+                            try:
+                                pipe.close()  # Windows can reject a final flush to the dead helper
+                            except (OSError, ValueError):
+                                pass
                     self.proc, self.pump = None, None
                     self.stopped = True
 
