@@ -1,8 +1,12 @@
 """CPU tests for stale native artifacts, architecture scope and atomic installation."""
 from __future__ import annotations
 import copy
+from contextlib import redirect_stderr, redirect_stdout
+import io
 import json
+import os
 from pathlib import Path
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -169,6 +173,89 @@ class NativeBuildTests(unittest.TestCase):
         with patch.object(Path, 'is_symlink', return_value=True):
             with self.assertRaisesRegex(ValueError, 'vendor engine tree'):
                 b.install_build(self.root, self.root, self.artifacts, copy.deepcopy(self.native), self.root/'build')
+
+    def test_failed_child_shows_real_stdout_and_stderr_and_keeps_exit_status(self):
+        log = self.root/'中文 path'/'engine-configure.log'
+        log.parent.mkdir()
+        command = [sys.executable, '-X', 'utf8', '-c',
+                   'import sys; print("CMAKE_STDOUT", flush=True); '
+                   'print("真正的配置错误", file=sys.stderr, flush=True); sys.exit(7)']
+        stdout, stderr = io.StringIO(), io.StringIO()
+        with redirect_stdout(stdout), redirect_stderr(stderr):
+            with self.assertRaises(subprocess.CalledProcessError) as caught:
+                b.run(command, os.environ.copy(), log)
+        self.assertEqual(caught.exception.returncode, 7)
+        self.assertIn('CMAKE_STDOUT', stderr.getvalue())
+        self.assertIn('真正的配置错误', stderr.getvalue())
+        self.assertIn('exit 7', stderr.getvalue())
+        self.assertIn('真正的配置错误', log.read_text(encoding='utf-8'))
+        self.assertNotIn('CMAKE_STDOUT\n', stdout.getvalue())
+
+    def test_successful_child_keeps_existing_quiet_logging(self):
+        log = self.root/'engine-build.log'
+        stdout, stderr = io.StringIO(), io.StringIO()
+        with redirect_stdout(stdout), redirect_stderr(stderr):
+            b.run([sys.executable, '-c', 'print("SUCCESS_OUTPUT")'], os.environ.copy(), log)
+        self.assertEqual(log.read_text(encoding='utf-8').strip(), 'SUCCESS_OUTPUT')
+        self.assertEqual(stderr.getvalue(), '')
+        self.assertTrue(stdout.getvalue().startswith('native build: '))
+
+    def test_failed_child_tail_is_bounded_for_many_lines_and_single_long_line(self):
+        for payload in ('EARLY_DIAG\\n' + 'line\\n' * 400 + 'TAIL_ERROR\\n',
+                        'EARLY_DIAG' + 'x' * (b.FAILED_LOG_BYTES * 4) + 'TAIL_ERROR\\n'):
+            with self.subTest(kind='lines' if 'line' in payload else 'long_line'):
+                log = self.root/'engine-build.log'
+                log.unlink(missing_ok=True)
+                stdout, stderr = io.StringIO(), io.StringIO()
+                command = [sys.executable, '-c',
+                           'import sys; sys.stdout.write(' + repr(payload.replace('\\n', '\n')) +
+                           '); sys.stdout.flush(); sys.exit(9)']
+                # Use a real child and a script file to stay below Windows'
+                # command-line length limit for the large-output regression.
+                script = self.root/'noisy-child.py'
+                script.write_text(command[-1], encoding='utf-8')
+                with redirect_stdout(stdout), redirect_stderr(stderr):
+                    with self.assertRaises(subprocess.CalledProcessError):
+                        b.run([sys.executable, str(script)], os.environ.copy(), log)
+                report = stderr.getvalue()
+                self.assertIn('TAIL_ERROR', report)
+                self.assertNotIn('EARLY_DIAG', report)
+                self.assertLessEqual(len(report), b.FAILED_LOG_BYTES + 1000)
+                self.assertLessEqual(len(report.splitlines()), b.FAILED_LOG_LINES + 2)
+
+    def test_failed_child_diagnostics_survive_cp1252_console(self):
+        log = self.root/'engine-configure.log'
+        buffer = io.BytesIO()
+        console = io.TextIOWrapper(buffer, encoding='cp1252', errors='strict')
+        self.addCleanup(console.close)
+        command = [sys.executable, '-X', 'utf8', '-c',
+                   'import sys; print("配置失败", flush=True); sys.exit(11)']
+        with redirect_stdout(io.StringIO()), redirect_stderr(console):
+            with self.assertRaises(subprocess.CalledProcessError) as caught:
+                b.run(command, os.environ.copy(), log)
+        self.assertEqual(caught.exception.returncode, 11)
+        self.assertIn(b'\\u914d', buffer.getvalue())
+        self.assertIn(b'exit 11', buffer.getvalue())
+
+    def test_release_failure_artifact_has_only_explicit_native_diagnostics(self):
+        import yaml
+        workflow = yaml.safe_load((b.ROOT/'.github/workflows/release.yml').read_text('utf-8'))
+        steps = workflow['jobs']['release']['steps']
+        uploads = [step for step in steps if step.get('uses', '').startswith('actions/upload-artifact@')]
+        self.assertEqual(len(uploads), 1)
+        step = uploads[0]
+        self.assertEqual(step['if'], '${{ failure() }}')
+        self.assertTrue(step['with']['include-hidden-files'])
+        paths = step['with']['path'].splitlines()
+        self.assertEqual(set(paths), {
+            '.portable-build/t8-native/engine-configure.log',
+            '.portable-build/t8-native/engine-build.log',
+            '.portable-build/t8-native/vision-configure.log',
+            '.portable-build/t8-native/vision-build.log',
+            '.portable-build/t8-native/native-contract.log',
+            '.portable-build/t8-native/engine-portable/CMakeFiles/CMakeConfigureLog.yaml',
+            '.portable-build/t8-native/vision-portable/CMakeFiles/CMakeConfigureLog.yaml',
+        })
 
 
 if __name__ == '__main__':

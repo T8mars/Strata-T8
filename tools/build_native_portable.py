@@ -13,6 +13,7 @@ from pathlib import Path
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 import urllib.request
 import zipfile
@@ -22,6 +23,8 @@ ARCHITECTURES = ('75', '80', '86', '89', '90', '100', '120')
 CUDA_TARGETS = tuple(a+'-real' for a in ARCHITECTURES[:-1]) + (ARCHITECTURES[-1],)
 LLAMA_DIRS = ('cmake', 'ggml', 'include', 'src', 'tools/mtmd', 'vendor', 'common')
 SOURCE_SUFFIXES = {'.cpp', '.c', '.cc', '.h', '.hpp', '.cuh', '.cu', '.cmake', '.txt', '.in', '.inc', '.inl', '.s', '.m', '.mm', '.py', '.rc'}
+FAILED_LOG_BYTES = 64 * 1024
+FAILED_LOG_LINES = 200
 
 
 def digest(path):
@@ -219,9 +222,33 @@ def executable(name, env, extra=()):
 
 def run(command, env, log):
     print('native build: '+subprocess.list2cmdline(list(map(str, command))), flush=True)
-    with Path(log).open('a', encoding='utf-8') as output:
-        subprocess.run(list(map(str, command)), env=env, cwd=Path(log).parent,
-                       stdout=output, stderr=subprocess.STDOUT, check=True)
+    try:
+        with Path(log).open('a', encoding='utf-8') as output:
+            subprocess.run(list(map(str, command)), env=env, cwd=Path(log).parent,
+                           stdout=output, stderr=subprocess.STDOUT, check=True)
+    except (subprocess.CalledProcessError, OSError) as error:
+        # Close the child's log before reading it. Read a bounded tail rather
+        # than loading a potentially large Ninja log into memory or CI output.
+        try:
+            with Path(log).open('rb') as stream:
+                stream.seek(0, os.SEEK_END)
+                stream.seek(max(0, stream.tell() - FAILED_LOG_BYTES))
+                tail = stream.read(FAILED_LOG_BYTES).decode('utf-8', errors='replace')
+            lines = tail.splitlines()[-FAILED_LOG_LINES:]
+            detail = '\n'.join('| ' + line for line in lines) or '| (log is empty)'
+        except OSError as read_error:
+            detail = '| Cannot read build log: ' + str(read_error)
+        status = getattr(error, 'returncode', 'process could not start')
+        message = ('native build failed (exit ' + str(status) + '); log: ' +
+                   json.dumps(str(Path(log)), ensure_ascii=True) + '\n' +
+                   f'Last {FAILED_LOG_LINES} lines / {FAILED_LOG_BYTES} bytes at most:\n' +
+                   detail + '\n')
+        # CMake/MSVC paths can contain Unicode while a Windows console uses
+        # cp1252. Diagnostics must not hide the original child failure.
+        encoding = getattr(sys.stderr, 'encoding', None) or 'utf-8'
+        message = message.encode(encoding, errors='backslashreplace').decode(encoding)
+        print(message, end='', file=sys.stderr, flush=True)
+        raise
 
 
 def cuda_architecture_proof(exe, cuobjdump, env):

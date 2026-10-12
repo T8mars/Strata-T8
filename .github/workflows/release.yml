@@ -96,3 +96,19 @@ jobs:
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
       - name: Publish verified assets
         run: runtime/python/python.exe -X utf8 -u tools/publish_portable_release.py
+      - name: Preserve native build failure diagnostics
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-build-failure-${{ github.run_id }}-${{ github.run_attempt }}
+          retention-days: 7
+          if-no-files-found: warn
+          include-hidden-files: true
+          path: |
+            .portable-build/t8-native/engine-configure.log
+            .portable-build/t8-native/engine-build.log
+            .portable-build/t8-native/vision-configure.log
+            .portable-build/t8-native/vision-build.log
+            .portable-build/t8-native/native-contract.log
+            .portable-build/t8-native/engine-portable/CMakeFiles/CMakeConfigureLog.yaml
+            .portable-build/t8-native/vision-portable/CMakeFiles/CMakeConfigureLog.yaml
