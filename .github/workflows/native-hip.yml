@@ -21,13 +21,15 @@ jobs:
     container:
       image: rocm/dev-ubuntu-24.04@sha256:92f309c51b52cef8762867848f1529dee821624f23cd5df38455e819538f762f # 7.2.4-complete
     steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ inputs.ref }}
-      - name: Prepare host build tools and pinned native sources
+      - name: Install host build tools before checkout
         run: |
           apt-get update
           apt-get install -y cmake ninja-build git python3
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+      - name: Prepare pinned native sources
+        run: |
           python3 -c "import sys;sys.path.insert(0,'tools');import build_native_portable as b;b.prepare_llama(b.ROOT,b.ROOT/'.portable-build')"
       - name: Compile and link shared HIP engine and CPU video contract
         run: |

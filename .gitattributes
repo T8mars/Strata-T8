@@ -9,5 +9,8 @@ bench/prompts/** -text
 # copies of real packs' native_experts.txt, parsed byte for byte by tests/core/expert_layout_test.cpp
 tests/data/native_experts/** -text
 
+# Fixed upstream license sources are audited byte for byte on every host.
+licenses/video/** -text
+
 # The fork's landing page is maintained separately; sync_upstream configures this driver.
 README.md merge=t8-keep
