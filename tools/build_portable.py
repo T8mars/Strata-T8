@@ -164,7 +164,7 @@ def main():
     from portable_update import validate_manifest
     validate_manifest(TARGET, save, verify=False)
     archive = OUT/(NAME+'.zip')
-    print(f'Writing {archive} ({len(save["files"])} files) ...', flush=True)
+    print(json.dumps({'writing_archive': str(archive), 'files': len(save['files'])}), flush=True)
     with zipfile.ZipFile(archive, 'w', compression=zipfile.ZIP_DEFLATED, compresslevel=6, allowZip64=True) as z:
         for file in package_files():
             z.write(file, NAME+'/'+file.relative_to(TARGET).as_posix())

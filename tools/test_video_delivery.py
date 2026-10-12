@@ -257,6 +257,7 @@ def native_fixture(root):
     third = {'repository': 'ggml-org/llama.cpp', 'commit': 'a'*40, 'archive_sha256': 'b'*64,
              'source_tree_sha256': native.canonical_digest(native.llama_inputs(root))}
     build = {'schema': 1, 'source_commit': 'c'*40, 'portable': True,
+             'cuda_targets': list(native.CUDA_TARGETS), 'fatbinary_compression': 'size',
              'cuda_architectures': list(native.ARCHITECTURES), 'source_identity': native.source_identity(root, third),
              'capabilities': {'native_video': True, 'geniv': 1, 'encv': 1, 'sve': 1}, 'outputs': {}}
     for directory, asset in provenance.ENGINE_ASSETS.items():
@@ -268,6 +269,7 @@ def native_fixture(root):
             for name in ('strata.exe', 'strata-vision.exe'):
                 path = root/directory/name
                 build['outputs'][name] = {'sha256': native.digest(path), 'size': path.stat().st_size,
+                    'ptx_architectures': ['120a'] if name == 'strata-vision.exe' else ['120'],
                     'utf8_manifest': 'activeCodePage=UTF-8', 'cuda_architectures': list(native.ARCHITECTURES)}
             vendor['t8_native_build'] = build
             vendor['capabilities'] = {'native_video': True, 'geniv': 1, 'encv': 1}

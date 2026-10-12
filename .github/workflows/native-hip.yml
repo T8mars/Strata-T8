@@ -37,7 +37,7 @@ jobs:
           cmake --build .portable-build/hip-compile --target strata -j 4
           /opt/rocm/llvm/bin/clang++ -std=c++17 -O2 -I include tools/vision/native_vision_test.cpp -o .portable-build/hip-compile/native-vision-contract
           .portable-build/hip-compile/native-vision-contract
-          git rev-parse HEAD > .portable-build/hip-compile/SOURCE-COMMIT.txt
+          git -c safe.directory="$GITHUB_WORKSPACE" rev-parse HEAD > .portable-build/hip-compile/SOURCE-COMMIT.txt
       - name: Retain HIP compile evidence
         if: always()
         uses: actions/upload-artifact@v4
