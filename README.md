@@ -57,7 +57,7 @@ Windows 10 1903+/11 x64、AVX2 CPU、SSD。NVIDIA RTX 20/30/40/50 系列建议 1
 
 仓库每日检查上游正式版本，合并及测试通过后自动打包发布；可在 [Actions](https://github.com/T8mars/Strata-T8/actions) 手动同步 main。冲突、测试失败或缺少匹配引擎时停止发布。[更新机制](docs/UPDATING-T8.md)
 
-当前发行版 **0.1.42-t8.2** 基于上游 [v0.1.42](https://github.com/Niko1221/Strata/releases/tag/v0.1.42)，支持节点 **1.1.0** 和 ComfyUI Protocol 1。新增视频采样与分析、NVIDIA 可选原生双帧编码；保留既有文本/图片、超时、进程清理及更新回滚，主模型、MTP 与现有视觉权重可沿用。[视频说明与验证范围](docs/VIDEO-ANALYSIS.zh-CN.md)
+当前发行版 **0.1.42-t8.3** 基于上游 [v0.1.42](https://github.com/Niko1221/Strata/releases/tag/v0.1.42)，配套节点 **1.1.1** 和 ComfyUI Protocol 1。修复视频裁剪与拼接时间、证据范围、透明帧、取消及重启后的清理。PQ/HLG 视频须先转 SDR/sRGB；抽帧与 NVIDIA 可选原生双帧编码继续兼容，主模型、MTP 与现有视觉权重可沿用。[视频说明与验证范围](docs/VIDEO-ANALYSIS.zh-CN.md)
 
 上游在适用 NVIDIA 配置中默认启用专家尾部跳过和实测 PCIe 分配，回答可能略有变化。需要恢复此前行为，可在运行配置的 `env` 对象设置 `"STRATA_ROUTE_TAIL_SKIP":"0"` 和 `"STRATA_PCIE_FRAC_DEFAULT":"old"`，然后重启；已有显式 `--pcie-frac` 参数继续优先。上游性能数字取决于硬件与模型，不代表本机速度。
 

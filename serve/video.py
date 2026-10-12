@@ -6,7 +6,7 @@ import math
 import struct
 
 from PIL import Image
-from tools.strata_video import CONTRACT_VERSION, VideoCancelled, finite
+from tools.strata_video import CONTRACT_VERSION, VideoCancelled, bounded_size, check_cancel, finite, rgb_image
 
 MAX_REQUEST_FRAMES = 64
 MAX_FRAME_PIXELS = 16_777_216
@@ -40,8 +40,10 @@ def sample_upload(request, cancel=None):
                            cancel=cancel)
     frames = []
     for frame in sampled.frames:
+        check_cancel(cancel)
         output = io.BytesIO()
         frame.image.save(output, format='PNG')
+        check_cancel(cancel)
         frames.append({'source': 'data:image/png;base64,' + base64.b64encode(output.getvalue()).decode(),
                        'timestamp_s': frame.timestamp_s, 'source_timestamp_s': frame.source_timestamp_s,
                        'index': frame.index})
@@ -138,17 +140,20 @@ def expand_videos(messages, load_image, cancel_check):
             for frame in part['frames']:
                 cancel_check()
                 data = load_image(frame['source'])
-                with Image.open(io.BytesIO(data)) as image:
-                    if image.width * image.height > MAX_FRAME_PIXELS:
-                        raise ValueError('Video frame exceeds source pixel limit')
-                    image.load()
-                    if size is None:
-                        scale = min(1.0, math.sqrt(589824 / (image.width * image.height)))
-                        size = (max(1, int(image.width * scale)), max(1, int(image.height * scale)))
-                    image = image.convert('RGB').resize(size, Image.Resampling.LANCZOS)
-                    stream = io.BytesIO()
-                    image.save(stream, format='PNG')
-                    decoded.append(stream.getvalue())
+                try:
+                    with Image.open(io.BytesIO(data)) as image:
+                        if image.width * image.height > MAX_FRAME_PIXELS:
+                            raise ValueError('Video frame exceeds source pixel limit')
+                        image.load()
+                        if size is None:
+                            size = bounded_size(image.width, image.height, 589824)
+                        image = rgb_image(image).resize(size, Image.Resampling.LANCZOS)
+                        stream = io.BytesIO()
+                        image.save(stream, format='PNG')
+                        decoded.append(stream.getvalue())
+                except (OSError, Image.DecompressionBombError) as error:
+                    raise ValueError(f'Video frame could not be decoded: {error}') from error
+                cancel_check()
             if len(decoded) % 2:
                 decoded.append(decoded[-1])
             frames = part['frames']
@@ -160,6 +165,7 @@ def expand_videos(messages, load_image, cancel_check):
             # Native preparation expands its pad into all timestamped pairs.
             items.append({'type': 'video', 'pairs': pairs})
         result.append({**message, 'content': items})
+    cancel_check()
     return result
 
 
