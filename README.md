@@ -15,7 +15,7 @@
 
 1. 解压运行包，双击 **START-HERE.bat**，直接打开本地模型设置页；没有主模型也可以进入。
 2. 选择收到的完整 **Strata-data** 模型目录，点击 **保存并进入**。模型可放在其他磁盘，页面会检查文件、保存配置并启动服务。
-3. 后续启动自动进入聊天；在 **模型设置** 点击其他模型卡片，再 **保存并切换模型**，程序自动停止当前服务并切换。SC117 变体显示为 **SC117 Uncensored**。关闭启动窗口或按 Ctrl+C 停止。
+3. 后续启动自动进入聊天；在 **模型设置** 点击其他模型卡片即可自动停止当前服务并切换，正在生成的回答会中断。手动输入路径后点 **保存并切换模型**。SC117 变体显示为 **SC117 Uncensored**。关闭启动窗口或按 Ctrl+C 停止。
 
 端口被占用时自动选择空闲端口，以页面显示的地址为准。尚无模型可在设置页主动下载并准备官方 IQ3_S；需要勾选约 89GB 的流量和磁盘说明，普通启动不会下载模型。[模型设置说明](docs/MODEL-SETUP.zh-CN.md)
 
@@ -23,7 +23,7 @@ Release 附 SHA256，VERIFY-PACKAGE.bat 检查解压文件。请下载发行资�
 
 ## ComfyUI
 
-独立 [Strata-T8 节点](https://github.com/T8mars/Comfyui-Strata-T8) 通过 Comfy Registry 发布，Publisher `t8star`，节点 ID `strata-t8`。版本审核通过后可在 ComfyUI-Manager 搜索安装；尚未显示时使用节点仓库的 Git 或 Release ZIP 安装。节点仓库提供模型路径、连接配置与四个示例工作流，涵盖文本、图片、批量分镜和视频分析。
+独立 [Strata-T8 节点](https://github.com/T8mars/Comfyui-Strata-T8) 提供 Git 和 Release ZIP 安装，Publisher `t8star`，节点 ID `strata-t8`。Registry 版本审核通过后可在 ComfyUI-Manager 搜索安装。节点仓库提供模型路径、连接配置与示例工作流，涵盖文本、图片、批量分镜和视频分析。
 
 支持文本生成、扩写/翻译、正负提示词、结构化分镜、JSON 提取、图片描述/反推/OCR、批量处理和服务控制。同卡推理结束后确认语言与视觉引擎释放，再返回下游采样；API key 保存在本机，工作流只存档案名称。
 
@@ -59,7 +59,7 @@ Windows 10 1903+/11 x64、AVX2 CPU、SSD。NVIDIA RTX 20/30/40/50 系列建议 1
 
 仓库每日检查上游正式版本，合并及测试通过后自动打包发布；可在 [Actions](https://github.com/T8mars/Strata-T8/actions) 手动同步 main。冲突、测试失败或缺少匹配引擎时停止发布。[更新机制](docs/UPDATING-T8.md)
 
-当前发行版 **0.1.42-t8.5** 基于上游 [v0.1.42](https://github.com/Niko1221/Strata/releases/tag/v0.1.42)，配套节点 **1.1.1** 和 ComfyUI Protocol 1。新增无需主模型即可打开的模型设置页，保留视频时间、证据、透明帧与取消修复。PQ/HLG 视频须先转 SDR/sRGB；抽帧与 NVIDIA 可选原生双帧编码继续兼容，现有模型权重可沿用。[视频说明与验证范围](docs/VIDEO-ANALYSIS.zh-CN.md)
+当前发行版 **0.1.42-t8.6** 基于上游 [v0.1.42](https://github.com/Niko1221/Strata/releases/tag/v0.1.42)，配套节点 **1.1.2** 和 ComfyUI Protocol 1。点击模型卡片自动停止并切换；视频设置默认折叠，按秒数与帧率规划全程分段，例如 10 秒、24 帧/秒规划约 240 帧。修复上传错误反馈、浮点漏帧及分段汇总时间范围。PQ/HLG 视频须先转 SDR/sRGB；NVIDIA 可选原生双帧编码仍使用采样帧，现有权重可沿用。[视频说明与验证范围](docs/VIDEO-ANALYSIS.zh-CN.md)
 
 上游在适用 NVIDIA 配置中默认启用专家尾部跳过和实测 PCIe 分配，回答可能略有变化。需要恢复此前行为，可在运行配置的 `env` 对象设置 `"STRATA_ROUTE_TAIL_SKIP":"0"` 和 `"STRATA_PCIE_FRAC_DEFAULT":"old"`，然后重启；已有显式 `--pcie-frac` 参数继续优先。上游性能数字取决于硬件与模型，不代表本机速度。
 

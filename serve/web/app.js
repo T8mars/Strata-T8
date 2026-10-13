@@ -116,6 +116,10 @@ async function loadHealth() {
     const modes = videoStatus.capabilities?.video?.modes || [];
     $('video-mode').hidden = !modes.includes('frames');
     $('video-native').disabled = !modes.includes('native');
+    if (modes.length && !modes.includes($('video-mode').value)) $('video-mode').value = modes[0];
+    $('video-sampling').hidden = !modes.includes('frames');
+    videoFrameLimit = Math.min(64, videoStatus.capabilities?.video?.limits?.max_frames || 64);
+    videoSegmentLimit = Math.min(16, videoStatus.capabilities?.video?.limits?.max_segment_frames || 16, videoFrameLimit);
     if (health.portable_model_settings) $('video-mode').title = modes.includes('native') ? '选择视频分析模式' : '原生视频需在模型设置的运行设置中启用 NVIDIA 原生双帧视频分析';
     const displayModel = typeof health.portable_model_label === 'string' ? health.portable_model_label : health.model;
     $("chat-empty-sub").textContent = `${displayModel} runs on this PC. Nothing leaves it.`;
@@ -581,7 +585,7 @@ let busy = null;                      // {controller, msg}
 
 function saveChat() {
   store.set("chat", messages.map((m) => ({...m, images: (m.images || []).map((i) => ({name: i.name})),
-                                           videos: (m.videos || []).map((v) => ({name: v.name, manifest: v.manifest})),
+                                           videos: (m.videos || []).map((v) => ({name: v.name, manifest: v.manifest, plan: v.plan, analysis: v.analysis})),
                                            files: (m.files || []).map((f) => ({name: f.name}))})));
 }
 function timeStr(t) { return new Date(t).toLocaleTimeString([], {hour: "2-digit", minute: "2-digit"}); }
@@ -593,10 +597,8 @@ function msgEl(m, i) {
   if (m.role === "user") {
     for (const video of m.videos || []) {
       const chip = document.createElement('span');
-      chip.className = 'chip';
-      const coverage = video.manifest?.coverage;
-      chip.textContent = `${video.name}: ${coverage?.sample_count || 0} samples, ` +
-        `${Number(coverage?.first_sample_s || 0).toFixed(2)}–${Number(coverage?.last_sample_s || 0).toFixed(2)} s`;
+      chip.className = 'chip chip--video';
+      chip.textContent = `${video.name}: ${videoCoverageText(video)}`;
       chip.title = 'Sampled visual evidence; audio is not decoded. Reattach after reloading this page.';
       el.appendChild(chip);
     }
@@ -752,7 +754,7 @@ function apiMessages() {
   for (const m of messages) {
     if (m.role === "user") {
       const imgs = (m.images || []).filter((i) => i.url);
-      const videos = (m.videos || []).filter((v) => v.part).map((v) => v.part);
+      const videos = (m.videos || []).filter((v) => v.part && !v.plan).map((v) => v.part);
       const text = userText(m);
       out.push({role: "user", content: imgs.length || videos.length ? [{type: "text", text},
         ...imgs.map((i) => ({type: "image_url", image_url: {url: i.url}})), ...videos] : text});
@@ -802,6 +804,9 @@ async function send() {
     toast('info', 'Video sampling in progress', 'Wait for sampling to finish or remove the video to cancel.');
     return;
   }
+  const denseVideo = attachments.find(a => a.kind === 'video' && a.plan);
+  if (videoUploadError) { toast('warn', '视频尚未上传成功', '请重新上传视频，或移除失败的附件后再发送。'); return; }
+  if (denseVideo && attachments.some(a => a.kind === 'image')) { toast('warn', '请单独分析视频', '全程分段分析请只附一个视频；图片可在另一条消息中分析。'); return; }
   messages.push({role: "user", text, images: attachments.filter((a) => a.kind === "image"),
                  videos: attachments.filter((a) => a.kind === 'video'),
                  files: attachments.filter((a) => a.kind === "file"), time: Date.now()});
@@ -832,6 +837,19 @@ async function send() {
   let firstAt = null, thinkStart = null, usage = null, frame = 0;
   const paint = () => { frame = 0; updateAssistant(el, m, true); scrollDown(); };
   try {
+    if (denseVideo) {
+      const result = await analyzeVideoSegments(denseVideo, userText(messages[messages.length - 2]), body, controller.signal, (progress) => {
+        denseVideo.analysis = {coverage: progress.coverage, notes: progress.notes, completed: progress.completed, total: progress.total};
+        m.meta = progress.phase === 'merge' ? `正在汇总分段记录 ${progress.group}/${progress.groups}` : `视频 ${progress.completed}/${progress.total} 段 · 已分析 ${progress.coverage.sample_count} 帧`;
+        paint();
+      });
+      denseVideo.analysis = result;
+      messages[messages.length - 2].videoEvidence = `视频分段证据（不含音轨）\n${videoCoverageText(denseVideo)}\n${result.evidence}`;
+      m.meta = `已分析 ${result.coverage.sample_count} 帧 · ${result.coverage.total_segments} 段 · 正在生成最终回答`;
+      body.messages = apiMessages();
+      body.messages.push({role:'user', content:'根据上述视频分段证据回答我的原始问题。按源视频时间描述动作与镜头；明确不确定性，不把分段观察或汇总说成连续播放，也不要声称听到了音轨。'});
+      paint();
+    }
     const r = await fetch("v1/chat/completions", {method: "POST", headers: headers(true), body: JSON.stringify(body),
                                                    signal: controller.signal});
     if (!r.ok) {
@@ -878,6 +896,12 @@ async function send() {
   } catch (e) {
     if (e.name === "AbortError") m.stopped = true;
     else { m.error = e.message || String(e); toast("error", "The request failed", m.error, 6000); }
+    if (denseVideo) {
+      const state = denseVideo.analysis;
+      m.text = (m.text || '') + `\n\n${m.stopped ? '视频分析已停止' : '视频分析未完成'}：已完成 ${state?.coverage?.completed_segments || 0}/${denseVideo.plan.segments.length} 段，已分析 ${state?.coverage?.sample_count || 0} 帧。` +
+        (m.error ? `\n原因：${m.error}` : '') + (state?.notes?.length ? '\n\n已完成的分段观察：\n' + state.notes.map(n => `[${n.start_s.toFixed(3)}–${n.end_s.toFixed(3)} 秒]\n${n.text}`).join('\n\n') : '');
+      m.error = null;
+    }
   }
   if (thinkStart && m.thinkSecs == null) m.thinkSecs = (performance.now() - thinkStart) / 1000;
   const n = usage ? usage.completion_tokens : null;
@@ -888,11 +912,13 @@ async function send() {
   } else if (m.stopped) {
     m.meta = "Stopped";
   }
+  if (denseVideo?.analysis?.coverage) m.meta = `${m.meta || ''} · ${videoCoverageText(denseVideo)}`;
   for (const t of m.tools || []) if (t.state === "writing" || t.state === "running") { t.state = "skipped"; t.ms = null; }
   const ran = (m.tools || []).filter((t) => t.state === "done" || t.state === "error").length;
   if (ran) m.meta = `${m.meta ? `${m.meta} · ` : ""}${ran} tool call${ran > 1 ? "s" : ""}`;
   if (m.limit) m.meta = `${m.meta || ""} · stopped at the limit of ${m.limit} tool rounds (mcp.max_rounds)`;
   busy = null;
+  if (denseVideo) { delete denseVideo.encoded; delete denseVideo.file; delete denseVideo.part; }
   setBusy(false);
   if (frame) cancelAnimationFrame(frame);
   updateAssistant(el, m, false);
@@ -934,15 +960,122 @@ $("export-btn").onclick = () => {
 // pictures and text files: the attach button, dropping them on the chat, or pasting a picture (issue #30)
 const TEXT_EXT = /\.(txt|md|markdown|rst|tex|py|pyi|ipynb|js|mjs|cjs|ts|tsx|jsx|vue|svelte|json|jsonl|csv|tsv|log|ya?ml|toml|ini|cfg|conf|env|xml|html?|css|scss|less|c|cc|cpp|cxx|h|hh|hpp|cu|cuh|rs|go|java|kt|kts|swift|rb|php|pl|lua|r|jl|scala|sql|sh|bash|zsh|fish|ps1|psm1|bat|cmd|diff|patch|gradle|cmake|mk|dockerfile|gitignore|proto|graphql)$/i;
 const MAX_TEXT_FILE = 512 * 1024;
-async function addVideo(file) {
-  if (!health.images) { toast('warn', 'Vision is off', 'Enable a vision model to analyze video.'); return; }
-  if (file.size > 128 * 1024**2) { toast('warn', 'Video too large', 'Upload up to 128 MiB; trim longer files first.'); return; }
-  if (attachments.some((a) => a.kind.startsWith('video'))) {
+let videoFrameLimit = 64;
+let videoSegmentLimit = 16, videoUploadError = '';
+function videoSamplingOptions() {
+  const max_frames = Number($('video-max-frames').value), sampling_fps = Number($('video-fps').value);
+  const start = Number($('video-start').value || 0), durationText = $('video-duration').value.trim();
+  if (!Number.isInteger(max_frames) || max_frames < 2 || max_frames > videoFrameLimit) throw new Error(`帧数上限应为 2–${videoFrameLimit} 的整数。`);
+  if (!Number.isFinite(sampling_fps) || sampling_fps <= 0 || sampling_fps > 120) throw new Error('采样 FPS 应大于 0，且不超过 120。');
+  if (!Number.isFinite(start) || start < 0 || start > 86400) throw new Error('开始时间应为 0–86400 秒。');
+  const value = {max_frames, sampling_fps};
+  if (start) value.start_s = start;
+  if (durationText) {
+    const duration = Number(durationText);
+    if (!Number.isFinite(duration) || duration <= 0 || duration > 3600 || start + duration > 86400) throw new Error('分析时长应大于 0，且不超过 3600 秒。');
+    value.end_s = start + duration;
+  }
+  if ($('video-processing').value === 'segmented') { value.segmented = true; value.max_frames = Math.min(max_frames, videoSegmentLimit); }
+  return value;
+}
+function videoCoverageText(video) {
+  if (video.analysis?.coverage) {
+    const c = video.analysis.coverage;
+    return `已分析 ${c.sample_count} 帧 · ${c.completed_segments}/${c.total_segments} 段 · ${c.first_sample_s?.toFixed(2) ?? '?'}–${c.last_sample_s?.toFixed(2) ?? '?'} 秒 · 最大间隔 ${c.max_sample_gap_s.toFixed(3)} 秒`;
+  }
+  if (video.plan) return `全程分段 · ${video.plan.start_s.toFixed(2)}–${video.plan.end_s.toFixed(2)} 秒 · ${video.plan.sampling_fps} 帧/秒 · 预计约 ${video.plan.estimated_frames} 帧、${video.plan.segments.length} 段；发送后逐段分析`;
+  const c = video.manifest?.coverage;
+  if (!c) return '';
+  const gap = Number(c.max_sample_gap_s);
+  return `${c.sample_count} 帧 · ${Number(c.first_sample_s).toFixed(2)}–${Number(c.last_sample_s).toFixed(2)} 秒 · 最大间隔 ${Number.isFinite(gap) ? gap.toFixed(2) : '?'} 秒` + (c.frame_cap_applied ? ' · 已达到帧数预算，实际采样间隔增大' : '');
+}
+function updateVideoSampling() {
+  const pending = attachments.some(a => a.kind === 'video_pending');
+  for (const id of ['video-preset','video-processing','video-duration','video-fps','video-start','video-resample']) $(id).disabled = pending;
+  const video = attachments.find(a => a.kind === 'video');
+  $('video-resample').hidden = !video?.file;
+  const duration = Number($('video-duration').value), fps = Number($('video-fps').value);
+  const estimate = duration > 0 && fps > 0 ? `已选 ${duration} 秒 × ${fps} 帧/秒，预计约 ${Math.ceil(duration * fps)} 帧。` : '';
+  $('video-sampling-status').textContent = videoUploadError || (pending ? '正在读取视频并准备采样…' : video ? videoCoverageText(video) + '。修改参数后点击重新采样。' : estimate + '全程分段会自动计算帧数，逐段观察后汇总；时长留空分析整个视频。音轨不参与分析。');
+}
+function saveVideoSampling() {
+  try { store.set('video_sampling', {...videoSamplingOptions(), ui_version:2}); } catch (e) { /* validate visibly when uploading */ }
+}
+const savedVideoSampling = store.get('video_sampling', {});
+if (savedVideoSampling && typeof savedVideoSampling === 'object') {
+  if (Number.isInteger(savedVideoSampling.max_frames) && savedVideoSampling.max_frames >= 2 && savedVideoSampling.max_frames <= 64) $('video-max-frames').value = savedVideoSampling.max_frames;
+  if (Number.isFinite(savedVideoSampling.sampling_fps) && savedVideoSampling.sampling_fps > 0 && savedVideoSampling.sampling_fps <= 120) $('video-fps').value = savedVideoSampling.sampling_fps;
+  if (Number.isFinite(savedVideoSampling.start_s) && savedVideoSampling.start_s >= 0 && savedVideoSampling.start_s <= 86400) $('video-start').value = savedVideoSampling.start_s;
+  if (Number.isFinite(savedVideoSampling.end_s) && savedVideoSampling.end_s > Number($('video-start').value) && savedVideoSampling.end_s - Number($('video-start').value) <= 3600) $('video-duration').value = savedVideoSampling.end_s - Number($('video-start').value);
+  if (savedVideoSampling.segmented) $('video-processing').value = 'segmented';
+  if (savedVideoSampling.ui_version !== 2 && savedVideoSampling.sampling_fps > 4) {
+    $('video-processing').value = 'segmented'; $('video-max-frames').value = videoSegmentLimit;
+  }
+}
+function markVideoPreset() {
+  const pairs = {'8': 1, '32': 2, '64': 4};
+  const frames = $('video-max-frames').value;
+  const fps = Number($('video-fps').value);
+  $('video-preset').value = $('video-processing').value === 'segmented' ? (fps === 24 ? 'dense24' : fps === 30 ? 'dense30' : 'custom') : pairs[frames] === fps ? frames : 'custom';
+}
+markVideoPreset();
+$('video-preset').onchange = () => {
+  const frames = $('video-preset').value;
+  if (frames.startsWith('dense')) { $('video-processing').value = 'segmented'; $('video-max-frames').value = videoSegmentLimit; $('video-fps').value = frames === 'dense24' ? 24 : 30; }
+  else if (frames !== 'custom') { $('video-processing').value = 'single'; $('video-max-frames').value = frames; $('video-fps').value = {'8':1,'32':2,'64':4}[frames]; }
+  saveVideoSampling();
+  updateVideoSampling();
+};
+for (const id of ['video-fps','video-start','video-duration']) $(id).oninput = $(id).onchange = () => {
+  if (id === 'video-fps' || $('video-duration').value.trim()) { $('video-processing').value = 'segmented'; $('video-max-frames').value = videoSegmentLimit; }
+  markVideoPreset(); saveVideoSampling(); updateVideoSampling();
+};
+$('video-processing').onchange = () => { if ($('video-processing').value === 'segmented') $('video-max-frames').value = videoSegmentLimit; markVideoPreset(); saveVideoSampling(); updateVideoSampling(); };
+$('video-resample').onclick = () => { const video = attachments.find(a => a.kind === 'video'); if (video?.file) addVideo(video.file, video); };
+async function analyzeVideoSegments(video, question, body, signal, progress) {
+  const mode = video.part.mode;
+  async function infer(content, max_tokens) {
+    const request = {...body, stream:false, reasoning_effort:'none', temperature:0, max_tokens, strata_mcp:false,
+      messages:[{role:'user', content}]};
+    const response = await fetch('v1/chat/completions', {method:'POST', headers:headers(true), signal, body:JSON.stringify(request)});
+    const result = await response.json();
+    if (!response.ok || result.error) throw new Error(result.error?.message || `HTTP ${response.status}`);
+    const choice = result.choices?.[0];
+    if (choice?.finish_reason === 'length') throw new Error('分段文字输出达到长度限制，请缩短问题或分析时长后重试。');
+    return choice?.message?.content || '';
+  }
+  return StrataVideoAnalysis.run({plan:video.plan, first:video, signal, progress,
+    sample:async segment => {
+      const {index, ...sampling} = segment;
+      const response = await fetch('v1/video/sample', {method:'POST', headers:headers(true), signal,
+        body:JSON.stringify({data:video.encoded, mode, ...sampling})});
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error?.message || `HTTP ${response.status}`);
+      return result;
+    },
+    observe:(sampled, segment, previous) => infer([{type:'text', text:
+      `请为后续整片汇总记录这一段的可见证据，简洁回答，最多 250 字。用户问题：${question || '分析视频的画面、动作与镜头。'}\n` +
+      `这是源视频 ${segment.start_s.toFixed(3)}–${segment.end_s.toFixed(3)} 秒。视频 token 内的秒数从此段起点开始，请换算成源视频时间。\n` +
+      `前段记录仅用于衔接，不是本段直接证据：${previous?.text || '无'}\n` +
+      `可用的 CPU 像素统计：${JSON.stringify(sampled.pixel_measurements || [])}。它记录均匀区域 RGB 和前景区域归一化中心，不能当作对象身份；请用于交叉检查颜色和位置。中心 y 不变不能支持向下运动。小于 center_tolerance_xy 的坐标差异属于采样和压缩不确定性，不能作为该轴运动证据。\n` +
+      '仅描述这段实际可见的证据。明确对比首尾帧的颜色和对象位置；颜色不变时写保持不变，不要为了回答整片问题在每段杜撰变化。没有中间帧证据时不要补出往返或反向运动。记录相关镜头、文字与细节，区分观察和推断。未提供音轨。'}, sampled.part], 1024),
+    merge:records => infer('压缩以下按时间排序的分段观察，最多 600 字，保留源视频时间、关键动作变化、镜头变化和不确定性。不要添加记录中没有的事实。\n用户问题：' + question + '\n\n' + records, 1024),
+  });
+}
+async function addVideo(file, replace = null) {
+  if (!health.images) { videoUploadError = '当前模型未启用视觉，请在模型设置中启用视觉后重新上传视频。'; renderAttachments(); return; }
+  if (file.size > 128 * 1024**2) { videoUploadError = '视频超过 128 MiB，请先裁剪或压缩后重新上传。'; renderAttachments(); return; }
+  if (attachments.some((a) => a.kind.startsWith('video') && a !== replace)) {
     toast('warn', 'One video per message', 'Send the current video before adding another.'); return;
   }
+  let sampling;
+  try { sampling = videoSamplingOptions(); } catch (e) { videoUploadError = e.message; renderAttachments(); toast('warn', '视频采样设置无效', e.message); return; }
+  videoUploadError = '';
+  store.set('video_sampling', {...sampling, ui_version:2});
   const controller = new AbortController();
   const pending = {kind: 'video_pending', name: `${file.name} (sampling…)`, controller};
-  attachments.push(pending);
+  if (replace && attachments.includes(replace)) attachments.splice(attachments.indexOf(replace), 1, pending);
+  else attachments.push(pending);
   renderAttachments();
   try {
     const encoded = await new Promise((resolve, reject) => {
@@ -953,18 +1086,23 @@ async function addVideo(file) {
       reader.readAsDataURL(file);
     });
     if (controller.signal.aborted) throw new DOMException('Cancelled', 'AbortError');
+    const {segmented, ...requestSampling} = sampling;
+    if (segmented) requestSampling.end_s = Math.min(sampling.end_s ?? Infinity, (sampling.start_s || 0) + sampling.max_frames / sampling.sampling_fps);
     const response = await fetch('v1/video/sample', {method: 'POST', headers: headers(true), signal: controller.signal,
-      body: JSON.stringify({data: encoded, mode: $('video-mode').value, max_frames: 8, sampling_fps: 1})});
+      body: JSON.stringify({data: encoded, mode: $('video-mode').value, ...requestSampling})});
     const result = await response.json();
     if (!response.ok) throw new Error(result.error?.message || `HTTP ${response.status}`);
     result.part.mode = $('video-mode').value;
+    if (segmented) { result.plan = StrataVideoAnalysis.plan(result.manifest, sampling); result.encoded = encoded; }
     if (!controller.signal.aborted && attachments.includes(pending)) {
-      attachments.splice(attachments.indexOf(pending), 1, {kind: 'video', name: file.name, ...result});
-      toast('info', 'Video sampled', `${result.manifest.coverage.sample_count} frames. Audio is not decoded; attach SRT/VTT or transcript text if needed.`);
+      attachments.splice(attachments.indexOf(pending), 1, {kind: 'video', name: file.name, file, ...result});
+      toast('info', segmented ? '视频已准备好，发送后逐段分析' : '视频采样完成', videoCoverageText(result));
     }
   } catch (error) {
-    if (error.name !== 'AbortError') toast('warn', 'Video could not be sampled', error.message);
-    attachments = attachments.filter((a) => a !== pending);
+    if (error.name !== 'AbortError') { videoUploadError = `视频上传失败：${error.message}`; toast('warn', 'Video could not be sampled', error.message); }
+    const index = attachments.indexOf(pending);
+    if (index >= 0 && replace && !controller.signal.aborted) attachments.splice(index, 1, replace);
+    else attachments = attachments.filter((a) => a !== pending);
   }
   renderAttachments();
 }
@@ -1008,18 +1146,24 @@ function fileBlock(f) {
 }
 function userText(m) {
   const files = (m.files || []).filter((f) => f.text != null);
-  return [m.text, ...files.map(fileBlock)].filter((s) => s).join("\n\n");
+  return [m.text, ...files.map(fileBlock), m.videoEvidence].filter((s) => s).join("\n\n");
 }
 function renderAttachments() {
+  updateVideoSampling();
   const box = $("attachments");
-  box.hidden = !attachments.length;
+  box.hidden = !attachments.length && !videoUploadError;
   box.innerHTML = "";
+  if (videoUploadError) {
+    const error = document.createElement('span'); error.className = 'chip chip--video'; error.setAttribute('role','alert'); error.textContent = videoUploadError;
+    const dismiss = document.createElement('button'); dismiss.type = 'button'; dismiss.className = 'st-btn st-btn--secondary'; dismiss.textContent = '移除失败的附件';
+    dismiss.onclick = () => { videoUploadError = ''; renderAttachments(); }; error.appendChild(dismiss); box.appendChild(error);
+  }
   attachments.forEach((a, i) => {
     const c = document.createElement("span");
-    c.className = "chip";
+    c.className = a.kind.startsWith('video') ? 'chip chip--video' : 'chip';
     c.innerHTML = icon(a.kind === "file" ? "attach" : "image", "st-icon st-icon--sm");
     const coverage = a.manifest?.coverage;
-    c.append(a.name + (coverage ? ` · ${coverage.sample_count} frames · ${Number(coverage.first_sample_s).toFixed(1)}–${Number(coverage.last_sample_s).toFixed(1)}s` : ''));
+    c.append(a.name + (coverage ? ` · ${videoCoverageText(a)}` : ''));
     const x = document.createElement("button");
     x.type = "button"; x.className = "st-btn st-btn--icon"; x.setAttribute("aria-label", "Remove");
     x.innerHTML = icon("trash");

@@ -279,6 +279,48 @@ class VideoUploadHTTP(unittest.TestCase):
             with Image.open(io.BytesIO(Vision.load(frame['source']))) as image:
                 self.assertEqual(image.size, (96, 64))
 
+    def test_custom_density_can_sample_more_than_eight_frames_in_both_modes_without_loading(self):
+        self.engine.native_video_build = True
+        for mode in ('frames','native'):
+            with self.subTest(mode=mode):
+                status, result = self.post({'data':self.encoded,'mode':mode,'max_frames':32,'sampling_fps':8})
+                self.assertEqual(status,200,result)
+                self.assertEqual(result['part']['mode'],mode)
+                self.assertEqual(len(result['part']['frames']),24)
+                self.assertEqual(result['manifest']['sampling']['max_frames'],32)
+                self.assertEqual(result['manifest']['sampling']['sampling_fps'],8)
+                self.assertAlmostEqual(result['manifest']['coverage']['max_sample_gap_s'],0.125)
+
+    def test_dense_windows_cover_288_cfr_source_frames_at_24_fps_without_loading(self):
+        from fractions import Fraction
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory)/'dense24.mp4'
+            with av.open(str(path), 'w') as output:
+                stream = output.add_stream('libx264', rate=24)
+                stream.width, stream.height, stream.pix_fmt = 96, 64, 'yuv420p'
+                stream.time_base = stream.codec_context.time_base = Fraction(1,24)
+                stream.codec_context.options = {'bf':'0','g':'24','threads':'1','preset':'ultrafast'}
+                for index in range(288):
+                    frame = av.VideoFrame.from_image(Image.new('RGB',(96,64),'red' if index%2 else 'blue'))
+                    frame.pts, frame.time_base = index, Fraction(1,24)
+                    for packet in stream.encode(frame):
+                        output.mux(packet)
+                for packet in stream.encode():
+                    output.mux(packet)
+            encoded = base64.b64encode(path.read_bytes()).decode()
+        self.engine.native_video_build = True
+        for mode in ('frames','native'):
+            times = []
+            for segment in range(18):
+                status, result = self.post({'data':encoded,'mode':mode,'max_frames':16,'sampling_fps':24,
+                                           'start_s':segment*16/24,'end_s':(segment+1)*16/24})
+                self.assertEqual(status,200,result)
+                self.assertEqual(len(result['part']['frames']),16)
+                times.extend(f['source_timestamp_s'] for f in result['part']['frames'])
+            self.assertEqual(len(set(times)),288)
+            for index, pts in enumerate(times):
+                self.assertAlmostEqual(pts,index/24)
+
     def test_trim_keeps_absolute_clock_and_relative_clip(self):
         status, result = self.post({'data': self.encoded, 'start_s': 1.25, 'end_s': 2.75,
                                     'sampling_fps': 2, 'max_frames': 8})

@@ -429,12 +429,14 @@ def sample_images(images: Iterable, *, fps=1.0, timestamps=None, source_duration
         if source_indices is not None and i >= len(source_indices):
             raise ValueError('Image/source index counts do not match')
         media_time = timestamps[i] if timestamps is not None else i/fps
-        if media_time < start_s or media_time >= stop:
+        start_tolerance = 4*max(math.ulp(media_time), math.ulp(start_s))
+        stop_tolerance = 4*max(math.ulp(media_time), math.ulp(stop))
+        if media_time < start_s - start_tolerance or media_time >= stop - stop_tolerance:
             continue
         if not preselected and media_time + 1e-9 < targets[target_index]:
             continue
         source_index = source_indices[i] if source_indices is not None else i
-        result.append(VideoFrame(len(result), media_time-start_s, origin+media_time,
+        result.append(VideoFrame(len(result), max(0.0, media_time-start_s), origin+media_time,
                                  bounded_image(image, max_pixels), 'pts' if timestamps is not None else 'estimated', source_index))
         check_cancel(cancel)
         if preselected:

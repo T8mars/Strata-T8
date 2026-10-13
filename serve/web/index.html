@@ -48,6 +48,20 @@
       </div>
     </div>
     <div class="composer-wrap">
+      <section id="video-sampling" class="video-sampling" hidden aria-label="视频采样设置">
+        <details><summary>视频分析设置</summary>
+        <div class="video-sampling__fields">
+          <label>采样预设<select id="video-preset" aria-label="视频采样预设"><option value="8">快速概览 · 8 帧</option><option value="32">单次观察 · 32 帧</option><option value="64">单次观察 · 64 帧</option><option value="dense24">全程分段 · 24 FPS</option><option value="dense30">全程分段 · 30 FPS</option><option value="custom">自定义</option></select></label>
+          <label>处理方式<select id="video-processing" aria-label="视频处理方式"><option value="single">单次概览</option><option value="segmented">全程分段分析</option></select></label>
+          <input id="video-max-frames" type="hidden" value="8">
+          <label>分析时长（秒）<input id="video-duration" aria-label="视频分析时长秒" type="number" min="0.001" max="3600" step="any" placeholder="整个视频"></label>
+          <label>每秒观察帧数<input id="video-fps" aria-label="视频每秒观察帧数" type="number" min="0.01" max="120" step="any" value="1"></label>
+          <label>从第几秒开始<input id="video-start" aria-label="视频采样开始秒" type="number" min="0" max="86400" step="any" value="0"></label>
+          <button id="video-resample" type="button" class="st-btn st-btn--secondary" hidden>按新参数重新采样</button>
+        </div>
+        <p id="video-sampling-status" role="status">全程分段可按 24/30 FPS 覆盖所选窗口，总帧数不限于 64；逐段观察后汇总，耗时随段数增加。音轨不参与分析。</p>
+        </details>
+      </section>
       <form class="st-composer" id="composer">
         <div class="attachments" id="attachments" hidden></div>
         <textarea id="input" rows="2" placeholder="Ask anything&hellip;" aria-label="Message"></textarea>
@@ -244,6 +258,7 @@
 </aside>
 <div class="scrim" id="scrim" hidden></div>
 <div class="st-toasts" id="toasts" aria-live="polite"></div>
+<script src="web/video-analysis.js"></script>
 <script src="web/app.js"></script>
 </body>
 </html>

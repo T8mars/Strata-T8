@@ -6,6 +6,7 @@
   "offline_model_import": true,
   "portable_model_settings_ui": true,
   "portable_first_run_without_model": true,
+  "portable_model_card_auto_switch": true,
   "portable_explicit_model_download_ui": true,
   "model_download_priority": [
     "modelscope",
@@ -28,6 +29,8 @@
   "comfyui_separate_repository": true,
   "video_frame_analysis": true,
   "video_sampling_cpu": true,
+  "video_full_window_streaming": true,
+  "video_duration_seconds_ui": true,
   "native_video_cuda": true,
   "native_video_hip": false,
   "native_video_default": false

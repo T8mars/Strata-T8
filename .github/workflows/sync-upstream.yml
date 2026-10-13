@@ -50,6 +50,13 @@ jobs:
       - name: Install test dependencies
         if: steps.sync.outputs.changed == 'true'
         run: python -m pip install -r requirements.txt -r requirements-portable.txt
+      - uses: actions/setup-node@v4
+        if: steps.sync.outputs.changed == 'true'
+        with:
+          node-version: '22'
+      - name: Browser video and model-switch logic
+        if: steps.sync.outputs.changed == 'true'
+        run: node --test tools/test_web_video.cjs
       - name: Validate merged source
         if: steps.sync.outputs.changed == 'true'
         run: |

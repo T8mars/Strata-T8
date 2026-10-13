@@ -59,7 +59,7 @@ function render(current) {
   if (first && redirect && current.configured && !current.running && current.job.state === "idle") {
     api("/api/start", {}).catch(e => { redirect = false; fail(e); });
   }
-  if (chat && redirect) { redirect = false; window.location.assign(chat); }
+  if (chat && redirect && !choosing) { redirect = false; window.location.assign(chat); }
 }
 async function poll() {
   if (polling) return;
@@ -78,7 +78,12 @@ async function scan() {
       button.dataset.path = model.path;
       const title = document.createElement("strong"), path = document.createElement("span");
       title.textContent = model.label + (model.bytes ? " · " + (model.bytes / 1e9).toFixed(1) + " GB" : ""); path.textContent = model.path;
-      button.append(title, path); button.onclick = () => { if (choosing || (state && ["preparing", "configuring", "starting", "stopping"].includes(state.job.state))) return; $("model-path").value = model.path; markSelectedModel(); check(); };
+      button.append(title, path); button.onclick = async () => {
+        if (choosing || (state && ["preparing", "configuring", "starting", "stopping"].includes(state.job.state))) return;
+        $("model-path").value = model.path; markSelectedModel();
+        if (state?.running && state.model?.path?.toLowerCase() === model.path.toLowerCase()) return;
+        await importSelectedModel();
+      };
       container.append(button);
     }
     markSelectedModel();
@@ -92,14 +97,42 @@ async function check() {
 }
 $("model-path").oninput = () => { $("check-result").hidden = true; markSelectedModel(); clearError(); };
 $("scan").onclick = scan; $("check").onclick = check;
-$("browse").onclick = async () => { clearError(); choosing = true; if (state) render(state); try { const result = await api("/api/browse", {}); if (result.path) { $("model-path").value = result.path; await check(); } } catch (e) { fail(e); } finally { choosing = false; if (state) render(state); } };
+$("browse").onclick = async () => {
+  clearError(); choosing = true; if (state) render(state); let selected = false;
+  try { const result = await api('/api/browse', {}); if (result.path) { $("model-path").value = result.path; await check(); selected = $("error-box").hidden; } }
+  catch (e) { fail(e); }
+  finally { choosing = false; if (state) render(state); }
+  if (selected) await importSelectedModel();
+};
 $("backend").onchange = () => { if ($("backend").value === "hip") { $("vision").value = "no"; $("native-video").checked = false; } };
 $("vision").onchange = () => { if ($("vision").value === "no") $("native-video").checked = false; };
-$("model-form").onsubmit = async e => {
-  e.preventDefault(); clearError(); redirect = true; $("save").disabled = true;
-  try { await api("/api/import", {path: $("model-path").value.trim(), port: Number($("port").value), context: Number($("context").value), vision: $("vision").value, backend: $("backend").value, native_video: $("native-video").checked}); }
-  catch (error) { redirect = false; fail(error); $("save").disabled = false; }
-};
+async function importSelectedModel() {
+  if (choosing || !$("model-form").reportValidity()) return;
+  const payload = {path: $("model-path").value.trim(), port: Number($("port").value), context: Number($("context").value), vision: $("vision").value, backend: $("backend").value, native_video: $("native-video").checked};
+  clearError(); redirect = true; choosing = true; if (state) render(state);
+  try {
+    try { await api("/api/import", payload); }
+    catch (error) {
+      // Older local launchers validate the model, then require a separate stop.
+      // Keep this transition automatic until that launcher is restarted.
+      if (!String(error.message).includes('请先停止当前服务，再更换模型')) throw error;
+      await api('/api/stop', {});
+      const deadline = Date.now() + 35000;
+      let stopped = false;
+      while (Date.now() < deadline) {
+        const current = await api('/api/status'); render(current);
+        if (current.job.state === 'error') throw new Error(current.job.error || current.job.message);
+        if (!current.running && current.job.state === 'idle') { stopped = true; break; }
+        await new Promise(resolve => setTimeout(resolve, 500));
+      }
+      if (!stopped) throw new Error('停止当前模型超时，请查看服务状态后重试。');
+      await api('/api/import', payload);
+    }
+    render(await api('/api/status'));
+  } catch (error) { redirect = false; fail(error); }
+  finally { choosing = false; if (state) render(state); }
+}
+$("model-form").onsubmit = async e => { e.preventDefault(); await importSelectedModel(); };
 $("start").onclick = async () => { clearError(); redirect = true; try { await api("/api/start", {}); } catch (e) { redirect = false; fail(e); } };
 $("stop").onclick = async () => { clearError(); redirect = false; try { await api("/api/stop", {}); } catch (e) { fail(e); } };
 $("prepare").onclick = async () => { clearError(); redirect = false; try { await api("/api/prepare", {path: $("download-path").value.trim(), accept_download: $("download-consent").checked}); } catch (e) { fail(e); } };
