@@ -88,6 +88,8 @@ def model_summary(data, portable):
             raise SetupError('未找到完整模型。请选择收到的 Strata-data 模型根目录，而不是内部 GGUF 子目录。') from error
         raise SetupError(f'模型文件不完整或不兼容：{error}') from error
     label = model.get('model_name')
+    if model.get('repository') == 'SC117/Qwen3.8-Flash-Next-GSQ-RCO-abliterated-GGUF':
+        label = f"SC117 Uncensored · {model['model']}"
     if not isinstance(label, str) or not label.strip() or len(label) > 200:
         label = f"{model['family'].upper()} · {model['model']}"
     return {'path': str(path), 'family': model['family'], 'quantization': model['model'],
@@ -272,14 +274,18 @@ class ModelSetup:
                 raise SetupError('正在处理上一次操作，请稍候。')
             if existing and self.process is not None and self.process.poll() is None:
                 return
-            if not existing and self.process is not None and self.process.poll() is None:
-                raise SetupError('请先停止当前服务，再更换模型。')
-            self.job = {'state': 'starting' if existing else 'configuring', 'message': '正在启动服务…' if existing else '正在检查并保存模型配置…', 'error': None}
+            running = self.process is not None and self.process.poll() is None
+            if not existing and not (running and normalized['port'] == self.backend_port):
+                free_port(normalized['port'], strict=True, exclude=[self.http.server_port])
+            self.job = {'state': 'starting' if existing else 'configuring', 'message': '正在启动服务…' if existing else ('正在停止当前服务并保存新配置…' if running else '正在检查并保存模型配置…'), 'error': None}
             threading.Thread(target=self._configure_and_start, args=(normalized, summary), daemon=True).start()
 
     def _configure_and_start(self, data, summary):
         try:
             if data is not None:
+                # Saving settings is the explicit switch action. Validate first,
+                # then stop only the child owned by this launcher.
+                self.stop_backend()
                 free_port(data['port'], strict=True, exclude=[self.http.server_port])
                 command = [sys.executable, '-X', 'utf8', '-u', str(self.root/'portable.py'), 'import',
                            '--data-dir', data['path'], '--port', str(data['port']), '--context', str(data['context']),
@@ -414,6 +420,7 @@ class ModelSetup:
                 return
             self.process = subprocess.Popen(command, cwd=self.root, stdout=self.log, stderr=subprocess.STDOUT,
                          env={**os.environ, 'PYTHONDONTWRITEBYTECODE': '1', 'STRATA_PORTABLE_UI_URL': self.url,
+                              'STRATA_PORTABLE_MODEL_LABEL': (self.model or {}).get('label', ''),
                               'STRATA_PORTABLE_UI_ID': self.backend_id},
                          creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
             contain(self.process)

@@ -4,6 +4,7 @@ import json
 import os
 from pathlib import Path
 import socket
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -221,10 +222,50 @@ HTTPServer(('127.0.0.1',int(sys.argv[1])),H).serve_forever()
         with socket.socket() as external:
             external.bind(('127.0.0.1',0)); external.listen()
             payload['port'] = external.getsockname()[1]
-            self.assertEqual(self.request('/api/import',payload)[0],202)
-            self.assertEqual(self.wait_job(), 'error')
+            self.assertEqual(self.request('/api/import',payload)[0],400)
             self.assertEqual(external.getsockname()[1],payload['port'])
             self.assertIsNone(self.app.process)
+
+    def test_save_switches_an_active_owned_backend_without_touching_an_external_listener(self):
+        payload = self.payload()
+        spawn,created = self.fake_popen()
+        with socket.socket() as external, mock.patch.object(ui.subprocess,'Popen',side_effect=spawn):
+            external.bind(('127.0.0.1',0)); external.listen()
+            self.request('/api/import',payload)
+            self.assertEqual(self.wait_job(),'ready')
+            old = self.app.process
+            second = self.root.parent/'Strata-data-sc117'
+            shutil.copytree(Path(payload['path']),second)
+            self.fingerprint['data'] = str(second)
+            self.assertEqual(self.request('/api/import',{**payload,'path':str(second)})[0],202)
+            self.assertEqual(self.wait_job(),'ready',self.app.job)
+            self.assertEqual(self.app.model['path'],str(second.resolve()))
+            self.assertIsNotNone(old.poll())
+            self.assertIsNot(self.app.process,old)
+            self.assertIsNone(self.app.process.poll())
+            self.assertGreater(external.fileno(),-1)
+            self.assertEqual(len(created),4)
+
+    def test_invalid_switch_port_keeps_the_active_owned_backend_running(self):
+        payload = self.payload()
+        spawn,created = self.fake_popen()
+        with socket.socket() as external, mock.patch.object(ui.subprocess,'Popen',side_effect=spawn):
+            external.bind(('127.0.0.1',0)); external.listen()
+            self.request('/api/import',payload)
+            self.assertEqual(self.wait_job(),'ready')
+            old = self.app.process
+            self.assertEqual(self.request('/api/import',{**payload,'port':external.getsockname()[1]})[0],400)
+            self.assertIs(self.app.process,old)
+            self.assertIsNone(old.poll())
+            self.assertEqual(self.app.job['state'],'ready')
+
+    def test_known_sc117_delivery_has_a_clear_uncensored_label(self):
+        data = self.model()
+        descriptor = data/'portable-model.json'
+        value = json.loads(descriptor.read_text())
+        value['repository']='SC117/Qwen3.8-Flash-Next-GSQ-RCO-abliterated-GGUF'
+        descriptor.write_text(json.dumps(value))
+        self.assertEqual(self.request('/api/check',{'path':str(data)})[2]['model']['label'],'SC117 Uncensored · IQ3_S')
 
     def test_owned_configuration_and_ready_backend_then_stop(self):
         payload = self.payload()
@@ -382,11 +423,23 @@ HTTPServer(('127.0.0.1',int(sys.argv[1])),H).serve_forever()
 
     def test_default_browser_start_routes_to_model_page_before_reading_a_model(self):
         with mock.patch('sys.argv',['portable.py']),mock.patch.object(portable,'environment_check'), \
+             mock.patch('portable_update.check_update'), \
              mock.patch('serve.portable_ui.run',return_value=0) as run, \
              mock.patch.object(portable,'model_delivery') as delivery,mock.patch('os.chdir'):
             self.assertEqual(portable.main(),0)
             run.assert_called_once()
             delivery.assert_not_called()
+
+    def test_default_browser_start_checks_updates_without_waiting_for_model_setup(self):
+        with mock.patch('sys.argv',['portable.py']),mock.patch.object(portable,'environment_check'), \
+             mock.patch('portable_update.check_update') as update, \
+             mock.patch('serve.portable_ui.run',return_value=0) as run, mock.patch('os.chdir'), \
+             mock.patch.object(portable.threading,'Thread') as worker:
+            worker.return_value.start.side_effect = lambda: worker.call_args.kwargs['target']()
+            self.assertEqual(portable.main(),0)
+            update.assert_called_once_with()
+            self.assertTrue(worker.call_args.kwargs['daemon'])
+            run.assert_called_once()
 
     def test_settings_action_and_invalid_ui_port(self):
         with mock.patch('sys.argv',['portable.py','settings','--no-browser']),mock.patch.object(portable,'environment_check'), \

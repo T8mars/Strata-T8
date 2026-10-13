@@ -17,9 +17,10 @@
       <section class="card model-card" aria-labelledby="model-heading">
         <div class="card-heading"><span class="step">01</span><div><h2 id="model-heading">本地模型</h2><p>模型可以放在其他磁盘，无需复制进程序目录。</p></div></div>
         <form id="model-form">
+          <p id="running-notice" class="running-notice" hidden>服务正在运行。可以直接选择其他模型，保存时会停止当前服务并切换。</p>
           <label for="model-path">模型目录</label>
           <div class="path-row"><input id="model-path" name="path" type="text" placeholder="例如 E:\Strata-data" autocomplete="off" spellcheck="false" required><button type="button" id="browse" class="button secondary">选择文件夹</button></div>
-          <p class="field-help">选择完整的 <strong>Strata-data</strong> 文件夹，程序会检查模型和辅助文件。</p>
+          <p class="field-help">选择完整的 <strong>Strata-data</strong> 文件夹，或点击下方模型卡片，程序会检查模型和辅助文件。</p>
           <div class="directory-actions"><button type="button" id="check" class="text-button">检查目录</button><button type="button" id="scan" class="text-button">发现本机模型</button></div>
           <div id="candidates" class="candidates" hidden aria-label="本机发现的模型"></div>
           <div id="check-result" class="check-result" hidden role="status"></div>

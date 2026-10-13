@@ -116,7 +116,9 @@ async function loadHealth() {
     const modes = videoStatus.capabilities?.video?.modes || [];
     $('video-mode').hidden = !modes.includes('frames');
     $('video-native').disabled = !modes.includes('native');
-    $("chat-empty-sub").textContent = `${health.model} runs on this PC. Nothing leaves it.`;
+    if (health.portable_model_settings) $('video-mode').title = modes.includes('native') ? '选择视频分析模式' : '原生视频需在模型设置的运行设置中启用 NVIDIA 原生双帧视频分析';
+    const displayModel = typeof health.portable_model_label === 'string' ? health.portable_model_label : health.model;
+    $("chat-empty-sub").textContent = `${displayModel} runs on this PC. Nothing leaves it.`;
   } catch (e) {
     setTimeout(loadHealth, 2000);
   }

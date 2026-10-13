@@ -5222,6 +5222,9 @@ def make_handler(svc: Service):
                 if setup_url:
                     health['portable_model_settings'] = setup_url
                     health['portable_launcher_instance'] = svc.portable_launcher_instance
+                    label = getattr(svc, 'portable_model_label', None)
+                    if label:
+                        health['portable_model_label'] = label
                 self._json(200, health)
             elif path == "/status":
                 if not self._authorized():                  # #212: it shows the end of the last answer
@@ -6782,6 +6785,9 @@ def main() -> int:
                 and not parsed_setup.fragment and not parsed_setup.username and not parsed_setup.password):
             svc.portable_settings_url = setup_url
             svc.portable_launcher_instance = os.environ.get('STRATA_PORTABLE_UI_ID', '')
+            label = os.environ.get('STRATA_PORTABLE_MODEL_LABEL', '')
+            if label and len(label) <= 200 and all(ord(c) >= 32 for c in label):
+                svc.portable_model_label = label
     except ValueError:
         pass
     if a.config:

@@ -12,6 +12,12 @@ async function api(path, body) {
 }
 function fail(error) { $("error-detail").textContent = error.message || String(error); $("error-box").hidden = false; }
 function clearError() { $("error-box").hidden = true; }
+function markSelectedModel() {
+  for (const button of $("candidates").querySelectorAll("button")) {
+    const selected = button.dataset.path === $("model-path").value.trim();
+    button.classList.toggle("selected", selected); button.setAttribute("aria-pressed", String(selected));
+  }
+}
 function localChatURL(value) {
   try { const u = new URL(value); if (u.protocol === "http:" && u.hostname === "127.0.0.1" && u.port && u.pathname === "/" && !u.username && !u.password && !u.search && !u.hash) return u.href; } catch (e) {}
   return null;
@@ -29,8 +35,13 @@ function render(current) {
     initialized = true;
   }
   const busy = ["preparing", "configuring", "starting", "stopping"].includes(current.job.state);
-  const blocked = busy || current.running || choosing;
-  for (const id of ["model-path", "browse", "check", "scan", "port", "context", "backend", "vision", "native-video", "save", "download-path", "download-consent", "prepare"]) $(id).disabled = blocked;
+  const blocked = busy || choosing;
+  for (const id of ["model-path", "browse", "check", "scan", "port", "context", "backend", "vision", "native-video", "save"]) $(id).disabled = blocked;
+  for (const id of ["download-path", "download-consent", "prepare"]) $(id).disabled = blocked || current.running;
+  for (const button of $("candidates").querySelectorAll("button")) button.disabled = blocked;
+  $("running-notice").hidden = !current.running;
+  $("save").textContent = current.running ? "保存并切换模型" : "保存并进入";
+  markSelectedModel();
   $("start").hidden = !current.configured || current.running; $("start").disabled = busy;
   $("stop").hidden = !current.running; $("stop").disabled = busy;
   const badges = {idle: "待设置", preparing: "准备模型", prepared: "模型已准备", configuring: "保存配置", starting: "正在启动", stopping: "正在停止", ready: "已就绪", error: "需要处理"};
@@ -64,19 +75,22 @@ async function scan() {
     if (!result.models.length) { container.textContent = "未在程序附近发现完整模型，请选择模型所在文件夹。"; return; }
     for (const model of result.models) {
       const button = document.createElement("button"); button.type = "button"; button.className = "candidate";
+      button.dataset.path = model.path;
       const title = document.createElement("strong"), path = document.createElement("span");
       title.textContent = model.label + (model.bytes ? " · " + (model.bytes / 1e9).toFixed(1) + " GB" : ""); path.textContent = model.path;
-      button.append(title, path); button.onclick = () => { if (choosing || (state && (state.running || ["preparing", "configuring", "starting", "stopping"].includes(state.job.state)))) return; $("model-path").value = model.path; check(); };
+      button.append(title, path); button.onclick = () => { if (choosing || (state && ["preparing", "configuring", "starting", "stopping"].includes(state.job.state))) return; $("model-path").value = model.path; markSelectedModel(); check(); };
       container.append(button);
     }
+    markSelectedModel();
   } catch (e) { fail(e); }
 }
 async function check() {
   clearError();
-  try { const result = await api("/api/check", {path: $("model-path").value.trim()}); $("check-result").textContent = "检查通过 · " + result.model.label + " · 模型与辅助文件完整"; $("check-result").hidden = false; }
-  catch (e) { $("check-result").hidden = true; fail(e); }
+  const requested = $("model-path").value.trim();
+  try { const result = await api("/api/check", {path: requested}); if ($("model-path").value.trim() !== requested) return; $("model-path").value = result.model.path; markSelectedModel(); $("check-result").textContent = "检查通过 · " + result.model.label + " · 模型与辅助文件完整"; $("check-result").hidden = false; }
+  catch (e) { if ($("model-path").value.trim() !== requested) return; $("check-result").hidden = true; fail(e); }
 }
-$("model-path").oninput = () => { $("check-result").hidden = true; clearError(); };
+$("model-path").oninput = () => { $("check-result").hidden = true; markSelectedModel(); clearError(); };
 $("scan").onclick = scan; $("check").onclick = check;
 $("browse").onclick = async () => { clearError(); choosing = true; if (state) render(state); try { const result = await api("/api/browse", {}); if (result.path) { $("model-path").value = result.path; await check(); } } catch (e) { fail(e); } finally { choosing = false; if (state) render(state); } };
 $("backend").onchange = () => { if ($("backend").value === "hip") { $("vision").value = "no"; $("native-video").checked = false; } };

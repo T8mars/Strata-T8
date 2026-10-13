@@ -419,14 +419,14 @@ def main():
         ap.error('--ui-port must be between 1 and 65535')
     os.chdir(ROOT)
     environment_check()
+    if args.action == 'start':
+        from portable_update import check_update
+        threading.Thread(target=check_update, daemon=True).start()
     # Browser startup must work before a recipient has supplied a model. Import,
     # checks and explicitly headless startup keep their existing offline path.
     if args.action == 'settings' or (args.action == 'start' and not args.no_browser):
         from serve.portable_ui import run
         return run(args)
-    if args.action == 'start':
-        from portable_update import check_update
-        threading.Thread(target=check_update, daemon=True).start()
     isolate_setup()
     if args.action == 'check':
         sys.argv = ['setup.py', '--check', '--data-dir', str(data_path(args.data_dir))]
