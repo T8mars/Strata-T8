@@ -5215,9 +5215,14 @@ def make_handler(svc: Service):
                 self.end_headers()
                 self.wfile.write(body)
             elif path in ("/health", "/api/health"):
-                self._json(200, {"status": "ok", "max_context": svc.reported_ctx(), "model": svc.model,
+                health = {"status": "ok", "max_context": svc.reported_ctx(), "model": svc.model,
                                  "images": svc.vision is not None, "api_key": bool(svc.api_key),
-                                 "loaded": svc.loaded(), "service": "strata"})
+                                 "loaded": svc.loaded(), "service": "strata"}
+                setup_url = getattr(svc, 'portable_settings_url', None)
+                if setup_url:
+                    health['portable_model_settings'] = setup_url
+                    health['portable_launcher_instance'] = svc.portable_launcher_instance
+                self._json(200, health)
             elif path == "/status":
                 if not self._authorized():                  # #212: it shows the end of the last answer
                     return
@@ -6769,6 +6774,16 @@ def main() -> int:
         svc.gpu_indices = [c for g in groups for c in g]
         svc.gpu_index = svc.gpu_indices[0]
     svc.backend = cfg.get("backend")                    # "hip": the AMD cards' readings come from sysfs (#301)
+    setup_url = os.environ.get('STRATA_PORTABLE_UI_URL', '')
+    try:
+        parsed_setup = urlsplit(setup_url)
+        if (parsed_setup.scheme == 'http' and parsed_setup.hostname == '127.0.0.1'
+                and parsed_setup.port and parsed_setup.path == '/' and not parsed_setup.query
+                and not parsed_setup.fragment and not parsed_setup.username and not parsed_setup.password):
+            svc.portable_settings_url = setup_url
+            svc.portable_launcher_instance = os.environ.get('STRATA_PORTABLE_UI_ID', '')
+    except ValueError:
+        pass
     if a.config:
         svc.config_path = a.config                      # #564: the web page's Settings view
     if a.config:                                        # the Chat settings shared with other apps, from last time

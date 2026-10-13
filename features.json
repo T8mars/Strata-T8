@@ -4,6 +4,9 @@
   "bundled_cuda": true,
   "bundled_hip": true,
   "offline_model_import": true,
+  "portable_model_settings_ui": true,
+  "portable_first_run_without_model": true,
+  "portable_explicit_model_download_ui": true,
   "model_download_priority": [
     "modelscope",
     "hf-mirror",

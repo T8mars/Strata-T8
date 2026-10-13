@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="strata-setup-token" content="@@TOKEN@@">
+  <title>Strata-T8 · 模型设置</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='16' fill='%230b756f'/%3E%3Cpath d='M17 22h30M17 32h24M17 42h18' stroke='white' stroke-width='6' stroke-linecap='round'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="/setup.css">
+  <script src="/setup.js" defer></script>
+</head>
+<body>
+  <header class="topbar"><a class="brand" href="/" aria-label="Strata-T8 模型设置"><span class="brand-mark" aria-hidden="true">S</span>Strata<span class="brand-t8">T8</span></a><span class="version">@@VERSION@@</span></header>
+  <main>
+    <section class="intro"><span class="eyebrow">本地运行 · 一次设置</span><h1>选择模型，开始使用。</h1><p>Python 和运行依赖已包含。连接你收到的模型文件夹，即可进入聊天、图像与视频分析。</p></section>
+    <div class="layout">
+      <section class="card model-card" aria-labelledby="model-heading">
+        <div class="card-heading"><span class="step">01</span><div><h2 id="model-heading">本地模型</h2><p>模型可以放在其他磁盘，无需复制进程序目录。</p></div></div>
+        <form id="model-form">
+          <label for="model-path">模型目录</label>
+          <div class="path-row"><input id="model-path" name="path" type="text" placeholder="例如 E:\Strata-data" autocomplete="off" spellcheck="false" required><button type="button" id="browse" class="button secondary">选择文件夹</button></div>
+          <p class="field-help">选择完整的 <strong>Strata-data</strong> 文件夹，程序会检查模型和辅助文件。</p>
+          <div class="directory-actions"><button type="button" id="check" class="text-button">检查目录</button><button type="button" id="scan" class="text-button">发现本机模型</button></div>
+          <div id="candidates" class="candidates" hidden aria-label="本机发现的模型"></div>
+          <div id="check-result" class="check-result" hidden role="status"></div>
+          <details class="advanced"><summary>运行设置</summary><div class="fields">
+            <div><label for="port">服务端口</label><input id="port" type="number" min="1" max="65535" required><p class="field-help">默认选择空闲端口。</p></div>
+            <div><label for="context">上下文长度</label><input id="context" type="number" min="512" max="131072" value="32768" required><p class="field-help">默认 32768；更长上下文需要更多内存。</p></div>
+            <div><label for="backend">显卡</label><select id="backend"><option value="auto">自动选择</option><option value="cuda">NVIDIA</option><option value="hip">AMD（文本）</option></select></div>
+            <div><label for="vision">视觉模式</label><select id="vision"><option value="auto">自动选择</option><option value="no">仅文本</option><option value="gpu">NVIDIA GPU 视觉</option><option value="cpu">CPU 视觉</option></select></div>
+          </div><label class="checkbox"><input id="native-video" type="checkbox">启用 NVIDIA 原生双帧视频分析</label><p class="field-help">需要兼容的 Qwen 模型和视觉权重；默认关闭。</p></details>
+          <div class="form-footer"><button type="submit" id="save" class="button primary">保存并进入</button><span class="footer-note">只使用本机文件</span></div>
+        </form>
+      </section>
+      <aside class="side">
+        <section class="card status-card" aria-labelledby="status-heading"><div class="card-heading"><span class="step">02</span><h2 id="status-heading">服务状态</h2></div><span class="badge" id="status-badge">待设置</span><p class="status-message" id="status-message" aria-live="polite">正在读取设置…</p><p class="muted" id="current-model"></p><a id="enter-chat" class="button primary full" hidden>进入聊天</a><button id="start" type="button" class="button secondary full" hidden>启动已有配置</button><button id="stop" type="button" class="text-button" hidden>停止服务并更换模型</button><p class="field-help">模型按需加载。首次发送请求时，请等待模型加载完成。</p></section>
+        <section class="card help-card"><h2>还没有模型？</h2><p>向分发者获取独立模型包，解压后选择完整模型目录。也可在这里下载并准备官方 IQ3_S。</p><details><summary>下载 / 准备官方模型</summary><label for="download-path">模型保存目录</label><input id="download-path" type="text" placeholder="例如 D:\模型\Strata-data" autocomplete="off" spellcheck="false"><p>最多约 89GB 下载，另需预处理空间。优先使用 ModelScope、国内镜像；已有校验通过的文件会复用。仅有官方 GGUF 时，可放到该目录的 models/IQ3_S 内。</p><label class="checkbox"><input id="download-consent" type="checkbox">我已了解下载流量与磁盘需求</label><button type="button" id="prepare" class="button secondary full">下载并准备模型</button></details><details><summary>模型来源与安装说明</summary><div class="source-links"><a href="https://modelscope.cn/models/ISTA-DASLab/Qwen3.8-Flash-Next-GSQ-RCO-GGUF" target="_blank" rel="noopener noreferrer">ModelScope</a><a href="https://hf-mirror.com/ISTA-DASLab/Qwen3.8-Flash-Next-GSQ-RCO-GGUF/tree/main/IQ3_S" target="_blank" rel="noopener noreferrer">国内镜像</a><a href="https://huggingface.co/ISTA-DASLab/Qwen3.8-Flash-Next-GSQ-RCO-GGUF" target="_blank" rel="noopener noreferrer">Hugging Face</a></div><p>其他变体（如 SC117）请选择已经准备好的对应模型目录；官方准备功能不会混用已有变体。</p><a href="https://github.com/T8mars/Strata-T8#readme" target="_blank" rel="noopener noreferrer">查看完整模型安装说明 ↗</a></details></section>
+      </aside>
+    </div>
+    <section id="error-box" class="error-box" hidden role="alert"><strong>操作未完成</strong><pre id="error-detail"></pre></section>
+    <details id="log-box" class="card logs" hidden><summary>查看处理日志</summary><pre id="log-detail"></pre></details>
+    <footer>设置和模型均保留在本机。关闭启动窗口会停止本启动器开启的服务。</footer>
+  </main>
+</body>
+</html>

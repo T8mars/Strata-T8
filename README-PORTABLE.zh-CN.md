@@ -5,20 +5,24 @@
 ## 开始使用
 
 1. 解压到可写的 SSD 目录，不要在压缩包内运行。
-2. 将完整 `Strata-data` 放到 `START-HERE.bat` 同一目录，或程序文件夹旁。
-3. 运行 `CHECK-ENV.bat`，再双击 `START-HERE.bat`。
-4. 浏览器打开 `http://127.0.0.1:8080`。按 Ctrl+C 或关闭启动窗口停止服务。
+2. 双击 **START-HERE.bat**，浏览器直接打开模型设置页；尚未提供模型也能进入。
+3. 选择收到的完整 **Strata-data** 目录，点击 **保存并进入**。可选择页面发现的本机模型或其他磁盘目录。
+4. 配置完成后进入聊天。后续启动自动进入已配置的服务，聊天页的 **模型设置** 可停止服务再更换模型。按 Ctrl+C 或关闭启动窗口停止。
 
-模型放在其他磁盘时运行 `IMPORT-MODEL.bat`，输入完整数据目录。也可执行：
+设置页使用本地空闲端口，默认从 17880 开始；聊天/API 端口默认 8080，忙碌时自动选择空闲端口，以页面显示的地址为准。模型按需加载，首次请求可能需要等待。没有模型时，可在网页确认约 89GB 的下载需求后准备官方 IQ3_S；普通启动、目录检查和导入仍不下载模型。详见[模型设置](docs/MODEL-SETUP.zh-CN.md)。
+
+网页可以直接设置其他磁盘的模型目录。高级用户也可执行：
 
 ```bat
 IMPORT-MODEL.bat --data-dir "D:\模型\Strata-data"
 START-HERE.bat --port 8081
 START-HERE.bat --context 32768
 START-HERE.bat --backend hip
+START-PORTABLE.bat settings
+START-PORTABLE.bat start --no-browser
 ```
 
-首次启动或换电脑时自动配置；配置保存在 `strata-*.json`，模型位置在 `portable-settings.json`。同一电脑升级程序后保留端口、API key、上下文及手动引擎参数，仅更新运行库路径和必要的上游兼容设置。主动配置或更换硬件时重新生成引擎参数，保留端口和 API key；配置失败恢复原文件，恢复被文件锁阻止时明确报告。
+首次启动或换电脑时在网页保存配置；配置保存在 `strata-*.json`，模型位置在 `portable-settings.json`。同一电脑升级程序后保留 API key、上下文及手动引擎参数，刷新运行库路径和必要的上游兼容设置；端口忙碌时网页启动选择空闲端口。主动配置或更换硬件时重新生成引擎参数；配置失败恢复原文件，恢复被文件锁阻止时明确报告。
 
 ## 独立模型目录
 

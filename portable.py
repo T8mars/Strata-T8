@@ -397,7 +397,7 @@ def configure(data, context=None, backend=None, vision=None, vision_tokens=None,
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument('action', nargs='?', default='start', choices=['start', 'configure', 'import', 'check'])
+    ap.add_argument('action', nargs='?', default='start', choices=['start', 'configure', 'import', 'check', 'settings'])
     ap.add_argument('--data-dir')
     ap.add_argument('--context', type=int)
     ap.add_argument('--backend', choices=['cuda', 'hip'])
@@ -407,6 +407,7 @@ def main():
     ap.add_argument('--native-video', action=argparse.BooleanOptionalAction, default=None,
                     help='opt in to NVIDIA native temporal video encoding (--no-native-video disables it)')
     ap.add_argument('--no-browser', action='store_true')
+    ap.add_argument('--ui-port', type=int, help='local model-settings page port')
     args = ap.parse_args()
     if args.vision_tokens is not None and args.vision_tokens < 1:
         ap.error('--vision-tokens must be positive')
@@ -414,8 +415,15 @@ def main():
         ap.error('--port must be between 1 and 65535')
     if args.context is not None and args.context < 1:
         ap.error('--context must be positive')
+    if args.ui_port is not None and not 1 <= args.ui_port <= 65535:
+        ap.error('--ui-port must be between 1 and 65535')
     os.chdir(ROOT)
     environment_check()
+    # Browser startup must work before a recipient has supplied a model. Import,
+    # checks and explicitly headless startup keep their existing offline path.
+    if args.action == 'settings' or (args.action == 'start' and not args.no_browser):
+        from serve.portable_ui import run
+        return run(args)
     if args.action == 'start':
         from portable_update import check_update
         threading.Thread(target=check_update, daemon=True).start()

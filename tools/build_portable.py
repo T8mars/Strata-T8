@@ -40,6 +40,7 @@ DOCS = (
     'VALIDATION-UPSTREAM-0142-T8.md',
     'VIDEO-ANALYSIS.zh-CN.md',
     'VALIDATION-VIDEO-T8.md',
+    'MODEL-SETUP.zh-CN.md',
 )
 
 

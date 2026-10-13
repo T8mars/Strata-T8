@@ -100,6 +100,16 @@ let health = {model: "strata", images: false, max_context: 0};
 async function loadHealth() {
   try {
     health = await (await fetch("health")).json();
+    const modelSettings = $("portable-model-settings");
+    if (modelSettings && health.portable_model_settings && ["127.0.0.1", "localhost", "[::1]"].includes(location.hostname)) {
+      try {
+        const url = new URL(health.portable_model_settings);
+        if (url.protocol === "http:" && url.hostname === "127.0.0.1" && url.port && url.pathname === "/" && !url.search && !url.hash && !url.username && !url.password) {
+          modelSettings.href = url.href;
+          modelSettings.hidden = false;
+        }
+      } catch (e) { /* a malformed optional settings link stays hidden */ }
+    }
     $("attach-btn").title = health.images ? "Attach a text file, picture or video (or drop it here)"
                                           : "Attach a text file (or drop it here)";
     const videoStatus = await (await fetch('v1/status', {headers: headers()})).json();
