@@ -49,7 +49,7 @@ def main():
         sys.exit(1)
     a = sys.argv
     model = a[a.index("--model") + 1].lower()
-    cfg = {"exe": sys.executable, "args": ["--max-context", a[a.index("--context") + 1]], "port": 8080,
+    cfg = {"exe": sys.executable, "args": ["--max-context", a[a.index("--context") + 1]], "port": __TEST_PORT__,
            "model_name": "qwen3.8-flash-next-" + model, "log": str(root / f"strata-{model}.log")}
     (root / f"strata-{model}.json").write_text(json.dumps(cfg))
     print("All set.", flush=True)
@@ -151,9 +151,15 @@ class FakeRoot(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         base = Path(self.tmp.name)
+        # Discovery and stop also probe the default port. Never reach a user's
+        # real 8080 service from these fake-server lifecycle tests.
+        self.default_port = free_port()
+        default_port = mock.patch.object(M, "DEFAULT_PORT", self.default_port)
+        default_port.start()
+        self.addCleanup(default_port.stop)
         self.root = base / "Strata"
         (self.root / "serve").mkdir(parents=True)
-        (self.root / "setup.py").write_text(FAKE_SETUP)
+        (self.root / "setup.py").write_text(FAKE_SETUP.replace("__TEST_PORT__", str(self.default_port)))
         (self.root / "serve" / "server.py").write_text(FAKE_SERVER)
         self.env_backup = {k: os.environ.get(k) for k in ("APPDATA", "XDG_CONFIG_HOME")}
         os.environ["APPDATA"] = os.environ["XDG_CONFIG_HOME"] = str(base / "config")
@@ -203,7 +209,9 @@ class FakeRoot(unittest.TestCase):
         res = r["result"]
         return json.loads(res["content"][0]["text"]), res["isError"]
 
-    def write_config(self, tag="q2_0", port=8080, **extra):
+    def write_config(self, tag="q2_0", port=None, **extra):
+        if port is None:
+            port = self.default_port
         cfg = {"exe": sys.executable, "args": ["--max-context", "32768"], "port": port,
                "model_name": f"qwen3.8-flash-next-{tag}", "log": str(self.root / f"strata-{tag}.log"), **extra}
         (self.root / f"strata-{tag}.json").write_text(json.dumps(cfg))
@@ -422,6 +430,16 @@ class Install(FakeRoot):
 
 # ------------------------------------------------------------------------------------------------ start / stop / status
 class StartStop(FakeRoot):
+    def test_fake_lifecycle_discovery_never_contacts_the_user_default_port(self):
+        self.write_config()
+        with mock.patch.object(M, "http_json", return_value=(0, None)) as requests:
+            for action in ("strata_status", "strata_stop"):
+                result, error = self.call(action, {"hardware": False} if action == "strata_status" else {})
+                self.assertFalse(error, result)
+        self.assertTrue(requests.called)
+        for call in requests.call_args_list:
+            self.assertTrue(call.args[0].startswith(f"http://127.0.0.1:{self.default_port}/"), call.args[0])
+
     def test_start_status_bench_stop(self):
         port = free_port()
         self.write_config("q2_0", port=port, delay=1.5)
