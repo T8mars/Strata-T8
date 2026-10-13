@@ -1,5 +1,7 @@
 # Strata-T8 Windows 整合包
 
+**By T8star**
+
 内置独立 Python、锁定 Python 依赖、NVIDIA CUDA / AMD HIP 引擎及运行库。无需安装 Python、Git、编译器或 CUDA Toolkit；显卡驱动由电脑提供。VisionReady 包含视觉权重与配置模板，主模型和 MTP 独立分发。
 
 ## 开始使用
@@ -71,3 +73,17 @@ ComfyUI 节点在 [Comfyui-Strata-T8](https://github.com/T8mars/Comfyui-Strata-T
 网页支持上传本地视频。“视频分析设置”默认折叠，填写秒数与每秒观察帧数后自动分段计算；10 秒、24 帧/秒规划约 240 帧，逐段观察后汇总，并显示实际帧数和进度。快速概览保留默认 8 帧。节点 1.1.2 新增 Full Video Analyze，直接接官方 VIDEO / 原始 IMAGE 输入，按秒数全程分段汇总，输出报告、JSON、证据和采样覆盖范围。视频解码依赖已内置；声音需另附 SRT/VTT 或转写文本。
 
 NVIDIA 原生双帧编码需主动启用：`START-HERE.bat --native-video`；关闭用 `--no-native-video`。它复用现有 Qwen 主模型和 VisionReady 视觉权重，无需额外模型。网页的视频模式可切换抽帧或原生编码；AMD 目前只保留既有文本引擎能力。详细限制、API 与验收见 [视频分析说明](docs/VIDEO-ANALYSIS.zh-CN.md)。
+
+## T8star 与资源
+
+**By T8star** · [整合包仓库](https://github.com/T8mars/Strata-T8) · [ComfyUI 节点仓库](https://github.com/T8mars/Comfyui-Strata-T8)
+
+| 链接 | 地址 |
+| --- | --- |
+| B站 | [B站](https://space.bilibili.com/385085361) |
+| YouTube | [YouTube](https://www.youtube.com/@T8star-Aix/) |
+| API | [API](https://api.seedance.nz/sign-up?aff=5f4w) |
+| 免费画廊 | [免费画廊](https://www.openzhenzhen.com) |
+| 在线 AI 应用 | [在线 AI 应用](https://www.runninghub.ai/zh-cn/user-center/1907375370302308353/userPost?inviteCode=rh-v1121) |
+| ComfyUI 整合包 | [ComfyUI 整合包](https://pan.quark.cn/s/264edb7e36bd) |
+| Hugging Face | [Hugging Face](https://huggingface.co/t8star) |

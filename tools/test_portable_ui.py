@@ -156,6 +156,72 @@ HTTPServer(('127.0.0.1',int(sys.argv[1])),H).serve_forever()
         self.app.current_config = config
         self.assertNotIn('private-key',json.dumps(self.request('/api/status')[2]))
 
+    def update_release(self):
+        name = 'Strata-T8-0.1.42-t8.7-Windows-x64-Portable-NoModels.zip'
+        return {'tag_name':'v0.1.42-t8.7','assets':[{'name':name},{'name':name+'.sha256'}]}
+
+    def wait_update(self):
+        deadline = time.monotonic()+5
+        while self.app.update['state'] == 'checking' and time.monotonic()<deadline:
+            time.sleep(.02)
+        self.assertNotEqual(self.app.update['state'],'checking')
+
+    def test_update_check_is_read_only_and_offline_errors_do_not_stop_service(self):
+        with mock.patch('tools.portable_update.latest_release',return_value=self.update_release()) as latest, \
+             mock.patch.object(self.app,'stop_backend') as stop:
+            self.assertEqual(self.request('/api/update/check',{})[0],202)
+            self.wait_update()
+            update = self.request('/api/status')[2]['update']
+            self.assertTrue(update['available'])
+            latest.assert_called_once_with('T8mars/Strata-T8',timeout=5)
+            stop.assert_not_called()
+        with mock.patch('tools.portable_update.latest_release',side_effect=OSError('offline')), \
+             mock.patch.object(self.app,'stop_backend') as stop:
+            self.app.check_updates(); self.wait_update()
+            self.assertEqual(self.app.update['state'],'error')
+            self.assertFalse(self.app.update['available'])
+            self.assertEqual(self.app.job['state'],'idle')
+            stop.assert_not_called()
+
+    def test_update_requires_token_empty_body_and_a_supported_ready_release(self):
+        self.assertEqual(self.request('/api/update/check',{}, {'X-Strata-Setup-Token':'wrong'})[0],403)
+        self.assertEqual(self.request('/api/update/start',{}, {'Origin':'https://other.example'})[0],403)
+        self.assertEqual(self.request('/api/update/start',{'url':'https://other.example'})[0],404)
+        with mock.patch.object(self.app,'stop_backend') as stop:
+            self.assertEqual(self.request('/api/update/start',{})[0],400)
+            self.app.update.update(supported=True)
+            self.assertEqual(self.request('/api/update/start',{})[0],400)
+            stop.assert_not_called()
+
+    def test_update_missing_asset_or_invalid_version_cannot_be_started(self):
+        for release in ({'tag_name':'v0.1.42-t8.7','assets':[]}, {'tag_name':'bogus','assets':[]}):
+            with mock.patch('tools.portable_update.latest_release',return_value=release):
+                self.app.check_updates(); self.wait_update()
+                self.assertEqual(self.app.update['state'],'error')
+                self.assertFalse(self.app.update['available'])
+
+    def test_update_handoff_is_outside_package_and_only_stops_owned_backend(self):
+        (self.root/'tools').mkdir()
+        (self.root/'tools/gui_portable_update.ps1').write_text('# fixture helper')
+        self.app.update.update(supported=True,state='ready',available=True)
+        with mock.patch.object(self.app,'stop_backend') as stop, mock.patch.object(ui.subprocess,'Popen') as launch, \
+             mock.patch('serve.winjob.contain') as contain:
+            self.assertEqual(self.request('/api/update/start',{})[0],202)
+            self.assertTrue(self.app.closed.wait(5))
+            args = launch.call_args.args[0]
+            helper = Path(args[args.index('-File')+1])
+            self.assertFalse(helper.resolve().is_relative_to(self.root))
+            self.assertEqual(helper.read_text(),'# fixture helper')
+            self.assertEqual(Path(args[args.index('-AppRoot')+1]).resolve(),self.root.resolve())
+            stop.assert_called_once()
+            contain.assert_not_called()
+            helper.unlink(); helper.parent.rmdir()
+
+    def test_updating_blocks_overlapping_model_mutations(self):
+        self.app.job['state']='updating'
+        self.assertEqual(self.request('/api/import',self.payload())[0],400)
+        self.assertEqual(self.request('/api/stop',{})[0],400)
+
     def test_static_files_have_local_content_security_headers(self):
         for path in ('/setup.js','/setup.css'):
             with self.subTest(path=path):

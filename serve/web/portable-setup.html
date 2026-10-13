@@ -10,7 +10,7 @@
   <script src="/setup.js" defer></script>
 </head>
 <body>
-  <header class="topbar"><a class="brand" href="/" aria-label="Strata-T8 模型设置"><span class="brand-mark" aria-hidden="true">S</span>Strata<span class="brand-t8">T8</span></a><span class="version">@@VERSION@@</span></header>
+  <header class="topbar"><a class="brand" href="/" aria-label="Strata-T8 模型设置"><span class="brand-mark" aria-hidden="true">S</span>Strata<span class="brand-t8">T8</span><span class="byline">By T8star</span></a><span class="version">@@VERSION@@</span></header>
   <main>
     <section class="intro"><span class="eyebrow">本地运行 · 一次设置</span><h1>选择模型，开始使用。</h1><p>Python 和运行依赖已包含。连接你收到的模型文件夹，即可进入聊天、图像与视频分析。</p></section>
     <div class="layout">
@@ -40,7 +40,17 @@
     </div>
     <section id="error-box" class="error-box" hidden role="alert"><strong>操作未完成</strong><pre id="error-detail"></pre></section>
     <details id="log-box" class="card logs" hidden><summary>查看处理日志</summary><pre id="log-detail"></pre></details>
-    <footer>设置和模型均保留在本机。关闭启动窗口会停止本启动器开启的服务。</footer>
+    <section class="card release-card" aria-labelledby="release-heading">
+      <h2 id="release-heading">版本与更新 <span class="muted">@@VERSION@@</span></h2>
+      <p id="update-message" role="status">启动时自动检查新版本；离线仍可使用。</p>
+      <div class="directory-actions"><button type="button" id="update-check" class="text-button">检查更新</button><button type="button" id="update-start" class="button primary" disabled>一键更新</button><a href="https://github.com/T8mars/Strata-T8/releases/latest" target="_blank" rel="noopener noreferrer">查看最新版本 ↗</a></div>
+      <p class="field-help">一键更新会停止当前服务并打开更新进度窗口，校验、安装完成后重新打开设置页。模型与配置保留，正在生成的回答会中断。</p>
+      <nav class="resource-links" aria-label="项目仓库"><a href="https://github.com/T8mars/Strata-T8" target="_blank" rel="noopener noreferrer">整合包仓库</a><a href="https://github.com/T8mars/Comfyui-Strata-T8" target="_blank" rel="noopener noreferrer">ComfyUI 节点仓库</a></nav>
+      <details class="resources"><summary>关注与资源 · By T8star</summary><nav class="resource-links" aria-label="T8star 社媒与资源">
+        <a href="https://space.bilibili.com/385085361" target="_blank" rel="noopener noreferrer">B站</a><a href="https://www.youtube.com/@T8star-Aix/" target="_blank" rel="noopener noreferrer">YouTube</a><a href="https://api.seedance.nz/sign-up?aff=5f4w" target="_blank" rel="noopener noreferrer">API</a><a href="https://www.openzhenzhen.com" target="_blank" rel="noopener noreferrer">免费画廊</a><a href="https://www.runninghub.ai/zh-cn/user-center/1907375370302308353/userPost?inviteCode=rh-v1121" target="_blank" rel="noopener noreferrer">在线 AI 应用</a><a href="https://pan.quark.cn/s/264edb7e36bd" target="_blank" rel="noopener noreferrer">ComfyUI 整合包</a><a href="https://huggingface.co/t8star" target="_blank" rel="noopener noreferrer">Hugging Face</a>
+      </nav></details>
+    </section>
+    <footer><strong>By T8star</strong> · 设置和模型均保留在本机。关闭启动窗口会停止本启动器开启的服务。</footer>
   </main>
 </body>
 </html>

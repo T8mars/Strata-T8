@@ -34,7 +34,7 @@ function render(current) {
     for (const option of $("vision").options) if (["gpu", "cpu"].includes(option.value)) option.disabled = !current.vision_available;
     initialized = true;
   }
-  const busy = ["preparing", "configuring", "starting", "stopping"].includes(current.job.state);
+  const busy = ["preparing", "configuring", "starting", "stopping", "updating"].includes(current.job.state);
   const blocked = busy || choosing;
   for (const id of ["model-path", "browse", "check", "scan", "port", "context", "backend", "vision", "native-video", "save"]) $(id).disabled = blocked;
   for (const id of ["download-path", "download-consent", "prepare"]) $(id).disabled = blocked || current.running;
@@ -44,9 +44,14 @@ function render(current) {
   markSelectedModel();
   $("start").hidden = !current.configured || current.running; $("start").disabled = busy;
   $("stop").hidden = !current.running; $("stop").disabled = busy;
-  const badges = {idle: "待设置", preparing: "准备模型", prepared: "模型已准备", configuring: "保存配置", starting: "正在启动", stopping: "正在停止", ready: "已就绪", error: "需要处理"};
+  const badges = {idle: "待设置", preparing: "准备模型", prepared: "模型已准备", configuring: "保存配置", starting: "正在启动", stopping: "正在停止", updating: "正在更新", ready: "已就绪", error: "需要处理"};
   $("status-badge").textContent = badges[current.job.state] || "待设置"; $("status-badge").dataset.state = current.job.state;
   $("status-message").textContent = current.job.message;
+  const update = current.update;
+  $("update-message").textContent = update ? update.message + (!update.supported ? ' 源码仓库请使用 Git 更新。' : '') : '重启此启动器后可检查版本更新。';
+  $("update-check").disabled = busy || update?.state === 'checking' || !update;
+  $("update-start").disabled = busy || !update?.supported || update.state !== 'ready' || !update.available;
+  if (current.job.state === 'updating') redirect = false;
   $("current-model").textContent = current.model ? current.model.label + " · " + current.model.path : "尚未连接模型";
   const chat = current.job.state === "ready" ? localChatURL(current.chat_url) : null;
   $("enter-chat").hidden = !chat; if (chat) $("enter-chat").href = chat;
@@ -136,5 +141,7 @@ $("model-form").onsubmit = async e => { e.preventDefault(); await importSelected
 $("start").onclick = async () => { clearError(); redirect = true; try { await api("/api/start", {}); } catch (e) { redirect = false; fail(e); } };
 $("stop").onclick = async () => { clearError(); redirect = false; try { await api("/api/stop", {}); } catch (e) { fail(e); } };
 $("prepare").onclick = async () => { clearError(); redirect = false; try { await api("/api/prepare", {path: $("download-path").value.trim(), accept_download: $("download-consent").checked}); } catch (e) { fail(e); } };
+$("update-check").onclick = async () => { clearError(); try { await api('/api/update/check', {}); render(await api('/api/status')); } catch (e) { fail(e); } };
+$("update-start").onclick = async () => { clearError(); redirect = false; $("update-start").disabled = true; try { await api('/api/update/start', {}); $("update-message").textContent = '更新窗口已打开。此页面会暂时断开，完成后将重新打开模型设置页。'; } catch (e) { fail(e); if(state) render(state); } };
 poll();
 scan();

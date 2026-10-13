@@ -107,6 +107,8 @@ async function loadHealth() {
         if (url.protocol === "http:" && url.hostname === "127.0.0.1" && url.port && url.pathname === "/" && !url.search && !url.hash && !url.username && !url.password) {
           modelSettings.href = url.href;
           modelSettings.hidden = false;
+          const updateSettings = $('portable-update-settings');
+          if (updateSettings) { updateSettings.href = url.href; updateSettings.hidden = false; }
         }
       } catch (e) { /* a malformed optional settings link stays hidden */ }
     }

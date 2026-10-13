@@ -1,0 +1,58 @@
+"""Real Windows update-helper handoff in a temporary, model-free application."""
+import json
+import os
+from pathlib import Path
+import shutil
+import socket
+import subprocess
+import sys
+import tempfile
+import unittest
+
+ROOT = Path(__file__).resolve().parents[1]
+
+
+@unittest.skipUnless(os.name == 'nt', 'Windows update helper')
+class WindowsUpdateHelper(unittest.TestCase):
+    def test_wait_download_apply_and_restart_preserve_user_settings(self):
+        with tempfile.TemporaryDirectory(prefix='T8 更新 中文 空格 ') as temporary:
+            root=Path(temporary)/'app'; (root/'runtime/python').mkdir(parents=True)
+            (root/'tools').mkdir()
+            python=Path(sys.executable)
+            # The bundled interpreter's standard library is enough for this
+            # fixture; no CUDA DLLs, site-packages, model or network download.
+            for source in python.parent.iterdir():
+                if source.is_file() and (source.suffix.lower() in ('.dll','.pyd','.zip','._pth') or source.name=='python.exe'):
+                    shutil.copy2(source,root/'runtime/python'/source.name)
+            settings=root/'portable-settings.json';settings.write_bytes(b'{"portable_data_dir":"D:/my model"}')
+            original=settings.read_bytes()
+            (root/'tools/portable_update.py').write_text('''from pathlib import Path
+import json
+r=Path(__file__).resolve().parents[1];p=r/'.portable-update';p.mkdir()
+(p/'plan.json').write_text('{}')
+(p/'apply.ps1').write_text("param([string]$PlanPath)\\nSet-Content -LiteralPath (Join-Path (Split-Path $PlanPath) 'applied.txt') -Value 'applied'\\nexit 0\\n")
+''',encoding='utf-8')
+            (root/'portable.py').write_text('''import json,sys
+from pathlib import Path
+from http.server import HTTPServer,BaseHTTPRequestHandler
+r=Path.cwd();(r/'restart-args.json').write_text(json.dumps(sys.argv[1:]))
+assert (r/'.portable-update/applied.txt').exists()
+class H(BaseHTTPRequestHandler):
+ def do_GET(self):
+  b=json.dumps({'service':'strata-portable-ui','app_root':str(r)}).encode()
+  self.send_response(200);self.send_header('Content-Length',str(len(b)));self.end_headers();self.wfile.write(b)
+ def log_message(self,*a):pass
+s=HTTPServer(('127.0.0.1',int(sys.argv[-1])),H);s.handle_request();s.server_close()
+''',encoding='utf-8')
+            with socket.socket() as s:s.bind(('127.0.0.1',0));port=s.getsockname()[1]
+            parent=subprocess.Popen([sys.executable,'-c','import time;time.sleep(.5)'])
+            try:
+                result=subprocess.run(['powershell.exe','-NoProfile','-ExecutionPolicy','Bypass','-File',str(ROOT/'tools/gui_portable_update.ps1'),
+                    '-AppRoot',str(root),'-ParentId',str(parent.pid),'-UIPort',str(port),'-NonInteractive'],
+                    capture_output=True,timeout=55,creationflags=subprocess.CREATE_NO_WINDOW)
+                self.assertEqual(result.returncode,0,result.stdout+result.stderr)
+                self.assertEqual(settings.read_bytes(),original)
+                self.assertEqual(json.loads((root/'restart-args.json').read_text())[-3:],['settings','--ui-port',str(port)])
+            finally:
+                if parent.poll() is None:parent.terminate()
+                parent.wait(timeout=5)

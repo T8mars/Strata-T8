@@ -156,6 +156,9 @@ main { flex: 1; min-height: 0; display: flex; }
 .about { max-width: 860px; }
 .about .st-card { display: flex; flex-direction: column; gap: var(--st-s-3); }
 .about p { margin: 0; }
+.t8-byline{display:block;font-size:11px;font-weight:500;color:var(--st-ink-muted);letter-spacing:0;white-space:nowrap}
+.resource-links{display:flex;flex-wrap:wrap;gap:10px 20px;font-size:var(--st-fs-sm)}
+.t8-resources summary{cursor:pointer;font-weight:600}.t8-resources details nav{padding-top:12px}
 .facts { display: grid; grid-template-columns: minmax(140px, max-content) 1fr; gap: 10px var(--st-s-6); margin: 0; font-size: var(--st-fs-md); }
 .facts dt { color: var(--st-ink-muted); }
 .facts dd { margin: 0; color: var(--st-ink-soft); font-variant-numeric: tabular-nums; display: flex; align-items: center; gap: 6px;

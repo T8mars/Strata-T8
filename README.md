@@ -1,5 +1,7 @@
 # Strata-T8
 
+**By T8star**
+
 [Strata](https://github.com/Niko1221/Strata) 的 Windows 整合发行版，提供网页聊天及 OpenAI / Anthropic API。[ComfyUI 节点](https://github.com/T8mars/Comfyui-Strata-T8) 在独立仓库维护和发布。
 
 **内置 Python、锁定依赖、NVIDIA/AMD 引擎及运行库。VisionReady 另含视觉权重、配置模板和许可证；主模型与 MTP 独立分发。** 无需安装 Python、Git 或 CUDA Toolkit，仍需兼容显卡驱动。
@@ -55,14 +57,28 @@ Strata-data 可位于运行包内、旁边或导入的其他路径；仅下载�
 
 Windows 10 1903+/11 x64、AVX2 CPU、SSD。NVIDIA RTX 20/30/40/50 系列建议 12GB 以上显存、驱动 580+；IQ3_S 建议 96GB 以上 RAM。RTX 4060 Ti 16GB / 128GB RAM 的验证范围见[本版验收](docs/VALIDATION-UPSTREAM-0142-T8.md)。AMD 文本兼容以[上游列表](docs/AMD_HIP.md)为准，尚无 AMD 实机验收，Windows AMD 视觉暂不支持。
 
-启动时异步检查版本。退出服务后用 **UPDATE-PORTABLE.bat** 校验更新当前发行类型，保留模型和配置，失败回滚。旧 NoModels 用户先更新，再用 **INSTALL-VISION.bat** 切换；节点通过自己的 Manager/仓库更新后重启 ComfyUI。
+启动时后台自动检查版本；模型设置页提供 **检查更新 / 一键更新**，聊天页 About 也可进入。点击更新后停止本启动器的服务，打开进度窗口，自动下载、校验及安装，完成后重新打开模型设置页；模型与配置保留，失败回滚。命令行仍可在退出服务后运行 **UPDATE-PORTABLE.bat**。旧 NoModels 用户先更新，再用 **INSTALL-VISION.bat** 切换；节点通过自己的 Manager/仓库更新后重启 ComfyUI。
 
 仓库每日检查上游正式版本，合并及测试通过后自动打包发布；可在 [Actions](https://github.com/T8mars/Strata-T8/actions) 手动同步 main。冲突、测试失败或缺少匹配引擎时停止发布。[更新机制](docs/UPDATING-T8.md)
 
-当前发行版 **0.1.42-t8.6** 基于上游 [v0.1.42](https://github.com/Niko1221/Strata/releases/tag/v0.1.42)，配套节点 **1.1.2** 和 ComfyUI Protocol 1。点击模型卡片自动停止并切换；视频设置默认折叠，按秒数与帧率规划全程分段，例如 10 秒、24 帧/秒规划约 240 帧。修复上传错误反馈、浮点漏帧及分段汇总时间范围。PQ/HLG 视频须先转 SDR/sRGB；NVIDIA 可选原生双帧编码仍使用采样帧，现有权重可沿用。[视频说明与验证范围](docs/VIDEO-ANALYSIS.zh-CN.md)
+当前发行版 **0.1.42-t8.7** 基于上游 [v0.1.42](https://github.com/Niko1221/Strata/releases/tag/v0.1.42)，配套节点 **1.1.3** 和 ComfyUI Protocol 1。点击模型卡片自动停止并切换；视频设置默认折叠，按秒数与帧率规划全程分段，例如 10 秒、24 帧/秒规划约 240 帧。修复上传错误反馈、浮点漏帧及分段汇总时间范围。PQ/HLG 视频须先转 SDR/sRGB；NVIDIA 可选原生双帧编码仍使用采样帧，现有权重可沿用。[视频说明与验证范围](docs/VIDEO-ANALYSIS.zh-CN.md)
 
 上游在适用 NVIDIA 配置中默认启用专家尾部跳过和实测 PCIe 分配，回答可能略有变化。需要恢复此前行为，可在运行配置的 `env` 对象设置 `"STRATA_ROUTE_TAIL_SKIP":"0"` 和 `"STRATA_PCIE_FRAC_DEFAULT":"old"`，然后重启；已有显式 `--pcie-frac` 参数继续优先。上游性能数字取决于硬件与模型，不代表本机速度。
 
 OpenAI Base URL：页面所示服务地址加 `/v1`（空闲时默认 `http://127.0.0.1:8080/v1`）；Anthropic：`/v1/messages`；Responses：`/v1/responses`。默认监听本机，对外监听必须设置 API key。
 
 源码 [MIT](LICENSE)，视觉权重 [Apache-2.0](vision/LICENSE.txt)，其他组件保留随附许可证。感谢 [Niko1221/Strata](https://github.com/Niko1221/Strata)、[Qwen](https://huggingface.co/Qwen)、[ISTA-DASLab](https://huggingface.co/ISTA-DASLab)、[ComfyUI](https://github.com/Comfy-Org/ComfyUI) 和社区贡献者。[上游 README](README-UPSTREAM.md)
+
+## T8star 与资源
+
+**By T8star** · [整合包仓库](https://github.com/T8mars/Strata-T8) · [ComfyUI 节点仓库](https://github.com/T8mars/Comfyui-Strata-T8)
+
+| 链接 | 地址 |
+| --- | --- |
+| B站 | [B站](https://space.bilibili.com/385085361) |
+| YouTube | [YouTube](https://www.youtube.com/@T8star-Aix/) |
+| API | [API](https://api.seedance.nz/sign-up?aff=5f4w) |
+| 免费画廊 | [免费画廊](https://www.openzhenzhen.com) |
+| 在线 AI 应用 | [在线 AI 应用](https://www.runninghub.ai/zh-cn/user-center/1907375370302308353/userPost?inviteCode=rh-v1121) |
+| ComfyUI 整合包 | [ComfyUI 整合包](https://pan.quark.cn/s/264edb7e36bd) |
+| Hugging Face | [Hugging Face](https://huggingface.co/t8star) |

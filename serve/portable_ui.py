@@ -14,6 +14,8 @@ import signal
 import socket
 import subprocess
 import sys
+import shutil
+import tempfile
 import threading
 import time
 from urllib.parse import urlsplit
@@ -146,6 +148,9 @@ class ModelSetup:
         self.backend_config = None
         self.log = None
         self.job = {'state': 'idle', 'message': '选择模型目录后即可开始。', 'error': None}
+        self.update = {'state': 'unchecked', 'current': self.version, 'latest': None, 'available': False,
+                       'supported': os.name == 'nt' and (self.root/'PACKAGE-MANIFEST.json').is_file() and not (self.root/'.git').exists(),
+                       'message': '启动时自动检查新版本；离线仍可使用。'}
         self.model = None
         self.current_error = None
         self.requested = getattr(options, 'data_dir', None)
@@ -240,6 +245,7 @@ class ModelSetup:
                     'defaults': self.defaults(), 'vision_available': self.vision_available(),
                     'folder_picker': os.name == 'nt', 'configuration_error': self.current_error,
                     'prepared_model': self.prepared_model,
+                    'update': dict(self.update),
                     'log_tail': self._tail(self.job_log) if self.job_log and self.job_log.is_file() else ''}
 
     def _spawn(self, args, log):
@@ -270,7 +276,7 @@ class ModelSetup:
         with self.lock:
             if self.closed.is_set():
                 raise SetupError('启动器正在关闭。')
-            if self.job['state'] in ('preparing', 'configuring', 'starting', 'stopping'):
+            if self.job['state'] in ('preparing', 'configuring', 'starting', 'stopping', 'updating'):
                 raise SetupError('正在处理上一次操作，请稍候。')
             if existing and self.process is not None and self.process.poll() is None:
                 return
@@ -360,7 +366,7 @@ class ModelSetup:
                          or any(p.name not in allowed for p in gguf.iterdir()))):
                 raise SetupError('这个目录包含其他文件。请选择空模型目录，或只含官方 models/IQ3_S GGUF 的目录。')
         with self.lock:
-            if self.closed.is_set() or self.job['state'] in ('preparing','configuring','starting','stopping') or (self.process and self.process.poll() is None):
+            if self.closed.is_set() or self.job['state'] in ('preparing','configuring','starting','stopping','updating') or (self.process and self.process.poll() is None):
                 raise SetupError('请先完成当前操作或停止当前服务。')
             path.mkdir(parents=True, exist_ok=True)
             self.portable.save_json(marker, expected)
@@ -440,6 +446,59 @@ class ModelSetup:
         if not self.closed.is_set():
             raise SetupError('服务启动超时，请查看页面中的日志后重试。')
 
+    def check_updates(self):
+        with self.lock:
+            if self.closed.is_set() or self.job['state'] == 'updating' or self.update['state'] == 'checking':
+                return
+            self.update.update(state='checking', available=False, message='正在检查新版本…')
+        def work():
+            try:
+                from tools.portable_update import latest_release
+                from tools.portable_version import version_key, archive_name
+                release = latest_release('T8mars/Strata-T8', timeout=5)
+                latest = release['tag_name'].removeprefix('v')
+                newer = version_key(latest) > version_key(self.version)
+                meta = json.loads((self.root/'meta.json').read_text(encoding='utf-8'))
+                asset = archive_name(latest, meta.get('edition', 'Portable-NoModels'))
+                names = {item.get('name') for item in release.get('assets', []) if isinstance(item, dict)}
+                if newer and not {asset, asset+'.sha256'}.issubset(names):
+                    raise SetupError('新版缺少当前发行类型的 ZIP 或校验文件，请稍后重试。')
+                with self.lock:
+                    self.update.update(state='ready', latest=latest, available=newer,
+                                       message=f'发现新版本 {latest}。' if newer else '当前已是最新版本。')
+            except (OSError, ValueError, RuntimeError, KeyError, TypeError) as error:
+                with self.lock:
+                    self.update.update(state='error', available=False, message='暂时无法检查更新，离线使用不受影响。')
+        threading.Thread(target=work, daemon=True).start()
+
+    def begin_update(self):
+        with self.lock:
+            if self.closed.is_set() or self.job['state'] in ('preparing','configuring','starting','stopping','updating'):
+                raise SetupError('当前操作尚未完成，请稍候。')
+            if not self.update['supported']:
+                raise SetupError('一键更新适用于 Windows 解压版；源码仓库请使用 Git 更新。')
+            if self.update['state'] != 'ready' or not self.update['available']:
+                raise SetupError('请先检查更新，确认有可用的新版本。')
+            self.job = {'state': 'updating', 'message': '正在打开更新窗口。完成后将重新打开模型设置页。', 'error': None}
+        def work():
+            try:
+                source = _regular(self.root/'tools/gui_portable_update.ps1', self.root)
+                temporary = Path(tempfile.mkdtemp(prefix='Strata-T8-ui-update-')).resolve()
+                if temporary.is_relative_to(self.root):
+                    raise SetupError('更新工作目录必须位于程序目录外。')
+                helper = temporary/'update.ps1'
+                shutil.copy2(source, helper)
+                self.stop_backend()
+                # This helper must survive this launcher; do not put it in the
+                # owned backend's kill-on-close Job Object.
+                subprocess.Popen(['powershell.exe','-NoProfile','-ExecutionPolicy','Bypass','-File',str(helper),
+                                  '-AppRoot',str(self.root),'-ParentId',str(os.getpid()),'-UIPort',str(self.http.server_port)],
+                                 cwd=temporary, creationflags=getattr(subprocess,'CREATE_NEW_CONSOLE',0))
+                self.closed.set()
+            except (OSError, ValueError, RuntimeError) as error:
+                self.set_job('error', '更新未启动，请重试或运行 UPDATE-PORTABLE.bat。', str(error))
+        threading.Thread(target=work, daemon=True).start()
+
     def stop_backend(self):
         with self.lock:
             process = self.process
@@ -458,7 +517,7 @@ class ModelSetup:
 
     def stop(self):
         with self.lock:
-            if self.job['state'] in ('preparing', 'configuring', 'starting', 'stopping'):
+            if self.job['state'] in ('preparing', 'configuring', 'starting', 'stopping', 'updating'):
                 raise SetupError('当前操作尚未完成，请稍候。')
             self.job = {'state': 'stopping', 'message': '正在停止当前服务…', 'error': None}
         def work():
@@ -611,6 +670,12 @@ def handler(app):
                 elif path == '/api/stop' and not data:
                     app.stop()
                     self._send(202, {'accepted': True})
+                elif path == '/api/update/check' and not data:
+                    app.check_updates()
+                    self._send(202, {'accepted': True})
+                elif path == '/api/update/start' and not data:
+                    app.begin_update()
+                    self._send(202, {'accepted': True})
                 elif path == '/api/browse' and not data:
                     if not app.folder_lock.acquire(blocking=False):
                         raise SetupError('目录选择窗口已打开，请先完成选择。')
@@ -655,6 +720,7 @@ def run(options):
         raise SetupError('模型设置端口被占用，请用 --ui-port 指定一个空闲端口。')
     thread = threading.Thread(target=http.serve_forever, daemon=True)
     thread.start()
+    app.check_updates()
     print(f'模型设置：{app.url}', flush=True)
     print('在网页中选择模型并启动。关闭此窗口会停止本启动器的服务。', flush=True)
     if not options.no_browser:
