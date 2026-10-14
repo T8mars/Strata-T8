@@ -13,6 +13,36 @@ from tools.test_portable_update import package
 
 
 class PortableAudit(unittest.TestCase):
+    def test_runtime_copy_preserves_complete_asr_inventory_and_excludes_cuda(self):
+        from tools.stage_asr_runtime import verify
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)/'source'
+            target = Path(directory)/'package'
+            component = root/'runtime/asr'
+            payloads = {
+                'python/Lib/site-packages/onnxruntime/tools/onnxruntime_test.py': b'optional dependency module',
+                'native-cpu/python/README.txt': b'CPU component',
+            }
+            inventory = []
+            for relative, payload in payloads.items():
+                path = component/relative
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(payload)
+                inventory.append({'path': relative, 'size': len(payload), 'sha256': hashlib.sha256(payload).hexdigest()})
+            (component/'ASR-CPU.json').write_text(json.dumps({'device': 'cpu', 'python': '3.12.10', 'files': inventory}))
+            for relative in ('native-cuda/optional.dll', 'ASR-CUDA.json', 'python/__pycache__/unused.pyc', 'roadmap.md'):
+                path = component/relative
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text('excluded')
+            (root/'runtime/test_unshipped.py').write_text('main runtime test')
+            with mock.patch.object(build_portable, 'ROOT', root), mock.patch.object(build_portable, 'TARGET', target):
+                build_portable.copy_tree('runtime', build_portable.runtime_ignore)
+            self.assertEqual(len(verify(target/'runtime/asr')['files']), 2)
+            self.assertFalse((target/'runtime/asr/native-cuda').exists())
+            self.assertFalse((target/'runtime/asr/ASR-CUDA.json').exists())
+            self.assertFalse((target/'runtime/asr/roadmap.md').exists())
+            self.assertFalse((target/'runtime/test_unshipped.py').exists())
+
     def test_source_packaging_excludes_untracked_private_files(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)/'source'

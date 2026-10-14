@@ -64,6 +64,15 @@ def copy_tree(relative, ignore=None):
                     ignore=shipping_ignore(ignore or shutil.ignore_patterns('__pycache__', '*.pyc')))
 
 
+def runtime_ignore(directory, names):
+    """Preserve every audited ASR file, including dependency modules named test."""
+    excluded = set(shutil.ignore_patterns('__pycache__', '*.pyc', '*.log', 'stop_local.ps1',
+        'native-cuda', 'ASR-CUDA.json', 'ASR-RUNTIME.json')(directory, names))
+    if not Path(directory).resolve().is_relative_to((ROOT/'runtime/asr').resolve()):
+        excluded.update(shutil.ignore_patterns('test_*.py', '*_test.py')(directory, names))
+    return excluded
+
+
 def copy_source(relative, excluded=()):
     """Ship tracked application files; local profiles and download state stay local."""
     paths = subprocess.check_output(['git', 'ls-files', '-z', '--', relative], cwd=ROOT).decode('utf-8').split('\0')
@@ -114,8 +123,7 @@ def main():
         shutil.rmtree(TARGET)
     TARGET.mkdir(parents=True)
     for name in ['runtime', 'engine', 'engine-hip']:
-        copy_tree(name, shutil.ignore_patterns('__pycache__', '*.pyc', 'test_*.py', '*_test.py', '*.log', 'stop_local.ps1',
-            'native-cuda', 'ASR-CUDA.json', 'ASR-RUNTIME.json'))
+        copy_tree(name, runtime_ignore)
     for name in ['serve', 'tools', 'ref']:
         copy_source(name)
     copy_source('licenses')
