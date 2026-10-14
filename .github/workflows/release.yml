@@ -74,6 +74,10 @@ jobs:
           sub-packages: '["nvcc", "crt", "nvvm", "nvptxcompiler", "thrust", "cudart", "cublas", "cublas_dev", "cuobjdump", "nvrtc", "nvrtc_dev"]'
       - name: Build independent runtime with matching engines
         run: python tools/bootstrap_portable.py
+      - name: Build isolated CPU speech runtime (no model weights)
+        run: |
+          ./tools/build_asr_runtime.ps1 -Device cpu
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
       - name: Verify self-built native engine identity and contracts
         run: |
           runtime/python/python.exe -X utf8 tools/build_native_portable.py --verify

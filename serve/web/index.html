@@ -55,11 +55,23 @@
           <label>处理方式<select id="video-processing" aria-label="视频处理方式"><option value="single">单次概览</option><option value="segmented">全程分段分析</option></select></label>
           <input id="video-max-frames" type="hidden" value="8">
           <label>分析时长（秒）<input id="video-duration" aria-label="视频分析时长秒" type="number" min="0.001" max="3600" step="any" placeholder="整个视频"></label>
+          <button id="video-entire" type="button" class="st-btn st-btn--secondary">整个视频</button>
           <label>每秒观察帧数<input id="video-fps" aria-label="视频每秒观察帧数" type="number" min="0.01" max="120" step="any" value="1"></label>
           <label>从第几秒开始<input id="video-start" aria-label="视频采样开始秒" type="number" min="0" max="86400" step="any" value="0"></label>
           <button id="video-resample" type="button" class="st-btn st-btn--secondary" hidden>按新参数重新采样</button>
         </div>
         <p id="video-sampling-status" role="status">全程分段可按 24/30 FPS 覆盖所选窗口，总帧数不限于 64；逐段观察后汇总，耗时随段数增加。音轨不参与分析。</p>
+        <label class="st-checkbox"><input id="video-asr-enabled" type="checkbox">自动转录语音并分析对白（默认关闭）</label>
+        <p class="muted">语音模型路径在“模型设置 → 可选语音转录”中独立设置。对白时间为段级近似范围，可提供已校对的时标字幕。</p>
+        <label>已有时标字幕（可选，不加载语音模型）<textarea id="video-timed-transcript" rows="2" placeholder="粘贴 SRT、VTT、Confucius result_json 或带 cues 的时标 JSON"></textarea></label>
+        <p id="video-asr-status" role="status"></p>
+        <details id="video-speech-preview" hidden><summary>对白预览与校对</summary>
+          <p class="muted">以下为原视频时间轴的段级字幕，可校对后复用；不会自动识别说话人。</p>
+          <label>字幕（SRT）<textarea id="video-speech-srt" rows="6" aria-label="转录字幕预览"></textarea></label>
+          <button id="video-speech-use" type="button" class="st-btn st-btn--secondary">使用校对字幕</button>
+          <button id="video-speech-download" type="button" class="st-btn st-btn--secondary">下载 SRT</button>
+          <button id="video-speech-json" type="button" class="st-btn st-btn--secondary">下载时标 JSON</button>
+        </details>
         </details>
       </section>
       <form class="st-composer" id="composer">
@@ -267,6 +279,7 @@
 <div class="scrim" id="scrim" hidden></div>
 <div class="st-toasts" id="toasts" aria-live="polite"></div>
 <script src="web/video-analysis.js"></script>
+<script src="web/speech-analysis.js"></script>
 <script src="web/app.js"></script>
 </body>
 </html>

@@ -7,6 +7,7 @@
   "portable_model_settings_ui": true,
   "portable_first_run_without_model": true,
   "portable_model_card_auto_switch": true,
+  "portable_api_connection_display": true,
   "portable_explicit_model_download_ui": true,
   "model_download_priority": [
     "modelscope",
@@ -34,5 +35,10 @@
   "video_duration_seconds_ui": true,
   "native_video_cuda": true,
   "native_video_hip": false,
-  "native_video_default": false
+  "native_video_default": false,
+  "video_speech_transcription": true,
+  "video_timed_dialogue_fusion": true,
+  "video_speech_default_enabled": false,
+  "bundled_asr_cpu": true,
+  "asr_models_bundled": false
 }

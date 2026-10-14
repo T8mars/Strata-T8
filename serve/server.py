@@ -5226,6 +5226,19 @@ def make_handler(svc: Service):
                     if label:
                         health['portable_model_label'] = label
                 self._json(200, health)
+            elif path in ('/v1/asr/capabilities', '/v1/asr/status', '/v1/asr/settings'):
+                if self._authorized():
+                    from serve.asr import config as asr_config
+                    if path.endswith('/capabilities'):
+                        self._json(200, asr_config.availability(ROOT))
+                    elif path.endswith('/settings'):
+                        if not self._foreign_origin():
+                            self._json(200,{'settings':asr_config.load(ROOT),'capabilities':asr_config.availability(ROOT)})
+                        else:
+                            self._json(403,{'error':{'message':'ASR paths are only available to this server page or an authenticated non-browser client'}})
+                    else:
+                        worker = getattr(svc, 'asr_manager', None)
+                        self._json(200, worker.progress() if worker else {'phase':'idle'})
             elif path == "/status":
                 if not self._authorized():                  # #212: it shows the end of the last answer
                     return
@@ -5294,7 +5307,8 @@ def make_handler(svc: Service):
             path = self.path.split("?")[0].rstrip("/")   # issue #55: Claude Code posts /v1/messages?beta=true
             if path.startswith("/v1/") and self._foreign_page():
                 return
-            limit = 65536 if path in ('/settings', '/config', '/load', '/unload', '/v1/load', '/v1/unload', '/v1/vram') else body_limit()
+            limit = (400*1024**2 if path == '/v1/audio/transcribe' else
+                     65536 if path in ('/settings', '/config', '/load', '/unload', '/v1/load', '/v1/unload', '/v1/vram', '/v1/asr/settings') else body_limit())
             self.request_body = self._read_body(limit)
             if self.request_body is None:
                 return
@@ -5329,20 +5343,60 @@ def make_handler(svc: Service):
                 req = self._request_json()
                 if not isinstance(req, dict):
                     raise ValueError("send a JSON object")
-                if path in ('/v1/load', '/v1/chat/completions', '/v1/messages', '/v1/responses', '/v1/video/sample'):
+                if path in ('/v1/load', '/v1/chat/completions', '/v1/messages', '/v1/responses', '/v1/video/sample', '/v1/video/transcribe', '/v1/audio/transcribe'):
                     self.cancel = threading.Event()
                     self._watch_client(self.cancel)
+                if path in ('/v1/video/transcribe','/v1/audio/transcribe'):
+                    from serve.asr.integration import manager as speech_manager, gpu_scope
+                    try:
+                        result = speech_manager(svc, ROOT).upload(req, self.cancel, gpu_scope=lambda: gpu_scope(svc),
+                            max_bytes=(256 if path=='/v1/audio/transcribe' else 128)*1024**2)
+                    except InterruptedError:
+                        raise RequestCancelled()
+                    except (RuntimeError, TimeoutError) as error:
+                        self._json(409, {'error': {'type':'asr_error','message':str(error)}})
+                        return
+                    self._json(200, result)
+                    return
+                if path == '/v1/asr/settings':
+                    if not self._own_page('the ASR configuration can be changed'):
+                        return
+                    from serve.asr import config as asr_config
+                    self._json(200, {'settings':asr_config.save(ROOT,req),'capabilities':asr_config.availability(ROOT)})
+                    return
+                if path == '/v1/asr/transcript/parse':
+                    from serve.asr import contract as speech_contract
+                    if set(req)-{'text','timeline','origin_s'} or not isinstance(req.get('text'),str):
+                        raise ValueError('Expected a timed subtitle text payload')
+                    text = req['text'].lstrip('\ufeff \t\r\n').strip()
+                    if len(text.encode('utf-8')) > speech_contract.MAX_BYTES:
+                        raise ValueError('Timed transcript exceeds 2 MiB')
+                    timeline = req.get('timeline','input')
+                    origin = speech_contract.number(req.get('origin_s',0),'subtitle origin')
+                    if text.startswith('{'):
+                        value = json.loads(text)
+                        result = speech_contract.transcript(value) if 'cues' in value else speech_contract.from_confucius(value,origin_s=origin,timeline=timeline)
+                    else:
+                        result = speech_contract.subtitle_text(text,offset_s=origin,timeline=timeline)
+                    self._json(200,result)
+                    return
                 if path == '/v1/video/sample':
                     if svc.vision is None:
                         raise ValueError('Video sampling requires a vision-enabled model')
                     if req.get('mode') == 'native' and 'native' not in svc.v1_status()['capabilities']['video']['modes']:
                         raise ValueError('Native video is not enabled in this server')
                     try:
-                        result = video_api.sample_upload(req, cancel=self.cancel)
+                        result = video_api.sample_upload_isolated(req, cancel=self.cancel)
                     except video_api.VideoCancelled:
                         raise RequestCancelled()
                     except TimeoutError as error:
                         raise ValueError(str(error)) from error
+                    except RuntimeError as error:
+                        from serve.media_jobs import MediaWorkerError
+                        if not isinstance(error,MediaWorkerError):
+                            raise
+                        self._json(502,{'error':{'type':'media_decode_failed','message':str(error)}})
+                        return
                     self._json(200, result)
                     return
                 if path.startswith("/v1/responses/"):        # retrieve/delete/cancel/compact: nothing is stored

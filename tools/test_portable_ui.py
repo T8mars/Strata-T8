@@ -94,7 +94,7 @@ class SetupPage(unittest.TestCase):
             time.sleep(.03)
         self.fail('job did not finish: '+repr(self.app.job))
 
-    def fake_popen(self,*,fail=False,delay=0,fail_backend=False):
+    def fake_popen(self,*,fail=False,delay=0,fail_backend=False,backend_model_id='fixture-live-api-id'):
         real = subprocess.Popen
         created = []
         def spawn(args,**kwargs):
@@ -127,13 +127,13 @@ from http.server import HTTPServer,BaseHTTPRequestHandler
 if sys.argv[2]=='fail': raise SystemExit(8)
 class H(BaseHTTPRequestHandler):
  def do_GET(self):
-  body=json.dumps({'service':'strata','portable_launcher_instance':os.environ['STRATA_PORTABLE_UI_ID']}).encode()
+  body=json.dumps({'service':'strata','model':sys.argv[3],'portable_launcher_instance':os.environ['STRATA_PORTABLE_UI_ID']}).encode()
   self.send_response(200); self.send_header('Content-Length',str(len(body))); self.end_headers(); self.wfile.write(body)
  def log_message(self,*args): pass
 HTTPServer(('127.0.0.1',int(sys.argv[1])),H).serve_forever()
 '''
                 port = args[args.index('--port')+1]
-                replaced = [sys.executable,'-c',code,port,'fail' if fail_backend else 'ok']
+                replaced = [sys.executable,'-c',code,port,'fail' if fail_backend else 'ok',backend_model_id]
             proc = real(replaced,**kwargs)
             created.append(proc)
             return proc
@@ -155,6 +155,68 @@ HTTPServer(('127.0.0.1',int(sys.argv[1])),H).serve_forever()
         config.write_text(json.dumps({'exe':'fixture','args':[],'api_key':'private-key','port':8080}))
         self.app.current_config = config
         self.assertNotIn('private-key',json.dumps(self.request('/api/status')[2]))
+
+    def test_asr_settings_save_does_not_start_or_switch_any_model(self):
+        with mock.patch.object(ui.subprocess,'Popen',side_effect=AssertionError('model process')):
+            status,_,result=self.request('/api/asr/settings',{'model_dir':'E:\\语音 模型','quantization':'Q4_K_M','device':'cpu'})
+            self.assertEqual(status,200)
+            self.assertEqual(result['settings']['model_dir'],'E:\\语音 模型')
+            self.assertFalse(result['capabilities']['supported'])
+            self.assertFalse(result['capabilities']['default_enabled'])
+            self.assertIsNone(self.app.process)
+            self.assertIsNone(self.app.current_config)
+            self.assertEqual(self.request('/api/asr/settings')[2]['settings']['quantization'],'Q4_K_M')
+
+    def test_asr_settings_body_budget_accepts_valid_long_paths_and_context(self):
+        from serve.asr import config as speech_config
+        payload={'model_dir':'D:\\'+'m'*4090,'vad_dir':'D:\\'+'v'*4090,'context':'x'*8192}
+        with mock.patch.object(speech_config,'availability',return_value={'supported':False,'missing':['fixture']}):
+            status,_,result=self.request('/api/asr/settings',payload)
+        self.assertEqual(status,200)
+        self.assertEqual(result['settings']['context'],payload['context'])
+        self.assertIsNone(self.app.process)
+
+    def test_variant_card_id_is_distinct_from_live_service_api_id(self):
+        payload = self.payload()
+        data = Path(payload['path'])
+        descriptor = json.loads((data/'portable-model.json').read_text())
+        descriptor.update(model_name='sc117-qwen3.8-flash-next-abliterated-iq3_s',
+                          repository='SC117/Qwen3.8-Flash-Next-GSQ-RCO-abliterated-GGUF')
+        (data/'portable-model.json').write_text(json.dumps(descriptor))
+        summary = self.request('/api/check', {'path':str(data)})[2]['model']
+        self.assertEqual(summary['label'], 'SC117 Uncensored · IQ3_S')
+        self.assertEqual(summary['api_model_id'], descriptor['model_name'])
+        spawn, created = self.fake_popen()
+        with mock.patch.object(ui.subprocess, 'Popen', side_effect=spawn):
+            self.assertEqual(self.request('/api/import', payload)[0], 202)
+            self.assertEqual(self.wait_job(), 'ready')
+        connection = self.request('/api/status')[2]['api_connection']
+        self.assertEqual(connection['model_id'], 'fixture-live-api-id')
+        self.assertEqual(connection['base_url'], f'http://127.0.0.1:{self.app.backend_port}/v1')
+        self.assertEqual(connection['models_url'], connection['base_url']+'/models')
+        self.app.backend_config['api_key'] = 'private-key'
+        current = self.request('/api/status')[2]
+        self.assertTrue(current['api_connection']['api_key_required'])
+        self.assertNotIn('private-key', json.dumps(current))
+        self.app.set_job('starting', 'switching')
+        self.assertIsNone(self.request('/api/status')[2]['api_connection'])
+
+    def test_invalid_descriptor_api_ids_are_rejected_before_import(self):
+        data = self.model()
+        descriptor = json.loads((data/'portable-model.json').read_text())
+        for name in ('', ' leading', 'bad\nname', 'bad\x7fname', 'a'*201, None, 7):
+            with self.subTest(name=name):
+                (data/'portable-model.json').write_text(json.dumps({**descriptor, 'model_name':name}))
+                self.assertEqual(self.request('/api/check', {'path':str(data)})[0], 400)
+                self.assertIsNone(self.app.process)
+
+    def test_connection_display_cannot_prevent_a_legacy_service_from_starting(self):
+        payload = self.payload()
+        spawn, created = self.fake_popen(backend_model_id='x'*201)
+        with mock.patch.object(ui.subprocess, 'Popen', side_effect=spawn):
+            self.assertEqual(self.request('/api/import', payload)[0], 202)
+            self.assertEqual(self.wait_job(), 'ready')
+        self.assertIsNone(self.request('/api/status')[2]['api_connection'])
 
     def update_release(self):
         name = 'Strata-T8-0.1.42-t8.7-Windows-x64-Portable-NoModels.zip'

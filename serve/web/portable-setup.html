@@ -34,10 +34,46 @@
         </form>
       </section>
       <aside class="side">
+        <section class="card api-card" id="api-connection" hidden aria-labelledby="api-heading">
+          <h2 id="api-heading">API 连接 · DSH</h2>
+          <p class="field-help">选择 OpenAI 兼容接口，填写下面的地址和当前实际模型 ID。</p>
+          <label for="api-model-id">API 模型 ID（DSH 模型名称）</label>
+          <div class="path-row"><input id="api-model-id" type="text" readonly spellcheck="false"><button id="copy-api-model" type="button" class="button secondary">复制</button></div>
+          <label for="api-base-url">OpenAI Base URL</label>
+          <div class="path-row"><input id="api-base-url" type="text" readonly spellcheck="false"><button id="copy-api-base" type="button" class="button secondary">复制</button></div>
+          <p class="field-help" id="api-key-hint"></p>
+          <a id="api-models-link" target="_blank" rel="noopener noreferrer">查看服务模型列表 ↗</a>
+          <p class="field-help" id="api-copy-status" role="status"></p>
+        </section>
         <section class="card status-card" aria-labelledby="status-heading"><div class="card-heading"><span class="step">02</span><h2 id="status-heading">服务状态</h2></div><span class="badge" id="status-badge">待设置</span><p class="status-message" id="status-message" aria-live="polite">正在读取设置…</p><p class="muted" id="current-model"></p><a id="enter-chat" class="button primary full" hidden>进入聊天</a><button id="start" type="button" class="button secondary full" hidden>启动已有配置</button><button id="stop" type="button" class="text-button" hidden>停止服务并更换模型</button><p class="field-help">模型按需加载。首次发送请求时，请等待模型加载完成。</p></section>
         <section class="card help-card"><h2>还没有模型？</h2><p>向分发者获取独立模型包，解压后选择完整模型目录。也可在这里下载并准备官方 IQ3_S。</p><details><summary>下载 / 准备官方模型</summary><label for="download-path">模型保存目录</label><input id="download-path" type="text" placeholder="例如 D:\模型\Strata-data" autocomplete="off" spellcheck="false"><p>最多约 89GB 下载，另需预处理空间。优先使用 ModelScope、国内镜像；已有校验通过的文件会复用。仅有官方 GGUF 时，可放到该目录的 models/IQ3_S 内。</p><label class="checkbox"><input id="download-consent" type="checkbox">我已了解下载流量与磁盘需求</label><button type="button" id="prepare" class="button secondary full">下载并准备模型</button></details><details><summary>模型来源与安装说明</summary><div class="source-links"><a href="https://modelscope.cn/models/ISTA-DASLab/Qwen3.8-Flash-Next-GSQ-RCO-GGUF" target="_blank" rel="noopener noreferrer">ModelScope</a><a href="https://hf-mirror.com/ISTA-DASLab/Qwen3.8-Flash-Next-GSQ-RCO-GGUF/tree/main/IQ3_S" target="_blank" rel="noopener noreferrer">国内镜像</a><a href="https://huggingface.co/ISTA-DASLab/Qwen3.8-Flash-Next-GSQ-RCO-GGUF" target="_blank" rel="noopener noreferrer">Hugging Face</a></div><p>其他变体（如 SC117）请选择已经准备好的对应模型目录；官方准备功能不会混用已有变体。</p><a href="https://github.com/T8mars/Strata-T8#readme" target="_blank" rel="noopener noreferrer">查看完整模型安装说明 ↗</a></details></section>
       </aside>
     </div>
+    <section class="card asr-settings-card">
+      <details><summary>可选语音转录 · 独立模型设置</summary>
+        <p class="field-help">视频分析时勾选“自动转录语音并分析对白”才加载语音模型。默认关闭，保存这里的路径不会启动转录或切换主模型。</p>
+        <form id="asr-form">
+          <label for="asr-model-dir">Confucius 语音模型目录</label>
+          <div class="path-row"><input id="asr-model-dir" type="text" autocomplete="off" spellcheck="false" placeholder="例如 E:\Strata-asr-models\Confucius4-R2T2-GGUF"><button id="asr-browse" type="button" class="button secondary">选择文件夹</button></div>
+          <p class="field-help">目录需同时包含主 GGUF 与音频 mmproj。最小 Q4_K_M + Q8 音频 projector 共约 1.46GB，独立存放，不复制到程序目录。</p>
+          <div class="fields">
+            <div><label for="asr-quantization">语音模型量化</label><select id="asr-quantization"><option value="Q4_K_M">2B Q4_K_M（最小）</option><option value="Q8_0">2B Q8_0</option></select></div>
+            <div><label for="asr-device">转录设备</label><select id="asr-device"><option value="cpu">CPU（保留主模型驻留）</option><option value="cuda">NVIDIA CUDA（串行交接）</option></select></div>
+            <div><label for="asr-language">语音语言</label><select id="asr-language"><option value="Auto">自动识别</option><option>Chinese</option><option>English</option><option>Cantonese</option><option>Japanese</option><option>Korean</option><option>German</option><option>French</option><option>Russian</option><option>Portuguese</option><option>Spanish</option><option>Italian</option></select></div>
+            <div><label for="asr-audio-track">音轨序号（从 0 开始）</label><input id="asr-audio-track" type="number" min="0" max="31" value="0"></div>
+          </div>
+          <details class="advanced"><summary>语音高级设置</summary><div class="fields">
+            <div><label for="asr-vad-dir">VAD 目录（留空使用内置组件）</label><input id="asr-vad-dir" type="text" spellcheck="false"></div>
+            <div><label for="asr-channel">音频声道</label><select id="asr-channel"><option value="mean">混合声道</option><option value="left">左声道</option><option value="right">右声道</option></select></div>
+            <div><label for="asr-offset-ms">手动对白偏移（毫秒）</label><input id="asr-offset-ms" type="number" min="-86400000" max="86400000" value="0"></div>
+            <div><label for="asr-context">人名 / 术语提示</label><input id="asr-context" type="text" maxlength="4096" placeholder="相关人名、品牌、术语"></div>
+          </div></details>
+          <p class="field-help">字幕为段级近似时间，需校对。CUDA 会在空闲时释放本服务主模型，再转录；不会中断正在生成的请求。</p>
+          <button id="asr-save" type="submit" class="button primary">保存语音设置</button><p id="asr-settings-status" class="field-help" role="status"></p>
+          <nav class="resource-links"><a href="https://www.modelscope.cn/models/netease-youdao/Confucius4-R2T2-GGUF/files" target="_blank" rel="noopener noreferrer">ModelScope 模型</a><a href="https://huggingface.co/netease-youdao/Confucius4-R2T2-GGUF/tree/main" target="_blank" rel="noopener noreferrer">官方 Hugging Face</a><a href="https://github.com/T8mars/comfyui-confucius-r2t2-t8" target="_blank" rel="noopener noreferrer">语音节点来源</a></nav>
+        </form>
+      </details>
+    </section>
     <section id="error-box" class="error-box" hidden role="alert"><strong>操作未完成</strong><pre id="error-detail"></pre></section>
     <details id="log-box" class="card logs" hidden><summary>查看处理日志</summary><pre id="log-detail"></pre></details>
     <section class="card release-card" aria-labelledby="release-heading">

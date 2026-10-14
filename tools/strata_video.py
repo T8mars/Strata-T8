@@ -23,6 +23,13 @@ class VideoCancelled(RuntimeError):
     pass
 
 
+class VideoWindowEmpty(ValueError):
+    """A successfully decoded window with no presentation frame in its range."""
+    def __init__(self, manifest):
+        super().__init__('Requested window contains no decodable video frames')
+        self.manifest = manifest
+
+
 @dataclass
 class VideoFrame:
     index: int
@@ -358,7 +365,12 @@ def sample_video(source, *, start_s=0.0, end_s=None, sampling_fps=1.0,
             else:
                 ended = True
             if not frames:
-                raise ValueError('Requested window contains no decodable video frames')
+                poll_cancel()
+                if time.monotonic() >= deadline:
+                    raise TimeoutError('Video decoding exceeded its time limit')
+                raise VideoWindowEmpty(_manifest([], duration=duration, origin=origin, start=start_s,
+                    end=stop, sampling_fps=sampling_fps, max_frames=max_frames, max_pixels=max_pixels,
+                    source_kind='video', decoded=decoded, targets=targets, ended=ended))
             poll_cancel()
             if time.monotonic() >= deadline:
                 raise TimeoutError('Video decoding exceeded its time limit')
@@ -410,6 +422,8 @@ def sample_images(images: Iterable, *, fps=1.0, timestamps=None, source_duration
             raise ValueError('Image/timestamp counts do not match')
         if source_indices is not None and len(source_indices) != input_count:
             raise ValueError('Image/source index counts do not match')
+        if source_duration_s is None and input_count:
+            source_duration_s = input_count/fps if timestamps is None else timestamps[-1] + 1/fps
     stop = min(end_s, source_duration_s) if end_s is not None and source_duration_s is not None else end_s or source_duration_s
     if stop is None and hasattr(images, '__len__'):
         stop = len(images) / fps if timestamps is None else (timestamps[-1] + 1/fps if timestamps else 0)
@@ -447,13 +461,17 @@ def sample_images(images: Iterable, *, fps=1.0, timestamps=None, source_duration
             break
     else:
         ended = True
-    if not result:
-        raise ValueError('Image window contains no sampled frames')
     if (preselected or ended) and timestamps is not None and read != len(timestamps):
         raise ValueError('Image/timestamp counts do not match')
     if (preselected or ended) and source_indices is not None and read != len(source_indices):
         raise ValueError('Image/source index counts do not match')
     check_cancel(cancel)
+    if not result:
+        error = VideoWindowEmpty(_manifest([], duration=source_duration_s or stop, origin=origin,
+            start=start_s, end=stop, sampling_fps=sampling_fps, max_frames=max_frames,
+            max_pixels=max_pixels, source_kind='images', decoded=read, targets=targets, ended=ended))
+        error.args = ('Image window contains no sampled frames',)
+        raise error
     return SampledVideo(result, _manifest(result, duration=source_duration_s or stop, origin=origin,
         start=start_s, end=stop, sampling_fps=sampling_fps, max_frames=max_frames,
         max_pixels=max_pixels, source_kind='images', decoded=read, targets=targets,

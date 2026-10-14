@@ -148,6 +148,14 @@ def data_path(requested=None):
     return (ROOT/'Strata-data').resolve()
 
 
+def model_api_id(model):
+    name = model.get('model_name', f"{upstream.FAMILIES[model['family']]['name']}-{model['model'].lower()}")
+    if (not isinstance(name, str) or not name.strip() or name != name.strip() or len(name) > 200
+            or any(ord(c) < 32 or ord(c) == 127 for c in name)):
+        raise RuntimeError('Invalid portable-model.json: expected a nonempty model_name of at most 200 characters')
+    return name
+
+
 def model_delivery(data):
     path = data/'portable-model.json'
     if not path.is_file():
@@ -195,6 +203,7 @@ def model_delivery(data):
         component = (data/rel).resolve()
         if not component.is_relative_to(data.resolve()) or not component.is_file() or not component.stat().st_size:
             raise RuntimeError(f'Model delivery is incomplete: missing or empty auxiliary MTP layer: {rel}')
+    model_api_id(model)
     return model
 
 
@@ -359,6 +368,8 @@ def configure(data, context=None, backend=None, vision=None, vision_tokens=None,
                 raise RuntimeError('Setup did not apply the requested configuration settings')
         if cfg_path.is_file():
             generated = validate_config(read_config(cfg_path), require_args=True)
+            if 'model_name' in model:
+                generated['model_name'] = model_api_id(model)
             for key in ('host', 'api_key', 'port'):
                 if key in old_config and (key != 'port' or port is None):
                     generated[key] = old_config[key]

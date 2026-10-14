@@ -36,6 +36,27 @@ class OfflineLauncher(unittest.TestCase):
 
 
 class UpdateConfiguration(unittest.TestCase):
+    def test_configure_uses_variant_api_id_and_keeps_official_default(self):
+        for variant in (None, 'sc117-qwen3.8-flash-next-abliterated-iq3_s'):
+            with self.subTest(variant=variant), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                model = {'family':'qwen', 'model':'IQ3_S', 'gguf_dir':'models'}
+                if variant is not None:
+                    model['model_name'] = variant
+                default = 'qwen3.8-flash-next-iq3_s'
+                def create_config():
+                    portable.save_json(root/'strata-iq3_s.json', {'exe':'fixture.exe', 'args':[], 'model_name':default})
+                    return 0
+                with mock.patch.object(portable, 'ROOT', root), mock.patch.object(portable, 'STATE', root/'state.json'), \
+                     mock.patch.object(portable, 'model_delivery', return_value=model), \
+                     mock.patch.object(portable, 'fingerprint', return_value={}), \
+                     mock.patch.object(portable.upstream, 'main', side_effect=create_config), \
+                     mock.patch.object(portable.sys, 'argv', []):
+                    code, cfg = portable.configure(root/'model')
+                    self.assertEqual(code, 0)
+                    self.assertEqual(portable.read_config(cfg)['model_name'], variant or default)
+                    self.assertEqual(portable.model_api_id(model), variant or default)
+
     def test_configure_forwards_explicit_port_to_offline_setup(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

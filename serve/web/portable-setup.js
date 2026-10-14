@@ -13,14 +13,60 @@ async function api(path, body) {
 function fail(error) { $("error-detail").textContent = error.message || String(error); $("error-box").hidden = false; }
 function clearError() { $("error-box").hidden = true; }
 function markSelectedModel() {
-  for (const button of $("candidates").querySelectorAll("button")) {
-    const selected = button.dataset.path === $("model-path").value.trim();
-    button.classList.toggle("selected", selected); button.setAttribute("aria-pressed", String(selected));
+  for (const card of $("candidates").querySelectorAll(".candidate")) {
+    const selected = card.dataset.path === $("model-path").value.trim();
+    card.classList.toggle("selected", selected); card.querySelector('.candidate-select').setAttribute("aria-pressed", String(selected));
+  }
+}
+function renderModelIds() {
+  for (const card of $('candidates').querySelectorAll('.candidate')) {
+    const live = !$('api-connection').hidden && state?.model?.path?.toLowerCase() === card.dataset.path.toLowerCase();
+    const field = card.querySelector('.candidate-api-id');
+    if (!field) continue;
+    const value = live ? $('api-model-id').value : card.dataset.apiModelId;
+    if (field.value !== value) { card.querySelector('.candidate-copy-status').textContent = ''; field.value = value; }
+    field.title = value;
+    card.querySelector('.candidate-api-label').textContent = live ? '当前 API 模型 ID' : '配置后的 API 模型 ID';
   }
 }
 function localChatURL(value) {
   try { const u = new URL(value); if (u.protocol === "http:" && u.hostname === "127.0.0.1" && u.port && u.pathname === "/" && !u.username && !u.password && !u.search && !u.hash) return u.href; } catch (e) {}
   return null;
+}
+function renderApiConnection(current, chat) {
+  const info = current.api_connection;
+  const model = info?.model_id;
+  const base = chat ? chat + 'v1' : null;
+  const visible = !!(current.running && !choosing && base && info?.base_url === base &&
+    typeof model === 'string' && model.trim() && model.length <= 200 && !/[\x00-\x1f\x7f]/.test(model));
+  const nextModel = visible ? model : '';
+  if ($('api-model-id').value !== nextModel || $('api-base-url').value !== (visible ? base : '')) $('api-copy-status').textContent = '';
+  $('api-connection').hidden = !visible;
+  if ($('api-model-id').value !== nextModel) $('api-model-id').value = nextModel;
+  if ($('api-base-url').value !== (visible ? base : '')) $('api-base-url').value = visible ? base : '';
+  $('copy-api-model').disabled = !visible; $('copy-api-base').disabled = !visible;
+  $('api-key-hint').textContent = visible ? (info.api_key_required ? 'API Key：填写你为此服务设置的密钥。' : '当前服务未启用 API Key；客户端要求填写时，可填本地占位值 strata。') : '';
+  $('api-models-link').hidden = !visible;
+  if (visible) $('api-models-link').href = base + '/models'; else $('api-models-link').removeAttribute('href');
+}
+async function copyModelField(field, status, available = () => true) {
+  const value = field.value;
+  if (!available() || !value) return;
+  try {
+    if (!globalThis.navigator?.clipboard?.writeText) throw new Error('clipboard unavailable');
+    await navigator.clipboard.writeText(value);
+    if (available() && field.value === value) status.textContent = '已复制。';
+  } catch (e) {
+    if (available() && field.value === value) {
+      field.focus(); field.select();
+      let copied = false;
+      try { copied = !!document.execCommand?.('copy'); } catch (e) {}
+      status.textContent = copied ? '已复制。' : '请按 Ctrl+C 复制已选中的内容。';
+    }
+  }
+}
+async function copyApiValue(id) {
+  await copyModelField($(id), $('api-copy-status'), () => !$('api-connection').hidden);
 }
 function render(current) {
   state = current;
@@ -38,7 +84,7 @@ function render(current) {
   const blocked = busy || choosing;
   for (const id of ["model-path", "browse", "check", "scan", "port", "context", "backend", "vision", "native-video", "save"]) $(id).disabled = blocked;
   for (const id of ["download-path", "download-consent", "prepare"]) $(id).disabled = blocked || current.running;
-  for (const button of $("candidates").querySelectorAll("button")) button.disabled = blocked;
+  for (const button of $("candidates").querySelectorAll(".candidate-select")) button.disabled = blocked;
   $("running-notice").hidden = !current.running;
   $("save").textContent = current.running ? "保存并切换模型" : "保存并进入";
   markSelectedModel();
@@ -54,6 +100,8 @@ function render(current) {
   if (current.job.state === 'updating') redirect = false;
   $("current-model").textContent = current.model ? current.model.label + " · " + current.model.path : "尚未连接模型";
   const chat = current.job.state === "ready" ? localChatURL(current.chat_url) : null;
+  renderApiConnection(current, chat);
+  renderModelIds();
   $("enter-chat").hidden = !chat; if (chat) $("enter-chat").href = chat;
   if (current.job.error) fail(current.job.error);
   $("log-box").hidden = !current.log_tail; $("log-detail").textContent = current.log_tail || "";
@@ -78,20 +126,37 @@ async function scan() {
   try {
     const result = await api("/api/models"); const container = $("candidates"); container.replaceChildren(); container.hidden = false;
     if (!result.models.length) { container.textContent = "未在程序附近发现完整模型，请选择模型所在文件夹。"; return; }
+    let index = 0;
     for (const model of result.models) {
-      const button = document.createElement("button"); button.type = "button"; button.className = "candidate";
-      button.dataset.path = model.path;
+      const card = document.createElement('div'); card.className = 'candidate'; card.dataset.path = model.path;
+      const button = document.createElement("button"); button.type = "button"; button.className = "candidate-select";
       const title = document.createElement("strong"), path = document.createElement("span");
       title.textContent = model.label + (model.bytes ? " · " + (model.bytes / 1e9).toFixed(1) + " GB" : ""); path.textContent = model.path;
-      button.append(title, path); button.onclick = async () => {
+      button.append(title, path); card.append(button);
+      if (model.api_model_id) {
+        card.dataset.apiModelId = model.api_model_id;
+        const label = document.createElement('label'), row = document.createElement('div'), field = document.createElement('input');
+        const copy = document.createElement('button'), status = document.createElement('span');
+        field.id = 'candidate-api-'+index++; field.type = 'text'; field.readOnly = true; field.spellcheck = false;
+        field.className = 'candidate-api-id'; field.onfocus = field.onclick = () => field.select();
+        label.className = 'candidate-api-label'; label.htmlFor = field.id;
+        row.className = 'candidate-id-row'; copy.type = 'button'; copy.className = 'button secondary candidate-copy'; copy.textContent = '复制 ID';
+        copy.setAttribute('aria-label', '复制 '+model.label+' 的 API 模型 ID');
+        status.className = 'candidate-copy-status'; status.setAttribute('role', 'status');
+        copy.onclick = () => copyModelField(field, status);
+        row.append(field, copy); card.append(label, row, status);
+      }
+      button.disabled = choosing || !!(state && ['preparing', 'configuring', 'starting', 'stopping', 'updating'].includes(state.job.state));
+      button.onclick = async () => {
         if (choosing || (state && ["preparing", "configuring", "starting", "stopping"].includes(state.job.state))) return;
         $("model-path").value = model.path; markSelectedModel();
         if (state?.running && state.model?.path?.toLowerCase() === model.path.toLowerCase()) return;
         await importSelectedModel();
       };
-      container.append(button);
+      container.append(card);
     }
     markSelectedModel();
+    renderModelIds();
   } catch (e) { fail(e); }
 }
 async function check() {
@@ -143,5 +208,31 @@ $("stop").onclick = async () => { clearError(); redirect = false; try { await ap
 $("prepare").onclick = async () => { clearError(); redirect = false; try { await api("/api/prepare", {path: $("download-path").value.trim(), accept_download: $("download-consent").checked}); } catch (e) { fail(e); } };
 $("update-check").onclick = async () => { clearError(); try { await api('/api/update/check', {}); render(await api('/api/status')); } catch (e) { fail(e); } };
 $("update-start").onclick = async () => { clearError(); redirect = false; $("update-start").disabled = true; try { await api('/api/update/start', {}); $("update-message").textContent = '更新窗口已打开。此页面会暂时断开，完成后将重新打开模型设置页。'; } catch (e) { fail(e); if(state) render(state); } };
+$('copy-api-model').onclick = () => copyApiValue('api-model-id');
+$('copy-api-base').onclick = () => copyApiValue('api-base-url');
+for (const id of ['api-model-id', 'api-base-url']) $(id).onclick = () => $(id).select();
+const asrFields = ['model_dir','vad_dir','quantization','device','language','context','audio_track','channel','offset_ms'];
+const asrElement = key => $('asr-'+key.replaceAll('_','-'));
+function showAsrSettings(result) {
+  for (const key of asrFields) asrElement(key).value = result.settings[key];
+  $('asr-settings-status').textContent = result.capabilities.supported ? '语音组件与模型路径已就绪；视频处勾选后才转录。' : '尚需准备：'+result.capabilities.missing.join('、')+'。普通视频分析仍可使用。';
+}
+async function loadAsrSettings() {
+  try { showAsrSettings(await api('/api/asr/settings')); }
+  catch(e) { $('asr-settings-status').textContent = '语音设置尚不可用，请重启更新后的启动器。'; }
+}
+$('asr-form').onsubmit = async e => {
+  e.preventDefault(); $('asr-save').disabled = true;
+  const settings = Object.fromEntries(asrFields.map(key => [key, ['audio_track','offset_ms'].includes(key) ? Number(asrElement(key).value) : asrElement(key).value.trim()]));
+  try { showAsrSettings(await api('/api/asr/settings',settings)); } catch(e) { $('asr-settings-status').textContent = e.message; }
+  finally { $('asr-save').disabled = false; }
+};
+$('asr-browse').onclick = async () => {
+  $('asr-browse').disabled = true;
+  try { const result = await api('/api/browse',{}); if(result.path) asrElement('model_dir').value=result.path; }
+  catch(e) { $('asr-settings-status').textContent = e.message; }
+  finally { $('asr-browse').disabled=false; }
+};
+loadAsrSettings();
 poll();
 scan();

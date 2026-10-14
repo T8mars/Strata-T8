@@ -13,10 +13,9 @@ MAX_FRAME_PIXELS = 16_777_216
 MAX_VIDEO_BYTES = 128 * 1024**2
 
 
-def sample_upload(request, cancel=None):
-    """Private bounded CPU upload; response can be sent to the chat endpoint."""
+def upload_input(request):
+    """Validate the upload envelope without loading a native decoder."""
     import base64
-    from tools.strata_video import sample_video
     if not isinstance(request, dict) or not isinstance(request.get('data'), str):
         raise ValueError('Video upload requires base64 data')
     encoded = request['data']
@@ -34,10 +33,47 @@ def sample_upload(request, cancel=None):
     count = request.get('max_frames', 8)
     if isinstance(count, bool) or not isinstance(count, int) or not 2 <= count <= 64:
         raise ValueError('Video upload max_frames must be 2–64')
-    sampled = sample_video(io.BytesIO(data), start_s=request.get('start_s', 0),
-                           end_s=request.get('end_s'), sampling_fps=request.get('sampling_fps', 1),
-                           max_frames=count, max_pixels=589824, max_input_bytes=MAX_VIDEO_BYTES,
-                           cancel=cancel)
+    allow_empty = request.get('allow_empty_segment', False)
+    if type(allow_empty) is not bool:
+        raise ValueError('allow_empty_segment must be a boolean')
+    options = {'start_s':request.get('start_s',0), 'end_s':request.get('end_s'),
+               'sampling_fps':request.get('sampling_fps',1), 'max_frames':count,
+               'mode':mode, 'allow_empty_segment':allow_empty}
+    return data, options
+
+
+def sample_upload(request, cancel=None):
+    """Pure in-process adapter retained for local tools and contract tests."""
+    data, options = upload_input(request)
+    return sample_source(io.BytesIO(data), options, cancel=cancel)
+
+
+def sample_upload_isolated(request, cancel=None):
+    """The HTTP service owns a disposable native-media worker."""
+    from serve import media_jobs
+    data, options = upload_input(request)
+    try:
+        return media_jobs.sample_video(data, options, cancel=cancel)
+    except InterruptedError as error:
+        raise VideoCancelled(str(error)) from error
+
+
+def sample_source(source, options, cancel=None):
+    """Decode a validated local upload inside its owning process."""
+    import base64
+    from tools.strata_video import sample_video, VideoWindowEmpty
+    mode, count = options['mode'], options['max_frames']
+    allow_empty = options['allow_empty_segment']
+    try:
+        sampled = sample_video(source, start_s=options['start_s'],
+                               end_s=options['end_s'], sampling_fps=options['sampling_fps'],
+                               max_frames=count, max_pixels=589824, max_input_bytes=MAX_VIDEO_BYTES,
+                               cancel=cancel)
+    except VideoWindowEmpty as error:
+        if not allow_empty:
+            raise
+        check_cancel(cancel)
+        return {'part': None, 'manifest': error.manifest, 'empty_segment': True}
     frames = []
     for frame in sampled.frames:
         check_cancel(cancel)

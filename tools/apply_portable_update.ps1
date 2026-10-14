@@ -102,8 +102,8 @@ function CheckEntries($entries, [string]$label) {
             $entry.sha256 -isnot [string] -or $entry.sha256 -cnotmatch '^[0-9a-f]{64}$') { throw "Invalid $label file entry" }
         $relative = $entry.path
         if ($relative -match '(^/|\\|:|(^|/)\.\.?(/|$)|[<>"|?*\x00-\x1f\x7f])' -or
-            $relative -match '^(Strata-data|models|packs|mtp|\.git|logs|\.portable-update)(/|$)' -or
-            $relative -match '^(portable-settings\.json|strata-.*\.json|PACKAGE-MANIFEST\.json)$') { throw "Unsafe $label file path: $relative" }
+            $relative -match '^(Strata-data|models|packs|mtp|\.git|logs|\.portable-update|\.asr-cache)(/|$)' -or
+            $relative -match '^(portable-settings\.json|asr-settings\.json|strata-.*\.json|PACKAGE-MANIFEST\.json)$') { throw "Unsafe $label file path: $relative" }
         foreach ($part in $relative.Split('/')) {
             if (!$part -or $part.EndsWith(' ') -or $part.EndsWith('.') -or $part -match '^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(\.|$)') { throw "Invalid $label Windows file path: $relative" }
         }

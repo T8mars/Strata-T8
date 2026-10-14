@@ -5,6 +5,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 const V = require('../serve/web/video-analysis.js');
+const S = require('../serve/web/speech-analysis.js');
 const test = require('node:test');
 const source = fs.readFileSync(path.join(__dirname, '../serve/web/app.js'), 'utf8');
 function sample(segment, duration = 12, mode = 'native') {
@@ -18,20 +19,26 @@ function sample(segment, duration = 12, mode = 'native') {
 function element(value = '') {
   return {get value() { return String(this._value ?? value); }, set value(v) { this._value = v; },
     hidden:false, disabled:false, textContent:'', dataset:{}, options:[], children:[], checked:false,
-    classList:{toggle(){}, add(){}, remove(){}}, setAttribute(){}, reportValidity(){return true;},
-    querySelectorAll(){return this.children;}, replaceChildren(){this.children=[];}, append(...v){this.children.push(...v);}};
+    classList:{toggle(){}, add(){}, remove(){}}, setAttribute(){}, removeAttribute(key){delete this[key];}, focus(){this.focused=true;}, select(){this.selected=true;}, reportValidity(){return true;},
+    querySelectorAll(selector){const found=[];for(const child of this.children){if(selector.startsWith('.') && (child.className||'').split(' ').includes(selector.slice(1)))found.push(child);found.push(...child.querySelectorAll(selector));}return found;},
+    querySelector(selector){return this.querySelectorAll(selector)[0]||null;}, replaceChildren(){this.children=[];}, append(...v){this.children.push(...v);}};
 }
 function videoPage() {
   const fields = Object.fromEntries(Object.entries({'video-max-frames':8,'video-fps':1,'video-start':0,
-    'video-duration':'','video-processing':'single','video-mode':'native'}).map(([k,v]) => [k,element(v)]));
+    'video-duration':'','video-processing':'single','video-mode':'native',
+    'video-asr-enabled':'','video-timed-transcript':''}).map(([k,v]) => [k,element(v)]));
   const calls = [], saved = {}, notices = [];
-  const context = vm.createContext({StrataVideoAnalysis:V, AbortController, DOMException, console,
+  const context = vm.createContext({StrataVideoAnalysis:V, StrataSpeech:S, AbortController, DOMException, console, setTimeout,
     health:{images:true}, attachments:[], headers:()=>({}), toast:(...args)=>notices.push(args),
     store:{get:(k,d)=>d, set:(k,v)=>saved[k]=v},
     $:id=>fields[id] || (fields[id]=element()), renderAttachments(){},
     FileReader:class {readAsDataURL(){this.result='data:video/mp4;base64,fixture'; queueMicrotask(()=>this.onload());} abort(){}},
     fetch:async (url, options) => {
-      const body = JSON.parse(options.body); calls.push({url,body});
+      const body = options.body ? JSON.parse(options.body) : null; calls.push({url,body});
+      if(url==='v1/asr/capabilities')return {ok:true,json:async()=>({supported:true})};
+      if(url==='v1/asr/status')return {ok:true,json:async()=>({phase:'completed'})};
+      if(['v1/video/transcribe','v1/asr/transcript/parse'].includes(url))return {ok:true,json:async()=>({
+        contract_version:1,timeline:'input',status:'complete',cues:[{id:'u1',start_s:1,end_s:2,text:'向右移动'}]})};
       if (url === 'v1/video/sample') {
         const segment = {...body, start_s:body.start_s || 0, end_s:Math.min(body.end_s ?? 12,12)};
         return {ok:true,json:async()=>sample(segment,12,body.mode)};
@@ -196,7 +203,7 @@ function setupPage(legacy=false, invalid=false) {
     location:{search:''},window:{location:{assign(url){navigations.push(url);}}},
     fetch:async (url,options)=>{
       const body=options.body ? JSON.parse(options.body):null; calls.push({url,body});
-      if(url==='/api/models') return {ok:true,json:async()=>({models:[{path:'E:\\old',label:'Old'},{path:'E:\\new',label:'New'}]})};
+      if(url==='/api/models') return {ok:true,json:async()=>({models:[{path:'E:\\old',label:'Old',api_model_id:'configured-old-id'},{path:'E:\\new',label:'New',api_model_id:'configured-new-id'}]})};
       if(url==='/api/import') {
         if(invalid)return {ok:false,json:async()=>({error:'模型目录不完整'})};
         if(legacy&&current.running)return {ok:false,json:async()=>({error:'请先停止当前服务，再更换模型。'})};
@@ -205,15 +212,15 @@ function setupPage(legacy=false, invalid=false) {
       if(url==='/api/stop'){current.running=false;current.job={state:'idle',message:'stopped'};}
       return {ok:true,json:async()=>current};
     }});
-  const script=fs.readFileSync(path.join(__dirname,'../serve/web/portable-setup.js'),'utf8').replace(/poll\(\);\s*scan\(\);\s*$/, '');
+  const script=fs.readFileSync(path.join(__dirname,'../serve/web/portable-setup.js'),'utf8').replace(/loadAsrSettings\(\);\s*poll\(\);\s*scan\(\);\s*$/, '');
   vm.runInContext(script,context); vm.runInContext('render('+JSON.stringify(current)+')',context);
   return {nodes,calls,navigations,context,run:code=>vm.runInContext(code,context)};
 }
 test('model card immediately switches on both new and already-running older launchers',async()=>{
   for (const legacy of [false,true]) {
     const ui=setupPage(legacy); await ui.run('scan()');
-    await ui.nodes.candidates.children[0].onclick(); assert.equal(ui.calls.filter(c=>c.url==='/api/import').length,0);
-    await ui.nodes.candidates.children[1].onclick();
+    await ui.nodes.candidates.children[0].querySelector('.candidate-select').onclick(); assert.equal(ui.calls.filter(c=>c.url==='/api/import').length,0);
+    await ui.nodes.candidates.children[1].querySelector('.candidate-select').onclick();
     const lifecycle=ui.calls.filter(c=>['/api/import','/api/stop'].includes(c.url)).map(c=>c.url);
     assert.deepEqual(lifecycle,legacy?['/api/import','/api/stop','/api/import']:['/api/import']);
     assert.equal(ui.calls.filter(c=>c.url==='/api/import').at(-1).body.path,'E:\\new');
@@ -223,6 +230,249 @@ test('model card immediately switches on both new and already-running older laun
   }
 });
 test('invalid model selection does not stop the running backend',async()=>{
-  const ui=setupPage(false,true); await ui.run('scan()'); await ui.nodes.candidates.children[1].onclick();
+  const ui=setupPage(false,true); await ui.run('scan()'); await ui.nodes.candidates.children[1].querySelector('.candidate-select').onclick();
   assert.equal(ui.calls.filter(c=>c.url==='/api/stop').length,0); assert.equal(ui.nodes['error-box'].hidden,false);
+});
+test('DSH connection uses the live API ID, copies it, and clears during a switch',async()=>{
+  const ui=setupPage(), copied=[];
+  ui.context.navigator={clipboard:{writeText:async value=>copied.push(value)}};
+  ui.run("render({...state,api_connection:{model_id:'live-sc117-id',base_url:'http://127.0.0.1:8080/v1',api_key_required:false}})");
+  assert.equal(ui.nodes['api-connection'].hidden,false);
+  assert.equal(ui.nodes['api-model-id'].value,'live-sc117-id');
+  assert.equal(ui.nodes['api-base-url'].value,'http://127.0.0.1:8080/v1');
+  assert.equal(ui.nodes['api-models-link'].href,'http://127.0.0.1:8080/v1/models');
+  await ui.nodes['copy-api-model'].onclick(); await ui.nodes['copy-api-base'].onclick();
+  assert.deepEqual(copied,['live-sc117-id','http://127.0.0.1:8080/v1']);
+  ui.run("render({...state,job:{state:'starting',message:'switching'}})");
+  assert.equal(ui.nodes['api-connection'].hidden,true); assert.equal(ui.nodes['api-model-id'].value,'');
+  assert.equal(ui.nodes['api-base-url'].value,''); assert.equal(ui.nodes['api-copy-status'].textContent,'');
+  assert.equal(ui.nodes['api-models-link'].href,undefined);
+  await ui.nodes['copy-api-model'].onclick(); assert.equal(copied.length,2);
+});
+test('DSH copy falls back to selecting text and rejects a mismatched API origin',async()=>{
+  const ui=setupPage();
+  ui.run("render({...state,api_connection:{model_id:'actual-id',base_url:'http://127.0.0.1:8080/v1',api_key_required:true}})");
+  await ui.nodes['copy-api-model'].onclick();
+  assert.equal(ui.nodes['api-model-id'].selected,true);
+  assert.ok(ui.nodes['api-copy-status'].textContent.includes('Ctrl+C'));
+  assert.ok(ui.nodes['api-key-hint'].textContent.includes('你为此服务设置的密钥'));
+  ui.run("render({...state,api_connection:{model_id:'actual-id',base_url:'https://other.invalid/v1'}})");
+  assert.equal(ui.nodes['api-connection'].hidden,true); assert.equal(ui.nodes['api-model-id'].value,'');
+});
+test('model card copy uses the current API ID and never switches or stops a model',async()=>{
+  const ui=setupPage(), copied=[];
+  ui.context.navigator={clipboard:{writeText:async value=>copied.push(value)}};
+  ui.run("render({...state,api_connection:{model_id:'actual-old-id',base_url:'http://127.0.0.1:8080/v1'}})");
+  await ui.run('scan()');
+  const [current, other]=ui.nodes.candidates.children;
+  assert.equal(current.querySelector('.candidate-api-label').textContent,'当前 API 模型 ID');
+  assert.equal(current.querySelector('.candidate-api-id').value,'actual-old-id');
+  assert.equal(other.querySelector('.candidate-api-id').value,'configured-new-id');
+  assert.equal(other.querySelector('.candidate-api-id').readOnly,true);
+  other.querySelector('.candidate-api-id').onclick();
+  assert.equal(other.querySelector('.candidate-api-id').selected,true);
+  await current.querySelector('.candidate-copy').onclick(); await other.querySelector('.candidate-copy').onclick();
+  assert.deepEqual(copied,['actual-old-id','configured-new-id']);
+  assert.equal(ui.calls.filter(c=>['/api/import','/api/stop'].includes(c.url)).length,0);
+  assert.equal(ui.nodes['model-path'].value,'E:\\old'); assert.equal(ui.navigations.length,0);
+});
+test('model card copy remains available during a switch and falls back when clipboard is denied',async()=>{
+  const ui=setupPage(); await ui.run('scan()');
+  const card=ui.nodes.candidates.children[1], field=card.querySelector('.candidate-api-id');
+  ui.context.navigator={clipboard:{writeText:async()=>{throw new Error('denied');}}};
+  let legacyCopies=0; ui.context.document.execCommand=command=>{assert.equal(command,'copy');legacyCopies++;return true;};
+  ui.run("render({...state,job:{state:'starting',message:'switching'}})");
+  assert.equal(card.querySelector('.candidate-select').disabled,true);
+  assert.equal(card.querySelector('.candidate-copy').disabled,false);
+  await card.querySelector('.candidate-copy').onclick();
+  assert.equal(legacyCopies,1); assert.equal(field.selected,true);
+  assert.equal(card.querySelector('.candidate-copy-status').textContent,'已复制。');
+  assert.equal(ui.calls.filter(c=>['/api/import','/api/stop'].includes(c.url)).length,0);
+});
+test('speech evidence preserves utterance identity and never assigns words to microframes',()=>{
+  const value={contract_version:1,timeline:'input',status:'complete',cues:[{id:'u1',start_s:1,end_s:8,text:'一句完整对白'}]};
+  const a=S.overlap(value,1,1.333)[0],b=S.overlap(value,1.333,1.666)[0];
+  assert.equal(a.id,b.id);assert.equal(b.start_s,1);assert.equal(b.end_s,8);assert.equal(b.text,'一句完整对白');
+  assert.deepEqual(S.overlap(value,8,9),[]);assert.equal(S.groups(value).length,1);
+});
+test('automatic ASR happens once for the selected window and imported subtitles bypass model loading',async()=>{
+  for(const imported of [false,true]) {
+    const ui=videoPage(); ui.fields['video-processing'].value='segmented';ui.fields['video-duration'].value=10;
+    await ui.run('addVideo({name:"clip.mp4",size:1000})');
+    if(imported)ui.fields['video-timed-transcript'].value='1\n00:00:01,000 --> 00:00:02,000\n向右移动';
+    const result=await ui.run('prepareVideoSpeech(attachments[0],new AbortController().signal,()=>{})');
+    assert.equal(result.cues[0].id,'u1');
+    assert.equal(ui.calls.filter(c=>c.url==='v1/video/transcribe').length,imported?0:1);
+    assert.equal(ui.calls.filter(c=>c.url==='v1/asr/capabilities').length,imported?0:1);
+    if(!imported){const request=ui.calls.find(c=>c.url==='v1/video/transcribe').body;assert.equal(request.start_s,0);assert.equal(request.end_s,10);}
+  }
+});
+test('dense visual stages get only overlapping dialogue and final fusion uses unique cues',async()=>{
+  const ui=videoPage();ui.fields['video-processing'].value='segmented';ui.fields['video-duration'].value=2;
+  ui.fields['video-fps'].value=24;
+  await ui.run('addVideo({name:"clip.mp4",size:1000})');
+  ui.run("attachments[0].speech={contract_version:1,timeline:'input',status:'complete',cues:[{id:'u1',start_s:0,end_s:1,text:'向右移动'}]}");
+  const output=await ui.run("analyzeVideoSegments(attachments[0],'分析',{},new AbortController().signal,()=>{})");
+  const calls=ui.calls.filter(c=>c.url==='v1/chat/completions');
+  const observations=calls.filter(c=>Array.isArray(c.body.messages[0].content));
+  assert.equal(observations.length,6);
+  assert.ok(observations[0].body.messages[0].content[0].text.includes('[u1'));
+  assert.ok(!observations.at(-1).body.messages[0].content[0].text.includes('[u1'));
+  assert.equal(calls.filter(c=>typeof c.body.messages[0].content==='string' && c.body.messages[0].content.includes('按唯一ID去重')).length,1);
+  assert.equal(output.speech.cues.length,1);
+});
+
+test('speech defaults off, ordinary dense analysis makes no ASR requests, and preview can be corrected',async()=>{
+  const ui=videoPage();assert.equal(ui.fields['video-asr-enabled'].checked,false);
+  ui.fields['video-processing'].value='segmented';ui.fields['video-duration'].value=2;ui.fields['video-fps'].value=24;
+  await ui.run('addVideo({name:"clip.mp4",size:1000})');
+  await ui.run("analyzeVideoSegments(attachments[0],'分析',{},new AbortController().signal,()=>{})");
+  assert.equal(ui.calls.filter(call=>call.url.includes('/asr/')||call.url.endsWith('/transcribe')).length,0);
+  ui.fields['video-timed-transcript'].value='1\n00:00:01,000 --> 00:00:02,000\n原对白';
+  await ui.run('prepareVideoSpeech(attachments[0],new AbortController().signal,()=>{})');
+  assert.equal(ui.fields['video-speech-preview'].hidden,false);
+  ui.fields['video-speech-srt'].value='1\n00:00:01,000 --> 00:00:02,000\n校对白';
+  ui.fields['video-speech-use'].onclick();
+  assert.ok(ui.fields['video-timed-transcript'].value.includes('校对白'));
+  await ui.run('addVideo({name:"another.mp4",size:1000},attachments[0])');
+  assert.equal(ui.fields['video-speech-preview'].hidden,true);
+  assert.equal(ui.fields['video-speech-srt'].value,'');
+  assert.ok(ui.fields['video-timed-transcript'].value.includes('校对白'));
+});
+
+test('selected-window speech uses source clock in SRT and final dialogue groups',()=>{
+  const value={contract_version:1,timeline:'selected_window',status:'complete',cues:[{id:'u1',start_s:.5,end_s:2,text:'校对对白'}]};
+  assert.ok(S.srt(value,10).includes('00:00:10,500 --> 00:00:12,000'));
+  assert.equal(JSON.parse(S.groups(value,5000,10)[0]).start_s,10.5);
+  assert.throws(()=>S.validate({...value,status:'silence'}));
+});
+
+test('final dialogue fusion excludes subtitles outside the selected video window',()=>{
+  const value={contract_version:1,timeline:'input',status:'complete',cues:[
+    {id:'outside-before',start_s:0,end_s:5,text:'前面的对白'},
+    {id:'overlap',start_s:9,end_s:11,text:'跨边界的完整对白'},
+    {id:'inside',start_s:11,end_s:13,text:'片段对白'},
+    {id:'outside-after',start_s:15,end_s:17,text:'后面的对白'}]};
+  const groups=S.groups(value,5000,10,12).join('\n');
+  assert.ok(!groups.includes('outside-before'));assert.ok(!groups.includes('outside-after'));
+  const first=JSON.parse(groups.split('\n')[0]);
+  assert.equal(first.id,'overlap');assert.equal(first.start_s,9);assert.equal(first.overlap_start_s,10);
+  assert.equal(first.text,'跨边界的完整对白');
+});
+
+test('audit R01: uploading six seconds then selecting twelve uses the current window on Send',async()=>{
+  const ui=videoPage();ui.fields['video-duration'].value=6;ui.fields['video-duration'].onchange();
+  await ui.run('addVideo({name:"twelve.mp4",size:1000})');installChat(ui);
+  ui.fields['video-duration'].value=12;ui.fields['video-duration'].onchange();
+  await ui.run('send()');
+  const c=ui.run('messages[0].videos[0].analysis.coverage');
+  assert.equal(c.window_end_s,12);assert.equal(c.sample_count,12);assert.equal(c.analysis_completed,true);
+});
+
+test('audit R02: changing video mode after upload resamples using the selected mode',async()=>{
+  const ui=videoPage();ui.fields['video-mode'].value='frames';
+  await ui.run('addVideo({name:"twelve.mp4",size:1000})');installChat(ui);
+  ui.fields['video-mode'].value='native';await ui.run('send()');
+  assert.equal(ui.calls.filter(c=>c.url==='v1/video/sample').at(-1).body.mode,'native');
+  assert.equal(ui.calls.find(c=>c.body?.stream).body.messages[0].content.at(-1).mode,'native');
+});
+
+test('audit R03: unchanged single upload sends without decoding twice',async()=>{
+  const ui=videoPage();await ui.run('addVideo({name:"twelve.mp4",size:1000})');installChat(ui);
+  await ui.run('send()');assert.equal(ui.calls.filter(c=>c.url==='v1/video/sample').length,1);
+});
+
+test('audit R04: failed automatic resampling cannot send the old six-second attachment',async()=>{
+  const ui=videoPage();ui.fields['video-duration'].value=6;ui.fields['video-duration'].onchange();
+  await ui.run('addVideo({name:"twelve.mp4",size:1000})');installChat(ui);
+  ui.fields['video-duration'].value=12;ui.fields['video-duration'].onchange();
+  ui.context.fetch=async()=>({ok:false,json:async()=>({error:{message:'decode failure'}})});
+  await ui.run('send()');assert.equal(ui.run('messages.length'),0);assert.equal(ui.run('busy'),null);
+  assert.ok(ui.notices.some(row=>row.join(' ').includes('decode failure')));
+});
+
+test('audit R05: Stop during automatic resampling cancels before any inference or chat history entry',async()=>{
+  const ui=videoPage();await ui.run('addVideo({name:"twelve.mp4",size:1000})');installChat(ui);
+  ui.fields['video-duration'].value=12;ui.fields['video-duration'].onchange();
+  let entered;const pending=new Promise(resolve=>entered=resolve);
+  ui.context.fetch=async(url,options)=>{entered();return new Promise((resolve,reject)=>{
+    options.signal.addEventListener('abort',()=>reject(new DOMException('Cancelled','AbortError')),{once:true});
+  });};
+  const sending=ui.run('send()');await pending;
+  assert.equal(ui.fields['video-mode'].disabled,true);ui.run('busy.controller.abort()');await sending;
+  assert.equal(ui.run('messages.length'),0);assert.equal(ui.run('busy'),null);
+  assert.equal(ui.fields['video-mode'].disabled,false);
+});
+
+test('audit R06: explicitly selecting six seconds stays six, and Entire Video clears the restriction',async()=>{
+  const ui=videoPage();ui.fields['video-start'].value=2;ui.fields['video-duration'].value=6;
+  ui.fields['video-duration'].onchange();await ui.run('addVideo({name:"twelve.mp4",size:1000})');
+  assert.equal(ui.run('attachments[0].plan.end_s'),8);
+  ui.fields['video-entire'].onclick();await ui.run('synchronizePendingVideo(new AbortController().signal)');
+  assert.equal(ui.run('attachments[0].plan.start_s'),0);assert.equal(ui.run('attachments[0].plan.end_s'),12);
+});
+
+test('audit R07: result labels distinguish a twelve-second window from a six-second last sample',()=>{
+  const ui=videoPage();ui.context.labelVideo={manifest:{source:{duration_s:12}},analysis:{coverage:{
+    window_start_s:0,window_end_s:12,sample_count:2,completed_segments:1,total_segments:1,
+    first_sample_s:0,last_sample_s:6,max_sample_gap_s:6,analysis_completed:true}}};
+  const text=ui.run('videoCoverageText(labelVideo)');
+  assert.match(text,/原视频 12.00 秒/);assert.match(text,/分析范围 0.00–12.00 秒/);assert.match(text,/实际采样帧 0.00–6.00 秒/);
+});
+
+test('audit R08: a trimmed single clip explicitly maps relative frame labels onto input speech time',async()=>{
+  const ui=videoPage();ui.fields['video-start'].value=6;
+  await ui.run('addVideo({name:"twelve.mp4",size:1000})');installChat(ui);await ui.run('send()');
+  const prompt=ui.calls.find(c=>c.body?.stream).body.messages[0].content[0].text;
+  assert.match(prompt,/分析范围 6.00–12.00 秒/);assert.match(prompt,/加 6.000 秒/);
+});
+
+function emptySegment(segment) {
+  return {part:null,empty_segment:true,manifest:{source:{duration_s:12,time_origin_s:5},frames:[],
+    sampling:{start_s:segment.start_s,end_s:segment.end_s},coverage:{sample_count:0}}};
+}
+test('audit R09: source frame gaps do not truncate later visual windows or invent intervening frames',async()=>{
+  const p=V.plan({source:{duration_s:12}},{max_frames:8,sampling_fps:24}),seen=[];
+  const read=s=>s.index%3===0?sample({...s,max_frames:1,sampling_fps:1}):emptySegment(s);
+  const r=await V.run({plan:p,first:read(p.segments[0]),sample:async s=>read(s),
+    observe:async(v,s)=>{seen.push(s.index);return 'one actual frame';},merge:async()=> 'bounded summary'});
+  assert.equal(r.coverage.window_end_s,12);assert.equal(r.coverage.completed_windows,36);
+  assert.equal(r.coverage.empty_segments,24);assert.equal(r.coverage.visual_segments,12);assert.equal(seen.at(-1),33);
+  assert.equal(r.coverage.analysis_completed,true);assert.match(r.evidence,/没有源视频画面帧/);
+});
+
+test('audit R10: an empty response from the wrong window is rejected',async()=>{
+  const p=V.plan({source:{duration_s:12}},{max_frames:8,sampling_fps:24});
+  const wrong=emptySegment({...p.segments[0],end_s:6});
+  await assert.rejects(V.run({plan:p,first:wrong,sample:async()=>wrong,observe:async()=> 'bad',merge:async()=> 'bad'}),/不一致/);
+});
+
+test('audit R11: a wholly empty selected visual window retains timed dialogue without visual inference',async()=>{
+  const ui=videoPage();ui.fields['video-processing'].value='segmented';ui.fields['video-duration'].value=1;
+  ui.context.fetch=async(url,options)=>url==='v1/video/sample'?
+    {ok:true,json:async()=>emptySegment({start_s:0,end_s:1})}:
+    {ok:true,json:async()=>({choices:[{message:{content:'对白：继续'}}]})};
+  await ui.run('addVideo({name:"vfr.mp4",size:1000})');
+  ui.run("attachments[0].speech={contract_version:1,timeline:'input',status:'complete',cues:[{id:'u1',start_s:.1,end_s:.9,text:'继续'}]}");
+  const r=await ui.run("analyzeVideoSegments(attachments[0],'分析',{},new AbortController().signal,()=>{})");
+  assert.equal(r.coverage.sample_count,0);assert.equal(r.coverage.empty_segments,1);
+  assert.ok(r.evidence.includes('继续'));assert.ok(r.evidence.includes('不能推断画面'));
+});
+
+test('audit R12: speech and visual analysis both use the updated twelve-second window exactly once',async()=>{
+  const ui=videoPage();ui.fields['video-duration'].value=6;ui.fields['video-duration'].onchange();
+  await ui.run('addVideo({name:"twelve.mp4",size:1000})');installChat(ui);
+  const original=ui.context.fetch;ui.context.fetch=(url,options)=>url==='v1/chat/completions'?original(url,options):
+    (options.body && url==='v1/video/transcribe' ? (ui.calls.push({url,body:JSON.parse(options.body)}),Promise.resolve({ok:true,json:async()=>({contract_version:1,timeline:'input',status:'complete',cues:[]})})) :
+      url==='v1/asr/capabilities'||url==='v1/asr/status'?Promise.resolve({ok:true,json:async()=>({supported:true,phase:'completed'})}):original(url,options));
+  ui.fields['video-duration'].value=12;ui.fields['video-duration'].onchange();ui.fields['video-asr-enabled'].checked=true;
+  await ui.run('send()');const asr=ui.calls.filter(c=>c.url==='v1/video/transcribe');
+  assert.equal(asr.length,1);assert.equal(asr[0].body.end_s,12);
+  assert.equal(ui.run('messages[0].videos[0].analysis.coverage.window_end_s'),12);
+});
+
+test('old saved video history without window fields still renders and does not invent a duration',()=>{
+  const ui=videoPage();ui.context.oldVideo={analysis:{coverage:{sample_count:8,first_sample_s:0,last_sample_s:6}}};
+  const text=ui.run('videoCoverageText(oldVideo)');assert.match(text,/分析范围 \?–\? 秒/);
+  assert.match(text,/实际采样帧 0.00–6.00 秒/);assert.ok(!text.includes('NaN'));
 });

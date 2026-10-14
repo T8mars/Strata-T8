@@ -111,9 +111,9 @@ def safe_path(root, relative):
         raise ValueError(f'Unsafe package path: {relative}')
     if any(not p or p.endswith((' ', '.')) or PureWindowsPath(p).is_reserved() or re.search(r'[<>"|?*\x00-\x1f\x7f]', p) for p in relative.split('/')):
         raise ValueError(f'Invalid Windows package path: {relative}')
-    if path.parts[0].lower() in ('strata-data', 'models', 'packs', 'mtp', '.git', 'logs', '.portable-update'):
+    if path.parts[0].lower() in ('strata-data', 'models', 'packs', 'mtp', '.git', 'logs', '.portable-update', '.asr-cache'):
         raise ValueError(f'User data path in package: {relative}')
-    if path.parts[0].lower() == 'portable-settings.json' or re.fullmatch(r'strata-.*\.json', relative, re.I):
+    if path.parts[0].lower() in ('portable-settings.json','asr-settings.json') or re.fullmatch(r'strata-.*\.json', relative, re.I):
         raise ValueError(f'User configuration in package: {relative}')
     result = root.joinpath(*path.parts)
     if not result.resolve().is_relative_to(root.resolve()):

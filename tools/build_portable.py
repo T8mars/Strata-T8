@@ -41,6 +41,8 @@ DOCS = (
     'VIDEO-ANALYSIS.zh-CN.md',
     'VALIDATION-VIDEO-T8.md',
     'MODEL-SETUP.zh-CN.md',
+    'VIDEO-SPEECH.zh-CN.md',
+    'VALIDATION-VIDEO-SPEECH-T8.md',
 )
 
 
@@ -112,12 +114,16 @@ def main():
         shutil.rmtree(TARGET)
     TARGET.mkdir(parents=True)
     for name in ['runtime', 'engine', 'engine-hip']:
-        copy_tree(name, shutil.ignore_patterns('__pycache__', '*.pyc', 'test_*.py', '*_test.py', '*.log', 'stop_local.ps1'))
+        copy_tree(name, shutil.ignore_patterns('__pycache__', '*.pyc', 'test_*.py', '*_test.py', '*.log', 'stop_local.ps1',
+            'native-cuda', 'ASR-CUDA.json', 'ASR-RUNTIME.json'))
     for name in ['serve', 'tools', 'ref']:
         copy_source(name)
     copy_source('licenses')
     if features.get('video_sampling_cpu'):
         verify_video_runtime(TARGET)
+    if features.get('bundled_asr_cpu'):
+        from stage_asr_runtime import verify
+        verify(TARGET/'runtime/asr','cpu')
     # Patch staged copies too: locally cached vendor engines may predate bootstrap.
     for backend in ['engine', 'engine-hip']:
         patch_engine(TARGET/backend)
@@ -128,7 +134,7 @@ def main():
         weight = verify(ROOT)
         (TARGET/'vision/weights').mkdir()
         shutil.copy2(weight, TARGET/'vision/weights'/weight.name)
-    for file in ['portable.py', 'setup.py', 'requirements.txt', 'requirements-portable.txt', 'CMakeLists.txt', 'LICENSE', 'README.md', 'README-PORTABLE.zh-CN.md', 'meta.json', 'features.json', 'model-sources.json', 'START-PORTABLE.bat', 'CHECK-ENV.bat', 'IMPORT-MODEL.bat', 'PREPARE-MODEL.bat', 'UPDATE-PORTABLE.bat', 'INSTALL-VISION.bat', 'VERIFY-PACKAGE.bat']:
+    for file in ['portable.py', 'setup.py', 'requirements.txt', 'requirements-portable.txt', 'requirements-asr.txt', 'CMakeLists.txt', 'LICENSE', 'README.md', 'README-PORTABLE.zh-CN.md', 'meta.json', 'features.json', 'model-sources.json', 'START-PORTABLE.bat', 'CHECK-ENV.bat', 'IMPORT-MODEL.bat', 'PREPARE-MODEL.bat', 'UPDATE-PORTABLE.bat', 'INSTALL-VISION.bat', 'VERIFY-PACKAGE.bat']:
         shutil.copy2(ROOT/file, TARGET/file)
     (TARGET/'meta.json').write_text(json.dumps({**META, 'edition': edition, 'weights': weights, 'models_included': weights['vision']}, indent=2), encoding='utf-8')
     features['bundled_vision_weights'] = weights['vision']

@@ -60,7 +60,7 @@
     return {start_s: start, end_s: end, sampling_fps: fps,
       estimated_frames: Math.ceil((end - start) * fps - 1e-9), segments};
   }
-  function coverage(times, p, completed) {
+  function coverage(times, p, completed, emptySegments = 0) {
     const sorted = [...times].sort((a, b) => a - b), unique = [];
     for (const t of sorted) if (!unique.length || t - unique[unique.length - 1] > 1e-7) unique.push(t);
     let gap = 0;
@@ -69,6 +69,8 @@
       last_sample_s: unique[unique.length - 1] ?? null, max_sample_gap_s: gap,
       window_start_s: p.start_s, window_end_s: p.end_s, completed_segments: completed,
       total_segments: p.segments.length, analysis_completed: completed === p.segments.length,
+      empty_segments: emptySegments, completed_windows: completed,
+      visual_segments: completed - emptySegments,
       continuous_observation: false};
   }
   function record(note) { return `[${note.start_s.toFixed(3)}–${note.end_s.toFixed(3)} 秒；${note.frames} 帧]\n${note.text}`; }
@@ -98,14 +100,25 @@
   }
   async function run({plan: p, first, sample, observe, merge, signal, progress = () => {}}) {
     const notes = [], times = [];
+    let emptySegments = 0;
     const notify = (extra) => progress({...extra, completed: notes.length, total: p.segments.length,
-      coverage: coverage(times, p, notes.length), notes});
+      coverage: coverage(times, p, notes.length, emptySegments), notes});
     for (const segment of p.segments) {
       check(signal);
       notify({phase: 'sample', segment});
       const sampled = segment.index === 0 ? first : await sample(segment);
       check(signal);
       const frames = sampled?.part?.frames, sampling = sampled?.manifest?.sampling;
+      if (sampled?.empty_segment === true && sampled.part === null &&
+          sampled.manifest?.frames?.length === 0 && sampled.manifest?.coverage?.sample_count === 0 &&
+          sampling && Math.abs(sampling.start_s - segment.start_s) <= 1e-6 &&
+          Math.abs(sampling.end_s - segment.end_s) <= 1e-6) {
+        emptySegments++;
+        notes.push({start_s:segment.start_s, end_s:segment.end_s, frames:0,
+          text:'该时间窗口没有源视频画面帧；不能推断画面或动作。对应对白另行保留在整片汇总中。'});
+        notify({phase:'observed', segment});
+        continue;
+      }
       if (!frames?.length || frames.length > segment.max_frames || !sampling ||
           Math.abs(sampling.start_s - segment.start_s) > 1e-6 || Math.abs(sampling.end_s - segment.end_s) > 1e-6) {
         throw new Error('返回的视频采样与分段计划不一致。');
@@ -127,7 +140,7 @@
     }
     const evidence = await compact(notes, merge, signal, notify);
     check(signal);
-    return {notes, evidence, coverage: coverage(times, p, notes.length)};
+    return {notes, evidence, coverage: coverage(times, p, notes.length, emptySegments)};
   }
   const api = {plan, run, coverage, pixelMeasurements};
   if (typeof module !== 'undefined' && module.exports) module.exports = api;

@@ -374,7 +374,7 @@ class VideoUploadHTTP(unittest.TestCase):
         self.assertEqual(result['part']['mode'], 'native')
 
     def test_timeout_returns_error_and_next_upload_recovers(self):
-        with mock.patch.object(strata_video, 'sample_video', side_effect=TimeoutError('CPU decode timeout')):
+        with mock.patch.object(video, 'sample_upload_isolated', side_effect=TimeoutError('CPU decode timeout')):
             status, result = self.post({'data': self.encoded})
         self.assertEqual(status, 400, result)
         self.assertIn('timeout', result['error']['message'])
@@ -391,7 +391,7 @@ class VideoUploadHTTP(unittest.TestCase):
                 raise strata_video.VideoCancelled('client disconnected')
             finally:
                 stopped.set()
-        with mock.patch.object(strata_video, 'sample_video', side_effect=decode):
+        with mock.patch.object(video, 'sample_upload_isolated', side_effect=decode):
             connection = http.client.HTTPConnection('127.0.0.1', self.httpd.server_address[1], timeout=5)
             try:
                 connection.request('POST', '/v1/video/sample', json.dumps({'data': self.encoded}),

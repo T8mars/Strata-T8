@@ -12,5 +12,9 @@ tests/data/native_experts/** -text
 # Fixed upstream license sources are audited byte for byte on every host.
 licenses/video/** -text
 
+# Shared speech contracts carry hashes and must match on Windows and Linux.
+serve/asr/contract.py text eol=lf
+serve/asr/media.py text eol=lf
+
 # The fork's landing page is maintained separately; sync_upstream configures this driver.
 README.md merge=t8-keep

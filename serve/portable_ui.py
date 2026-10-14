@@ -95,7 +95,7 @@ def model_summary(data, portable):
     if not isinstance(label, str) or not label.strip() or len(label) > 200:
         label = f"{model['family'].upper()} · {model['model']}"
     return {'path': str(path), 'family': model['family'], 'quantization': model['model'],
-            'label': label,
+            'label': label, 'api_model_id': portable.model_api_id(model),
             'bytes': sum(e['size'] for e in model.get('files', [])), 'complete': True}
 
 
@@ -146,6 +146,7 @@ class ModelSetup:
         self.backend_id = None
         self.backend_port = None
         self.backend_config = None
+        self.backend_model_id = None
         self.log = None
         self.job = {'state': 'idle', 'message': '选择模型目录后即可开始。', 'error': None}
         self.update = {'state': 'unchecked', 'current': self.version, 'latest': None, 'available': False,
@@ -239,12 +240,18 @@ class ModelSetup:
             running = self.process is not None and self.process.poll() is None
             if self.process is not None and not running and self.job['state'] == 'ready':
                 self.job = {'state': 'error', 'message': '服务已退出，请重新启动。', 'error': '服务进程已结束。'}
+            connection = None
+            if running and self.job['state'] == 'ready' and self.backend_port and self.backend_model_id:
+                base = f'http://127.0.0.1:{self.backend_port}/v1'
+                connection = {'model_id': self.backend_model_id, 'base_url': base, 'models_url': base+'/models',
+                              'api_key_required': bool((self.backend_config or {}).get('api_key'))}
             return {'version': self.version, 'job': dict(self.job), 'model': self.model,
                     'configured': self.current_config is not None, 'running': running,
                     'chat_url': f'http://127.0.0.1:{self.backend_port}/' if running and self.job['state'] == 'ready' else None,
                     'defaults': self.defaults(), 'vision_available': self.vision_available(),
                     'folder_picker': os.name == 'nt', 'configuration_error': self.current_error,
                     'prepared_model': self.prepared_model,
+                    'api_connection': connection,
                     'update': dict(self.update),
                     'log_tail': self._tail(self.job_log) if self.job_log and self.job_log.is_file() else ''}
 
@@ -413,6 +420,7 @@ class ModelSetup:
             config['port'] = self.backend_port
             self.portable.save_json(self.current_config, config)
         self.backend_config = config
+        self.backend_model_id = None
         self.backend_id = secrets.token_hex(16)
         self.set_job('starting', '正在启动本地服务，模型将在首次请求时加载…')
         command = [sys.executable, '-X', 'utf8', '-u', str(self.root/'serve/server.py'), '--engine', 'strata',
@@ -438,6 +446,9 @@ class ModelSetup:
             try:
                 status = json_reply(self.backend_port, '/health')
                 if status.get('service') == 'strata' and status.get('portable_launcher_instance') == self.backend_id:
+                    name = status.get('model', config.get('model_name', 'qwen3.8-flash-next'))
+                    if isinstance(name, str) and name.strip() and len(name) <= 200 and not any(ord(c) < 32 or ord(c) == 127 for c in name):
+                        self.backend_model_id = name
                     self.set_job('ready', '服务已就绪，可以进入聊天。')
                     return
             except (OSError, ValueError, RuntimeError):
@@ -629,6 +640,15 @@ def handler(app):
                 except (OSError, ValueError, RuntimeError) as error:
                     self._send(400, {'error': str(error)})
                 return
+            if path == '/api/asr/settings':
+                if not self._guard(token=True):
+                    return
+                from serve.asr import config as asr_config
+                try:
+                    self._send(200, {'settings':asr_config.load(app.root), 'capabilities':asr_config.availability(app.root)})
+                except (OSError, ValueError) as error:
+                    self._send(400, {'error':str(error)})
+                return
             self._send(404, {'error': '页面不存在。'})
 
         def do_POST(self):
@@ -638,7 +658,8 @@ def handler(app):
                 self._send(400, {'error': '无效的请求长度。'})
                 return
             length = self.headers.get('Content-Length', '')
-            if len(self.headers.get_all('Content-Length', [])) != 1 or not length.isascii() or not length.isdigit() or len(length) > 8 or int(length) > BODY_LIMIT:
+            limit = 65536 if urlsplit(self.path).path == '/api/asr/settings' else BODY_LIMIT
+            if len(self.headers.get_all('Content-Length', [])) != 1 or not length.isascii() or not length.isdigit() or len(length) > 8 or int(length) > limit:
                 self._send(413, {'error': '请求过大或缺少长度。'})
                 return
             if self.headers.get('Content-Type', '').split(';')[0].strip() != 'application/json':
@@ -670,6 +691,12 @@ def handler(app):
                 elif path == '/api/stop' and not data:
                     app.stop()
                     self._send(202, {'accepted': True})
+                elif path == '/api/asr/settings':
+                    from serve.asr import config as asr_config
+                    with app.lock:
+                        if app.closed.is_set() or app.job['state'] == 'updating':
+                            raise SetupError('更新或关闭期间不能修改语音设置，请稍后重试。')
+                        self._send(200, {'settings':asr_config.save(app.root, data), 'capabilities':asr_config.availability(app.root)})
                 elif path == '/api/update/check' and not data:
                     app.check_updates()
                     self._send(202, {'accepted': True})

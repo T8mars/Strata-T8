@@ -70,7 +70,9 @@ ComfyUI 节点在 [Comfyui-Strata-T8](https://github.com/T8mars/Comfyui-Strata-T
 
 ## 视频分析
 
-网页支持上传本地视频。“视频分析设置”默认折叠，填写秒数与每秒观察帧数后自动分段计算；10 秒、24 帧/秒规划约 240 帧，逐段观察后汇总，并显示实际帧数和进度。快速概览保留默认 8 帧。节点 1.1.2 新增 Full Video Analyze，直接接官方 VIDEO / 原始 IMAGE 输入，按秒数全程分段汇总，输出报告、JSON、证据和采样覆盖范围。视频解码依赖已内置；声音需另附 SRT/VTT 或转写文本。
+网页支持上传本地视频。“视频分析设置”默认折叠，填写秒数与每秒观察帧数后自动分段计算；10 秒、24 帧/秒规划约 240 帧，逐段观察后汇总。修改时长、FPS 或模式会在发送前自动重新采样；点“整个视频”可清除旧范围。原片时长、分析范围与实际采样时间分别显示。节点 1.2.0 的 Full Video Analyze 可直接接官方 VIDEO / IMAGE，空画面窗口明确记录，不阻止后续片段与对白。
+
+勾选“自动转录语音并分析对白”可联合分析视频音轨与画面，默认关闭。独立 CPU Python 与语音推理依赖已内置；在模型设置页填写外置 Confucius4-R2T2 2B **Q4_K_M 主模型、Q8 音频 projector 和 FireRedVAD** 的目录。语音权重不包含，最低两份 GGUF 合计约 1.46 GB。也可直接提供时标字幕，无需开启 ASR；支持校对与 SRT/JSON 导出。[模型来源、下载和路径](docs/VIDEO-SPEECH.zh-CN.md)
 
 NVIDIA 原生双帧编码需主动启用：`START-HERE.bat --native-video`；关闭用 `--no-native-video`。它复用现有 Qwen 主模型和 VisionReady 视觉权重，无需额外模型。网页的视频模式可切换抽帧或原生编码；AMD 目前只保留既有文本引擎能力。详细限制、API 与验收见 [视频分析说明](docs/VIDEO-ANALYSIS.zh-CN.md)。
 
