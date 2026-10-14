@@ -476,3 +476,71 @@ test('old saved video history without window fields still renders and does not i
   const text=ui.run('videoCoverageText(oldVideo)');assert.match(text,/分析范围 \?–\? 秒/);
   assert.match(text,/实际采样帧 0.00–6.00 秒/);assert.ok(!text.includes('NaN'));
 });
+
+test('source reuse uploads once across all segments and timed speech, retaining no encoded original in the attachment',async()=>{
+  const ui=videoPage(),original=ui.context.fetch;let uploads=0;
+  ui.context.StrataVideoTasks={token:()=> 'a'.repeat(64),call:async(path,value)=>{
+    if(path==='v1/video/sources'){uploads++;assert.equal(value.data,'fixture');return {id:'source'};}
+    throw new Error('unexpected task');
+  }};
+  ui.context.fetch=async(path,options)=>path==='v1/video/capabilities'?{ok:true,json:async()=>({source_handles:true})}:original(path,options);
+  ui.run("$('video-source-reuse').checked=true");ui.fields['video-processing'].value='segmented';ui.fields['video-fps'].value=24;
+  await ui.run("addVideo({name:'clip.mp4',size:100})");
+  assert.equal(ui.run('attachments[0].encoded'),undefined);assert.equal(uploads,1);
+  ui.context.video=ui.run('attachments[0]');
+  await ui.run("prepareVideoSpeech(video,new AbortController().signal,()=>{})");
+  await ui.run("analyzeVideoSegments(video,'question',{},new AbortController().signal,()=>{})");
+  assert.equal(uploads,1);
+  const sources=ui.calls.filter(c=>['v1/video/sample','v1/video/transcribe'].includes(c.url));
+  assert.ok(sources.length>18);assert.ok(sources.every(c=>c.body.source_id==='source' && !('data' in c.body)));
+});
+
+test('saved observation progress skips completed model calls after browser restart',async()=>{
+  const p=V.plan({source:{duration_s:12}},{sampling_fps:2,max_frames:8}),controller=new AbortController();let saved,observations=0;
+  await assert.rejects(V.run({plan:p,first:sample(p.segments[0]),sample:async s=>sample(s),
+    observe:async()=>{observations++;return 'observed';},merge:async()=> 'merged',signal:controller.signal,
+    checkpoint:async state=>{saved=structuredClone(state);if(state.notes.length===1)controller.abort();}}),{name:'AbortError'});
+  assert.equal(observations,1);assert.equal(saved.notes.length,1);
+  const result=await V.run({plan:p,first:null,resume:JSON.parse(JSON.stringify(saved)),sample:async s=>sample(s),
+    observe:async()=>{observations++;return 'observed';},merge:async()=> 'merged',signal:new AbortController().signal});
+  assert.equal(observations,3);assert.equal(result.coverage.sample_count,24);assert.equal(result.coverage.window_end_s,12);
+});
+
+test('hierarchical merge resumes completed groups and does not repeat them',async()=>{
+  const p=V.plan({source:{duration_s:12}},{sampling_fps:4,max_frames:4});let saved,merged=0;
+  const controller=new AbortController();
+  await assert.rejects(V.run({plan:p,first:sample(p.segments[0]),sample:async s=>sample(s),observe:async()=> 'x'.repeat(900),
+    merge:async()=>{merged++;return 'short summary';},signal:controller.signal,checkpoint:async state=>{
+      saved=structuredClone(state);if(state.merge_state?.next.length===1)controller.abort();}}),{name:'AbortError'});
+  assert.equal(saved.notes.length,12);assert.equal(merged,1);
+  await V.run({plan:p,first:null,sample:async()=>{throw new Error('must not sample again');},observe:async()=>{throw new Error('must not observe again');},
+    merge:async()=>{merged++;return 'short summary';},resume:saved,signal:new AbortController().signal});
+  assert.equal(merged,2);
+});
+
+test('boundary continuity provides previous image and bounded historical text without counting it twice',async()=>{
+  const p=V.plan({source:{duration_s:12}},{sampling_fps:2,max_frames:8});const bridges=[];
+  const result=await V.run({plan:p,first:sample(p.segments[0]),sample:async s=>sample(s),continuity:true,
+    observe:async sampled=>{bridges.push(sampled.bridge_frame);assert.ok(sampled.history.length<=4000);return 'chronological note';},
+    merge:async()=> 'merged',signal:new AbortController().signal});
+  assert.equal(bridges[0],null);assert.equal(bridges[1].source_timestamp_s,8.5);
+  assert.equal(result.coverage.sample_count,24);
+});
+
+test('actual restore control freezes the saved plan when container duration differs slightly from entered seconds',async()=>{
+  const ui=videoPage();ui.context.document={createElement:()=>element()};ui.context.busy=null;
+  const plan=V.plan({source:{duration_s:11.9996875}},{sampling_fps:2,max_frames:15,end_s:12});
+  const task={id:'task',source_id:'source',revision:0,config:{plan,question:'original question',mode:'frames',name:'clip.mp4',
+    sampling:{segmented:true,sampling_fps:2,max_frames:15,end_s:12,continuity:true,sampling_strategy:'adaptive'}},
+    state:{notes:[],times:[],empty_segments:0,phase:'observe'}};
+  ui.context.StrataVideoTasks={token:()=> 'a'.repeat(64),call:async(path)=>path.endsWith('/list')?
+    {tasks:[{...task,completed:0,phase:'observe'}]}:structuredClone(task)};
+  vm.runInContext(source.slice(source.indexOf("if ($('video-task-refresh'))"),source.indexOf("$('video-mode').addEventListener")),ui.context);
+  await ui.fields['video-task-refresh'].onclick();
+  const row=ui.fields['video-task-list'].children[0];await row.children[1].onclick();
+  assert.equal(ui.fields['input'].value,'original question');assert.equal(ui.fields['video-duration'].value,'12');
+  assert.equal(ui.run('videoParametersChanged(attachments[0])'),false);
+  assert.equal(ui.fields['video-fps'].disabled,true);
+  assert.equal(ui.run('attachments[0].file'),undefined);
+  assert.equal(ui.run('attachments[0].plan.end_s'),11.9996875);
+});

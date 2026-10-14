@@ -40,5 +40,11 @@
   "video_timed_dialogue_fusion": true,
   "video_speech_default_enabled": false,
   "bundled_asr_cpu": true,
-  "asr_models_bundled": false
+  "asr_models_bundled": false,
+  "video_source_reuse": true,
+  "video_progress_recovery": true,
+  "video_adaptive_sampling": true,
+  "video_cross_window_continuity": true,
+  "portable_component_updates": true,
+  "portable_successful_update_restore": true
 }

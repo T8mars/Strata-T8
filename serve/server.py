@@ -4843,8 +4843,12 @@ class BadBody(Exception):
 
 
 def make_handler(svc: Service):
+    from serve.video_tasks import VideoStore, runtime_context
+    video_store = VideoStore(ROOT)
+
     class Handler(BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.0"                       # SSE ends by closing the connection
+        media_store = video_store
 
         record = None                                       # #332: this request's monitor record, if kept
         watch_done = None                                   # #430 #431: stops this request's disconnect watcher
@@ -5128,6 +5132,12 @@ def make_handler(svc: Service):
 
         def do_GET(self):
             path = self.path.split("?")[0].rstrip("/")
+            if path == '/v1/video/capabilities':
+                if self._authorized():
+                    self._json(200, {'contract_version':1, 'source_handles':True, 'checkpoints':True,
+                                     'max_source_bytes':128*1024**2, 'retention_s':86400,
+                                     'runtime_context':runtime_context(svc,ROOT)})
+                return
             if path.startswith("/fonts/"):
                 # the web app's font (Outfit, OFL: serve/web/fonts); the page falls back to the system font
                 name = path[len("/fonts/"):]
@@ -5343,14 +5353,46 @@ def make_handler(svc: Service):
                 req = self._request_json()
                 if not isinstance(req, dict):
                     raise ValueError("send a JSON object")
+                if path in ('/v1/video/sources', '/v1/video/sources/delete', '/v1/video/tasks', '/v1/video/tasks/list',
+                            '/v1/video/tasks/get', '/v1/video/tasks/checkpoint', '/v1/video/tasks/delete'):
+                    if path == '/v1/video/sources':
+                        if set(req)-{'owner','data','persistent','name'}:
+                            raise ValueError('Invalid video source upload')
+                        self.cancel=threading.Event();self._watch_client(self.cancel)
+                        try:
+                            result = video_store.upload(req.get('owner'), req.get('data'),
+                                persistent=req.get('persistent',False), name=req.get('name','video'),cancel=self.cancel)
+                        except InterruptedError:raise RequestCancelled()
+                    elif path == '/v1/video/tasks/list':
+                        result = video_store.list(req.get('owner'))
+                    elif path == '/v1/video/sources/delete':
+                        result = video_store.delete_source(req.get('owner'),req.get('source_id'))
+                    elif path == '/v1/video/tasks/get':
+                        result = video_store.get(req.get('owner'), req.get('id'), runtime_context(svc,ROOT))
+                    elif path == '/v1/video/tasks/delete':
+                        result = video_store.delete(req.get('owner'), req.get('id'))
+                    elif path == '/v1/video/tasks/checkpoint':
+                        result = video_store.checkpoint(req.get('owner'), req.get('id'), req.get('revision'),
+                                                        req.get('state'), runtime_context(svc,ROOT))
+                    else:
+                        result = video_store.create(req.get('owner'), req.get('source_id'), req.get('config'), runtime_context(svc,ROOT))
+                    self._json(200,result)
+                    return
                 if path in ('/v1/load', '/v1/chat/completions', '/v1/messages', '/v1/responses', '/v1/video/sample', '/v1/video/transcribe', '/v1/audio/transcribe'):
                     self.cancel = threading.Event()
                     self._watch_client(self.cancel)
                 if path in ('/v1/video/transcribe','/v1/audio/transcribe'):
                     from serve.asr.integration import manager as speech_manager, gpu_scope
                     try:
-                        result = speech_manager(svc, ROOT).upload(req, self.cancel, gpu_scope=lambda: gpu_scope(svc),
-                            max_bytes=(256 if path=='/v1/audio/transcribe' else 128)*1024**2)
+                        if path == '/v1/video/transcribe' and 'source_id' in req:
+                            if set(req)-{'source_id','owner','start_s','end_s','audio_track','channel','language','context','offset_ms','expected_device'}:
+                                raise ValueError('Invalid ASR source settings')
+                            with video_store.source(req['source_id'],req.get('owner')) as (source,_):
+                                options = {k:v for k,v in req.items() if k not in ('owner','source_id')}
+                                result = speech_manager(svc,ROOT).transcribe(source, options, self.cancel, gpu_scope=lambda:gpu_scope(svc))
+                        else:
+                            result = speech_manager(svc, ROOT).upload(req, self.cancel, gpu_scope=lambda: gpu_scope(svc),
+                                max_bytes=(256 if path=='/v1/audio/transcribe' else 128)*1024**2)
                     except InterruptedError:
                         raise RequestCancelled()
                     except (RuntimeError, TimeoutError) as error:
@@ -5386,7 +5428,14 @@ def make_handler(svc: Service):
                     if req.get('mode') == 'native' and 'native' not in svc.v1_status()['capabilities']['video']['modes']:
                         raise ValueError('Native video is not enabled in this server')
                     try:
-                        result = video_api.sample_upload_isolated(req, cancel=self.cancel)
+                        if 'source_id' in req:
+                            if 'data' in req:
+                                raise ValueError('Send one video source')
+                            from serve.media_jobs import sample_video
+                            with video_store.source(req['source_id'],req.get('owner')) as (source,_):
+                                result = sample_video(source,video_api.sampling_options(req),cancel=self.cancel)
+                        else:
+                            result = video_api.sample_upload_isolated(req, cancel=self.cancel)
                     except video_api.VideoCancelled:
                         raise RequestCancelled()
                     except TimeoutError as error:
@@ -6044,6 +6093,8 @@ class Server(ThreadingHTTPServer):
             super().handle_error(request, client_address)
 
     def server_close(self):
+        stop=getattr(self,'video_store_stop',None)
+        if stop is not None:stop.set()
         # the hardware sampler serve() started for this server stops with it (test isolation: every Service a test
         # started used to leave its sampler running, 21 of them after test_responses, which slowed test_parallel's timing)
         tel = getattr(getattr(self, "svc", None), "telemetry", None)
@@ -6299,6 +6350,14 @@ def serve(svc: Service, host="127.0.0.1", port=8095) -> ThreadingHTTPServer:
     svc.start_telemetry()
     httpd = Server((host, port), make_handler(svc))
     httpd.svc = svc
+    httpd.video_store_stop=threading.Event()
+    def clean_video_storage():
+        store=httpd.RequestHandlerClass.media_store
+        while not httpd.video_store_stop.wait(300):
+            if store.root.is_dir():
+                try:store.cleanup()
+                except (OSError,ValueError):pass
+    threading.Thread(target=clean_video_storage,daemon=True).start()
     threading.Thread(target=httpd.serve_forever, daemon=True).start()
     return httpd
 

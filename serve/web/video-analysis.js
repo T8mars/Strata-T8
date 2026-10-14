@@ -74,9 +74,9 @@
       continuous_observation: false};
   }
   function record(note) { return `[${note.start_s.toFixed(3)}–${note.end_s.toFixed(3)} 秒；${note.frames} 帧]\n${note.text}`; }
-  async function compact(notes, merge, signal, progress) {
-    let records = notes.map(record);
-    for (let round = 0; records.join('\n\n').length > MERGE_CHARS; round++) {
+  async function compact(notes, merge, signal, progress, resumed=null, checkpoint=null) {
+    let records = resumed?.records || notes.map(record), savedNext=resumed?.next || [];
+    for (let round = resumed?.round || 0; records.join('\n\n').length > MERGE_CHARS; round++) {
       if (round >= 10) throw new Error('分段记录未能压缩到上下文预算，请缩短视频窗口。');
       const groups = [];
       for (const text of records) {
@@ -85,28 +85,39 @@
         if (!group || group.join('\n\n').length + text.length + 2 > MERGE_CHARS) groups.push([text]);
         else group.push(text);
       }
-      const next = [];
-      for (let i = 0; i < groups.length; i++) {
+      const next = [...savedNext];savedNext=[];
+      if(next.length>groups.length)throw new Error('保存的汇总进度不一致。');
+      for (let i = next.length; i < groups.length; i++) {
         check(signal);
         progress({phase: 'merge', group: i + 1, groups: groups.length});
         const text = await merge(groups[i].join('\n\n'));
         check(signal);
         if (typeof text !== 'string' || !text.trim() || text.length > 3000) throw new Error('分段汇总为空或超出文字预算。');
         next.push(text);
+        if(checkpoint)await checkpoint({round,records,next:[...next]});
       }
       records = next;
+      if(checkpoint)await checkpoint({round:round+1,records,next:[]});
     }
     return records.join('\n\n');
   }
-  async function run({plan: p, first, sample, observe, merge, signal, progress = () => {}}) {
-    const notes = [], times = [];
-    let emptySegments = 0;
+  async function run({plan: p, first, sample, observe, merge, signal, progress = () => {}, resume=null, checkpoint=null, continuity=false}) {
+    const notes = resume?.notes ? structuredClone(resume.notes) : [], times = resume?.times ? [...resume.times] : [];
+    let emptySegments = resume?.empty_segments || 0, previousFrame=null;
+    if(notes.length>p.segments.length || times.length!==notes.reduce((sum,n)=>sum+n.frames,0) ||
+       notes.some((n,i)=>n.start_s!==p.segments[i].start_s||n.end_s!==p.segments[i].end_s))throw new Error('保存的视频进度与当前计划不一致。');
+    const save=async(phase,evidence)=>{if(checkpoint)await checkpoint({notes:structuredClone(notes),times:[...times],empty_segments:emptySegments,phase,...(evidence?{evidence}:{})});};
     const notify = (extra) => progress({...extra, completed: notes.length, total: p.segments.length,
       coverage: coverage(times, p, notes.length, emptySegments), notes});
     for (const segment of p.segments) {
+      if(segment.index<notes.length)continue;
       check(signal);
       notify({phase: 'sample', segment});
       const sampled = segment.index === 0 ? first : await sample(segment);
+      if(continuity && !previousFrame && segment.index>0) {
+        const previousSample=await sample(p.segments[segment.index-1]);
+        previousFrame=previousSample?.part?.frames?.at(-1)||null;
+      }
       check(signal);
       const frames = sampled?.part?.frames, sampling = sampled?.manifest?.sampling;
       if (sampled?.empty_segment === true && sampled.part === null &&
@@ -117,6 +128,8 @@
         notes.push({start_s:segment.start_s, end_s:segment.end_s, frames:0,
           text:'该时间窗口没有源视频画面帧；不能推断画面或动作。对应对白另行保留在整片汇总中。'});
         notify({phase:'observed', segment});
+        await save('observe');
+        previousFrame=null;
         continue;
       }
       if (!frames?.length || frames.length > segment.max_frames || !sampling ||
@@ -125,6 +138,10 @@
       }
       notify({phase: 'observe', segment});
       sampled.pixel_measurements = await measureFrames(sampled, signal);
+      if(continuity) {
+        sampled.bridge_frame=previousFrame;
+        sampled.history=notes.slice(-8).map(record).join('\n\n').slice(-4000);
+      }
       check(signal);
       const text = await observe(sampled, segment, notes[notes.length - 1]);
       check(signal);
@@ -136,10 +153,14 @@
         times.push(time);
       }
       notes.push({start_s: segment.start_s, end_s: segment.end_s, frames: frames.length, text});
+      previousFrame=frames.at(-1);
       notify({phase: 'observed', segment});
+      await save('observe');
     }
-    const evidence = await compact(notes, merge, signal, notify);
+    const evidence = resume?.evidence || await compact(notes, merge, signal, notify,resume?.merge_state,
+      checkpoint?async merge_state=>checkpoint({notes:structuredClone(notes),times:[...times],empty_segments:emptySegments,phase:'merge',merge_state}):null);
     check(signal);
+    await save('merge',evidence);
     return {notes, evidence, coverage: coverage(times, p, notes.length, emptySegments)};
   }
   const api = {plan, run, coverage, pixelMeasurements};

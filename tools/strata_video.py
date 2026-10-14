@@ -219,10 +219,52 @@ def _manifest(frames, *, duration, origin, start, end, sampling_fps, max_frames,
     }
 
 
+def adaptive_targets(sampled, count):
+    """Keep time coverage, then spend the remaining budget around pixel changes.
+
+    Pixel differences locate candidate changes, never object identity or motion
+    direction. The low-resolution scan and retained frames are both bounded.
+    """
+    _integer(count, 'adaptive frame budget', 1, MAX_FRAMES)
+    frames = sampled.frames
+    if len(frames) <= count:
+        return [f.source_timestamp_s-sampled.manifest['source']['time_origin_s'] for f in frames]
+    baseline = min(count, max(2, math.ceil(count*.65)))
+    selected = {round(i*(len(frames)-1)/(baseline-1)) for i in range(baseline)} if baseline>1 else {0}
+    scores, previous = [], None
+    for index, frame in enumerate(frames):
+        image = frame.image.convert('RGB').resize((32,32))
+        pixels = image.tobytes()
+        hist = image.histogram()
+        if previous is not None:
+            old_pixels, old_hist = previous
+            difference = sum(abs(a-b) for a,b in zip(pixels,old_pixels))/(len(pixels)*255)
+            histogram = sum(abs(a-b) for a,b in zip(hist,old_hist))/(32*32*3*2)
+            # Scene cuts have a large distribution change; movement need not.
+            score = difference + histogram
+            if difference >= .025 or histogram >= .08:
+                scores.append((score,index))
+        previous = pixels,hist
+    for _, index in sorted(scores,reverse=True):
+        for candidate in (index, index-1):
+            if len(selected) == count:
+                break
+            selected.add(candidate)
+        if len(selected) == count:
+            break
+    # Static scenes still cover the complete selected interval.
+    while len(selected) < count:
+        candidate = max((i for i in range(len(frames)) if i not in selected),
+                        key=lambda i:min(abs(i-j) for j in selected))
+        selected.add(candidate)
+    origin = sampled.manifest['source']['time_origin_s']
+    return [frames[i].source_timestamp_s-origin for i in sorted(selected)]
+
+
 def sample_video(source, *, start_s=0.0, end_s=None, sampling_fps=1.0,
                  max_frames=64, max_pixels=589824, max_duration_s=3600,
                  max_input_bytes=268435456, max_decoded_frames=180000,
-                 timeout_s=120.0, crop=None, cancel=None):
+                 timeout_s=120.0, crop=None, cancel=None, sampling_strategy='uniform', target_times=None):
     """Decode a local file/seekable stream on CPU, retaining only bounded samples.
 
     Network playlists/protocols are deliberately not inputs. Callers download or
@@ -233,6 +275,30 @@ def sample_video(source, *, start_s=0.0, end_s=None, sampling_fps=1.0,
     except ImportError as error:
         raise ValueError('Video decoding requires PyAV; install av==15.0.0 in this Python environment') from error
     start_s, end_s = _limits(start_s, end_s, sampling_fps, max_frames, max_pixels, max_duration_s)
+    if sampling_strategy not in ('uniform','adaptive'):
+        raise ValueError('Sampling strategy must be uniform or adaptive')
+    if sampling_strategy == 'adaptive':
+        if target_times is not None:
+            raise ValueError('Adaptive sampling computes its own targets')
+        begin = time.monotonic()
+        try:
+            scan = sample_video(source,start_s=start_s,end_s=end_s,sampling_fps=min(8,max(2,sampling_fps*4)),
+                                max_frames=256,max_pixels=4096,max_duration_s=max_duration_s,
+                                max_input_bytes=max_input_bytes,max_decoded_frames=max_decoded_frames,
+                                timeout_s=timeout_s,crop=crop,cancel=cancel)
+        except VideoWindowEmpty:
+            return sample_video(source,start_s=start_s,end_s=end_s,sampling_fps=sampling_fps,max_frames=max_frames,
+                                max_pixels=max_pixels,max_duration_s=max_duration_s,max_input_bytes=max_input_bytes,
+                                timeout_s=max(.001,timeout_s-(time.monotonic()-begin)),crop=crop,cancel=cancel)
+        end = scan.manifest['sampling']['end_s']
+        count = min(max_frames,max(1,math.ceil((end-start_s)*sampling_fps)))
+        targets = adaptive_targets(scan,count)
+        sampled = sample_video(source,start_s=start_s,end_s=end,sampling_fps=sampling_fps,max_frames=max_frames,
+                               max_pixels=max_pixels,max_duration_s=max_duration_s,max_input_bytes=max_input_bytes,
+                               max_decoded_frames=max_decoded_frames,timeout_s=max(.001,timeout_s-(time.monotonic()-begin)),
+                               crop=crop,cancel=cancel,target_times=targets)
+        sampled.manifest['sampling'].update(strategy='adaptive',scan_frames=len(scan.frames),coverage_budget_fraction=.65)
+        return sampled
     _integer(max_input_bytes, 'max_input_bytes', 1, 2**31)
     _integer(max_decoded_frames, 'max_decoded_frames', 1, 1_000_000)
     finite(timeout_s, 'timeout_s', positive=True)
@@ -292,6 +358,12 @@ def sample_video(source, *, start_s=0.0, end_s=None, sampling_fps=1.0,
             if stop - start_s > max_duration_s:
                 raise ValueError('Requested video window exceeds the duration limit')
             targets = sampling_schedule(start_s, stop, sampling_fps, max_frames)
+            if target_times is not None:
+                if not isinstance(target_times,list) or not 1<=len(target_times)<=max_frames:
+                    raise ValueError('Invalid explicit sampling targets')
+                targets=[finite(t,'sample target') for t in target_times]
+                if any(t<start_s or t>=stop for t in targets) or any(a>=b for a,b in zip(targets,targets[1:])):
+                    raise ValueError('Explicit targets must be ordered inside the video window')
             rate = float(stream.average_rate) if stream.average_rate else None
             # With no declared origin, decode the first PTS before locating the
             # clip. Resetting origin after a seek would count start_s twice.

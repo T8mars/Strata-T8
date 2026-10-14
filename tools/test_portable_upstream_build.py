@@ -246,6 +246,8 @@ class ShippingFiles(unittest.TestCase):
     def test_operational_docs_include_new_referenced_documents(self):
         self.assertIn('STRIX_HALO.md', builder.DOCS)
         self.assertIn('EXCHANGE_ROTATION.md', builder.DOCS)
+        self.assertIn('VIDEO-PROGRESS.zh-CN.md', builder.DOCS)
+        self.assertIn('COMPONENT-UPDATES.zh-CN.md', builder.DOCS)
         for name in builder.DOCS:
             path = builder.ROOT/'docs'/name
             self.assertTrue(path.is_file(), name)

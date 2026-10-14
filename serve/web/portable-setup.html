@@ -80,6 +80,8 @@
       <h2 id="release-heading">版本与更新 <span class="muted">@@VERSION@@</span></h2>
       <p id="update-message" role="status">启动时自动检查新版本；离线仍可使用。</p>
       <div class="directory-actions"><button type="button" id="update-check" class="text-button">检查更新</button><button type="button" id="update-start" class="button primary" disabled>一键更新</button><a href="https://github.com/T8mars/Strata-T8/releases/latest" target="_blank" rel="noopener noreferrer">查看最新版本 ↗</a></div>
+      <p class="hint">新版提供组件资源时，只下载有变化的组件；完整离线版仍从 START-HERE.bat 启动。成功更新后可离线回退，模型和个人设置保留。</p>
+      <button type="button" id="backup-list" class="text-button">查看可回退版本</button><div id="backup-versions" aria-live="polite"></div>
       <p class="field-help">一键更新会停止当前服务并打开更新进度窗口，校验、安装完成后重新打开设置页。模型与配置保留，正在生成的回答会中断。</p>
       <nav class="resource-links" aria-label="项目仓库"><a href="https://github.com/T8mars/Strata-T8" target="_blank" rel="noopener noreferrer">整合包仓库</a><a href="https://github.com/T8mars/Comfyui-Strata-T8" target="_blank" rel="noopener noreferrer">ComfyUI 节点仓库</a></nav>
       <details class="resources"><summary>关注与资源 · By T8star</summary><nav class="resource-links" aria-label="T8star 社媒与资源">

@@ -2,7 +2,8 @@ param(
     [Parameter(Mandatory=$true)][string]$AppRoot,
     [Parameter(Mandatory=$true)][ValidateRange(1,2147483647)][int]$ParentId,
     [Parameter(Mandatory=$true)][ValidateRange(1,65535)][int]$UIPort,
-    [switch]$NonInteractive
+    [switch]$NonInteractive,
+    [ValidatePattern('^[0-9a-f]{32}$')][string]$RestoreId
 )
 $ErrorActionPreference = 'Stop'
 $env:PYTHONHOME = $null
@@ -17,7 +18,8 @@ try {
     $parent = Get-Process -Id $ParentId -ErrorAction SilentlyContinue
     if ($parent -and !$parent.WaitForExit(40000)) { throw 'Launcher is still running. No update was applied.' }
     $python = Join-Path $appDirectory 'runtime/python/python.exe'
-    & $python -X utf8 -u (Join-Path $appDirectory 'tools/portable_update.py')
+    if ($RestoreId) { & $python -X utf8 -u (Join-Path $appDirectory 'tools/portable_update.py') --restore $RestoreId }
+    else { & $python -X utf8 -u (Join-Path $appDirectory 'tools/portable_update.py') }
     if ($LASTEXITCODE -ne 0) { throw 'Download or verification failed. Previous installation is preserved.' }
     $planFile = Join-Path $appDirectory '.portable-update/plan.json'
     if (Test-Path -LiteralPath $planFile) {

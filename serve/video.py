@@ -27,6 +27,10 @@ def upload_input(request):
         raise ValueError('Video upload data is not valid base64') from error
     if len(data) > MAX_VIDEO_BYTES:
         raise ValueError('Video upload exceeds 128 MiB')
+    return data, sampling_options(request)
+
+
+def sampling_options(request):
     mode = request.get('mode', 'frames')
     if mode not in ('frames', 'native'):
         raise ValueError('Video mode must be frames or native')
@@ -39,7 +43,11 @@ def upload_input(request):
     options = {'start_s':request.get('start_s',0), 'end_s':request.get('end_s'),
                'sampling_fps':request.get('sampling_fps',1), 'max_frames':count,
                'mode':mode, 'allow_empty_segment':allow_empty}
-    return data, options
+    if 'sampling_strategy' in request:
+        if request['sampling_strategy'] not in ('uniform','adaptive'):
+            raise ValueError('Invalid video sampling strategy')
+        options['sampling_strategy'] = request['sampling_strategy']
+    return options
 
 
 def sample_upload(request, cancel=None):
@@ -68,7 +76,7 @@ def sample_source(source, options, cancel=None):
         sampled = sample_video(source, start_s=options['start_s'],
                                end_s=options['end_s'], sampling_fps=options['sampling_fps'],
                                max_frames=count, max_pixels=589824, max_input_bytes=MAX_VIDEO_BYTES,
-                               cancel=cancel)
+                               cancel=cancel, sampling_strategy=options.get('sampling_strategy','uniform'))
     except VideoWindowEmpty as error:
         if not allow_empty:
             raise

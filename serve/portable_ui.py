@@ -472,7 +472,9 @@ class ModelSetup:
                 meta = json.loads((self.root/'meta.json').read_text(encoding='utf-8'))
                 asset = archive_name(latest, meta.get('edition', 'Portable-NoModels'))
                 names = {item.get('name') for item in release.get('assets', []) if isinstance(item, dict)}
-                if newer and not {asset, asset+'.sha256'}.issubset(names):
+                from tools.component_updates import index_name
+                component=index_name(latest,meta.get('edition','Portable-NoModels'))
+                if newer and not ({asset, asset+'.sha256'}.issubset(names) or {component,component+'.sha256'}.issubset(names)):
                     raise SetupError('新版缺少当前发行类型的 ZIP 或校验文件，请稍后重试。')
                 with self.lock:
                     self.update.update(state='ready', latest=latest, available=newer,
@@ -482,13 +484,16 @@ class ModelSetup:
                     self.update.update(state='error', available=False, message='暂时无法检查更新，离线使用不受影响。')
         threading.Thread(target=work, daemon=True).start()
 
-    def begin_update(self):
+    def begin_update(self, restore_id=None):
         with self.lock:
             if self.closed.is_set() or self.job['state'] in ('preparing','configuring','starting','stopping','updating'):
                 raise SetupError('当前操作尚未完成，请稍候。')
             if not self.update['supported']:
                 raise SetupError('一键更新适用于 Windows 解压版；源码仓库请使用 Git 更新。')
-            if self.update['state'] != 'ready' or not self.update['available']:
+            if restore_id is not None:
+                from tools.portable_restore import read_receipt
+                read_receipt(self.root,restore_id)
+            elif self.update['state'] != 'ready' or not self.update['available']:
                 raise SetupError('请先检查更新，确认有可用的新版本。')
             self.job = {'state': 'updating', 'message': '正在打开更新窗口。完成后将重新打开模型设置页。', 'error': None}
         def work():
@@ -502,8 +507,10 @@ class ModelSetup:
                 self.stop_backend()
                 # This helper must survive this launcher; do not put it in the
                 # owned backend's kill-on-close Job Object.
-                subprocess.Popen(['powershell.exe','-NoProfile','-ExecutionPolicy','Bypass','-File',str(helper),
-                                  '-AppRoot',str(self.root),'-ParentId',str(os.getpid()),'-UIPort',str(self.http.server_port)],
+                arguments=['powershell.exe','-NoProfile','-ExecutionPolicy','Bypass','-File',str(helper),
+                           '-AppRoot',str(self.root),'-ParentId',str(os.getpid()),'-UIPort',str(self.http.server_port)]
+                if restore_id is not None:arguments.extend(['-RestoreId',restore_id])
+                subprocess.Popen(arguments,
                                  cwd=temporary, creationflags=getattr(subprocess,'CREATE_NEW_CONSOLE',0))
                 self.closed.set()
             except (OSError, ValueError, RuntimeError) as error:
@@ -703,6 +710,12 @@ def handler(app):
                 elif path == '/api/update/start' and not data:
                     app.begin_update()
                     self._send(202, {'accepted': True})
+                elif path == '/api/update/backups' and not data:
+                    from tools.portable_restore import list_backups
+                    self._send(200,list_backups(app.root))
+                elif path == '/api/update/restore' and set(data)=={'id'}:
+                    app.begin_update(restore_id=data['id'])
+                    self._send(202,{'accepted':True})
                 elif path == '/api/browse' and not data:
                     if not app.folder_lock.acquire(blocking=False):
                         raise SetupError('目录选择窗口已打开，请先完成选择。')

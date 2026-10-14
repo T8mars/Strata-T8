@@ -27,6 +27,10 @@ Release 附 SHA256，VERIFY-PACKAGE.bat 检查解压文件。请下载发行资�
 
 视频分析设置中可勾选“自动转录语音并分析对白”，默认关闭。使用外置 Confucius4-R2T2 2B Q4_K_M 主模型与配套音频 projector，约 1.46 GB；模型路径独立设置，默认 CPU 转录，按真实时间范围关联对白与画面。支持已有时标字幕、字幕校对和 SRT/JSON 导出。语音权重不进入运行包。[模型安装、路径和使用说明](docs/VIDEO-SPEECH.zh-CN.md)
 
+## 视频进度与更新
+
+可选原片复用、分段与汇总进度恢复、自适应采样和跨段参考，默认关闭，详见[视频进度说明](docs/VIDEO-PROGRESS.zh-CN.md)。完整离线安装入口为 `START-HERE.bat`；一键更新可复用未变化的组件，并保留成功升级的离线回退备份。[组件更新与回退](docs/COMPONENT-UPDATES.zh-CN.md)
+
 ## ComfyUI
 
 独立 [Strata-T8 节点](https://github.com/T8mars/Comfyui-Strata-T8) 提供 Git 和 Release ZIP 安装，Publisher `t8star`，节点 ID `strata-t8`。Registry 版本审核通过后可在 ComfyUI-Manager 搜索安装。节点仓库提供模型路径、连接配置与示例工作流，涵盖文本、图片、批量分镜和视频分析。
@@ -65,7 +69,7 @@ Windows 10 1903+/11 x64、AVX2 CPU、SSD。NVIDIA RTX 20/30/40/50 系列建议 1
 
 仓库每日检查上游正式版本，合并及测试通过后自动打包发布；可在 [Actions](https://github.com/T8mars/Strata-T8/actions) 手动同步 main。冲突、测试失败或缺少匹配引擎时停止发布。[更新机制](docs/UPDATING-T8.md)
 
-当前发行版 **0.1.42-t8.8** 基于上游 [v0.1.42](https://github.com/Niko1221/Strata/releases/tag/v0.1.42)，配套节点 **1.2.0** 和 ComfyUI Protocol 1。新增可选语音转录与音画联合分析，修复修改视频参数后沿用旧范围、空画面窗口中断及对白时间偏移。点击“整个视频”清除旧时长限制；上传后修改参数会在发送前自动重新采样。媒体解码使用独立进程，异常退出仅自动重试一次，第二次失败明确报告未完成。视频设置默认折叠，按秒数与帧率分段；原生双帧编码仍使用采样帧。现有主模型和视觉权重可沿用。[本版验证](docs/VALIDATION-VIDEO-SPEECH-T8.md)
+当前发行版 **0.1.42-t8.9** 基于上游 [v0.1.42](https://github.com/Niko1221/Strata/releases/tag/v0.1.42)，配套节点 **1.3.0** 和 ComfyUI Protocol 1。新增可选视频进度恢复、自适应采样、跨段衔接，以及组件更新和成功升级回退；已有语音转录与音画联合分析继续可用。视频设置默认折叠，按秒数与帧率分段；原生双帧编码仍使用采样帧。现有主模型和视觉权重可沿用。[视频进度与验证范围](docs/VIDEO-PROGRESS.zh-CN.md)
 
 上游在适用 NVIDIA 配置中默认启用专家尾部跳过和实测 PCIe 分配，回答可能略有变化。需要恢复此前行为，可在运行配置的 `env` 对象设置 `"STRATA_ROUTE_TAIL_SKIP":"0"` 和 `"STRATA_PCIE_FRAC_DEFAULT":"old"`，然后重启；已有显式 `--pcie-frac` 参数继续优先。上游性能数字取决于硬件与模型，不代表本机速度。
 

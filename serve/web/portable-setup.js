@@ -208,6 +208,22 @@ $("stop").onclick = async () => { clearError(); redirect = false; try { await ap
 $("prepare").onclick = async () => { clearError(); redirect = false; try { await api("/api/prepare", {path: $("download-path").value.trim(), accept_download: $("download-consent").checked}); } catch (e) { fail(e); } };
 $("update-check").onclick = async () => { clearError(); try { await api('/api/update/check', {}); render(await api('/api/status')); } catch (e) { fail(e); } };
 $("update-start").onclick = async () => { clearError(); redirect = false; $("update-start").disabled = true; try { await api('/api/update/start', {}); $("update-message").textContent = '更新窗口已打开。此页面会暂时断开，完成后将重新打开模型设置页。'; } catch (e) { fail(e); if(state) render(state); } };
+if ($('backup-list')) $('backup-list').onclick=async()=>{
+  const list=$('backup-versions');list.replaceChildren();clearError();
+  try {
+    const result=await api('/api/update/backups',{});
+    if(!result.backups.length){list.textContent='尚无成功升级后的备份。';return;}
+    for(const backup of result.backups) {
+      const row=document.createElement('p'),text=document.createElement('span'),button=document.createElement('button');
+      text.textContent=`${backup.to_version} → ${backup.from_version} `;button.type='button';button.className='text-button';
+      button.textContent=backup.available?'回退到此版本':'当前版本不匹配';button.disabled=!backup.available;
+      button.onclick=async()=>{clearError();button.disabled=true;redirect=false;
+        try{await api('/api/update/restore',{id:backup.id});$('update-message').textContent='回退窗口已打开，完成后会重新打开模型设置页。';}
+        catch(error){fail(error);button.disabled=false;}};
+      row.append(text,button);list.append(row);
+    }
+  }catch(error){fail(error);}
+};
 $('copy-api-model').onclick = () => copyApiValue('api-model-id');
 $('copy-api-base').onclick = () => copyApiValue('api-base-url');
 for (const id of ['api-model-id', 'api-base-url']) $(id).onclick = () => $(id).select();

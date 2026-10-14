@@ -179,6 +179,45 @@ def audit_assets(root, meta, head, *, with_digests=False):
     return (assets, digests) if with_digests else assets
 
 
+def audit_component_assets(root,meta):
+    """Bind every component byte to the already audited complete offline ZIPs."""
+    from component_updates import index_name,validate,file_hash,MAX_INDEX
+    dist=Path(root)/'dist'
+    names=[index_name(meta['version'],edition) for edition in EDITIONS]
+    if not any((dist/name).exists() for name in names):return [],{}
+    assets={};digests={}
+    for edition,name in zip(EDITIONS,names):
+        path=safe_path(dist,name);checksum=safe_path(dist,name+'.sha256')
+        if not path.is_file() or not checksum.is_file() or path.stat().st_size>MAX_INDEX:
+            raise ValueError('Release lacks both current component indexes and checksums')
+        raw=path.read_bytes();sha=hashlib.sha256(raw).hexdigest()
+        if checksum.read_text(encoding='ascii').strip().split()!=[sha,name]:raise ValueError('Component index checksum failed')
+        index=update_json(raw);validate(index,dist)
+        archive=dist/archive_name(meta['version'],edition)
+        with zipfile.ZipFile(archive) as zipped:
+            manifest=_zip_json(zipped,archive.name.removesuffix('.zip')+'/PACKAGE-MANIFEST.json',MAX_INDEX)
+        if index['manifest']!=manifest:raise ValueError('Component inventory differs from the complete offline package')
+        if any(meta.get(k)!=v for k,v in index['compatibility'].items()):raise ValueError('Component compatibility pins differ from tested source')
+        assets[name]=path;assets[checksum.name]=checksum;digests[name]=sha;digests[checksum.name]=file_hash(checksum)
+        for component in index['components']:
+            target=dist/component['asset']
+            safe_path(dist,component['asset'])
+            if target.stat().st_size!=component['size'] or file_hash(target)!=component['sha256']:
+                raise ValueError('Component asset checksum failed before publication')
+            with zipfile.ZipFile(target) as zipped:
+                infos=zipped.infolist();entries={e['path']:e for e in component['files']}
+                if len(infos)!=len(entries) or {i.filename for i in infos}!=set(entries):raise ValueError('Unlisted component member')
+                for info in infos:
+                    safe_path(dist,info.filename)
+                    if info.is_dir() or ((info.external_attr>>16)&0o170000) not in (0,0o100000):raise ValueError('Linked component member')
+                    if info.file_size!=entries[info.filename]['size']:raise ValueError('Component member size mismatch')
+                    with zipped.open(info) as stream:
+                        if hashlib.file_digest(stream,'sha256').hexdigest()!=entries[info.filename]['sha256']:raise ValueError('Component member checksum mismatch')
+            if target.name in digests and digests[target.name]!=component['sha256']:raise ValueError('Conflicting shared component assets')
+            assets[target.name]=target;digests[target.name]=component['sha256']
+    return [assets[name] for name in sorted(assets)],digests
+
+
 def remote_tag_commit(root, tag):
     ref = 'refs/tags/'+tag
     result = command(root, ['git', 'ls-remote', 'origin', ref, ref+'^{}'], check=False)
@@ -246,10 +285,11 @@ def release_api(root, repository, tag):
     return release
 
 
-def _publish_verified_assets(root, meta, head, assets, digests=None):
+def _publish_verified_assets(root, meta, head, assets, digests=None, *, component_assets=()):
     repository, tag = meta['repository'], 'v'+meta['version']
     expected_paths = [Path(root)/'dist'/name for edition in EDITIONS for name in
                       (archive_name(meta['version'], edition), archive_name(meta['version'], edition)+'.sha256')]
+    expected_paths.extend(component_assets)
     if list(map(lambda path: Path(path).resolve(), assets)) != [path.resolve() for path in expected_paths]:
         raise ValueError('Publishing accepts exactly the four current edition assets')
     if digests is None:  # Internal state-machine tests supply already-audited fixture files.
@@ -337,9 +377,11 @@ def _publish_verified_assets(root, meta, head, assets, digests=None):
 def publish(root=ROOT, *, verify_only=False):
     meta, head = checkout_identity(root)
     assets, digests = audit_assets(root, meta, head, with_digests=True)
+    component_assets,component_digests=audit_component_assets(root,meta)
+    assets.extend(component_assets);digests.update(component_digests)
     if verify_only:
         return {'verified': True, 'source_commit': head, 'assets': [path.name for path in assets]}
-    return _publish_verified_assets(root, meta, head, assets, digests)
+    return _publish_verified_assets(root, meta, head, assets, digests,component_assets=component_assets)
 
 
 def main():

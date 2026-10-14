@@ -69,6 +69,7 @@ build-vision-cuda12.bat
 /.portable-build/
 /asr-settings.json
 /.asr-cache/
+/.video-tasks/
 /portable-settings.json
 /Strata-data/
 /VERIFY-RESULTS.json

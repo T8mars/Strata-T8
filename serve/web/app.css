@@ -81,6 +81,8 @@ main { flex: 1; min-height: 0; display: flex; }
 .video-sampling { max-width:860px; margin:0 auto var(--st-s-2); padding:10px 14px; border:1px solid var(--st-line); border-radius:var(--st-r-md); background:var(--st-surface); font-size:12px; }
 .video-sampling__fields { display:flex; align-items:end; flex-wrap:wrap; gap:10px; }
 .video-sampling label { display:flex; flex-direction:column; gap:4px; color:var(--st-ink-muted); }
+.video-sampling .st-checkbox { flex-direction:row; align-items:center; gap:8px; margin:8px 0; line-height:1.5; }
+.video-sampling .st-checkbox input { width:auto; margin:0; padding:0; flex:none; }
 .video-sampling input,.video-sampling select { width:82px; padding:5px 8px; border:1px solid var(--st-line); border-radius:8px; background:var(--st-surface-2); color:var(--st-ink); font:inherit; }
 .video-sampling select { width:155px; }
 .video-sampling p { margin:8px 0 0; color:var(--st-ink-muted); line-height:1.5; }

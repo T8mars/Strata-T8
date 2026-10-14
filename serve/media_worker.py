@@ -23,7 +23,7 @@ def main():
         if job['operation']=='video':
             from serve.video import sample_source
             options=job['options']
-            if set(options)!={'start_s','end_s','sampling_fps','max_frames','mode','allow_empty_segment'}:
+            if set(options)-{'sampling_strategy'}!={'start_s','end_s','sampling_fps','max_frames','mode','allow_empty_segment'}:
                 raise ValueError('Invalid video job options')
             result=sample_source(source,options)
         elif job['operation']=='audio':

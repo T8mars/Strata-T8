@@ -43,6 +43,8 @@ DOCS = (
     'MODEL-SETUP.zh-CN.md',
     'VIDEO-SPEECH.zh-CN.md',
     'VALIDATION-VIDEO-SPEECH-T8.md',
+    'VIDEO-PROGRESS.zh-CN.md',
+    'COMPONENT-UPDATES.zh-CN.md',
 )
 
 

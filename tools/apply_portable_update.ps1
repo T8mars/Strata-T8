@@ -102,7 +102,7 @@ function CheckEntries($entries, [string]$label) {
             $entry.sha256 -isnot [string] -or $entry.sha256 -cnotmatch '^[0-9a-f]{64}$') { throw "Invalid $label file entry" }
         $relative = $entry.path
         if ($relative -match '(^/|\\|:|(^|/)\.\.?(/|$)|[<>"|?*\x00-\x1f\x7f])' -or
-            $relative -match '^(Strata-data|models|packs|mtp|\.git|logs|\.portable-update|\.asr-cache)(/|$)' -or
+            $relative -match '^(Strata-data|models|packs|mtp|\.git|logs|\.portable-update|\.asr-cache|\.video-tasks)(/|$)' -or
             $relative -match '^(portable-settings\.json|asr-settings\.json|strata-.*\.json|PACKAGE-MANIFEST\.json)$') { throw "Unsafe $label file path: $relative" }
         foreach ($part in $relative.Split('/')) {
             if (!$part -or $part.EndsWith(' ') -or $part.EndsWith('.') -or $part -match '^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(\.|$)') { throw "Invalid $label Windows file path: $relative" }
@@ -225,7 +225,15 @@ try {
     $comparison = CompareVersion $manifest.version $installedManifest.version
     $incomingEdition = if ($manifest.PSObject.Properties['edition']) { $manifest.edition } else { 'Portable-NoModels' }
     $installedEdition = if ($installedManifest.PSObject.Properties['edition']) { $installedManifest.edition } else { 'Portable-NoModels' }
-    if ($comparison -lt 0 -or ($comparison -eq 0 -and $incomingEdition -ceq $installedEdition)) { throw 'Update would downgrade or reapply the installed version and edition' }
+    if ($plan.PSObject.Properties['action'] -and $plan.action -cne 'restore') { throw 'Invalid update action' }
+    if ($plan.PSObject.Properties['action'] -and $plan.action -ceq 'restore') {
+        if ($plan.restore_id -isnot [string] -or $plan.restore_id -cnotmatch '^[0-9a-f]{32}$') { throw 'Invalid restore selection' }
+        $receiptPath = ScopedPath $appRoot ('.portable-update/history/' + $plan.restore_id + '.json')
+        $receipt = ReadJsonObject $receiptPath 'Rollback receipt'
+        if ($receipt.id -cne $plan.restore_id -or $receipt.root -cne $appRoot -or
+            $receipt.installed_manifest_sha256 -cne (FileDigest $installedManifestPath) -or
+            $receipt.target_manifest_sha256 -cne $plan.manifest_sha256 -or $receipt.from_version -cne $manifest.version) { throw 'Restore does not reverse the selected successful update' }
+    } elseif ($comparison -lt 0 -or ($comparison -eq 0 -and $incomingEdition -ceq $installedEdition)) { throw 'Update would downgrade or reapply the installed version and edition' }
     $newNames = @{}
     $newEntries = @{}
     $oldNames = @{}
@@ -309,6 +317,20 @@ try {
         else { $entry = $newEntries[$relative]; InstallFile $source $target $entry.size $entry.sha256 }
     }
     WriteResult @{ success=$true; version=$plan.version; backup=$backupRoot }
+    if ($plan.PSObject.Properties['stage_owner'] -and $plan.stage_owner -is [string] -and $plan.stage_owner -cmatch '^[0-9a-f]{32}$') {
+        $history = ScopedPath $appRoot '.portable-update/history'
+        $null = [IO.Directory]::CreateDirectory($history)
+        $receiptPath = ScopedPath $appRoot ('.portable-update/history/' + $plan.stage_owner + '.json')
+        if (Test-Path -LiteralPath $receiptPath) { throw 'Rollback receipt already exists' }
+        $receipt = @{ id=$plan.stage_owner; root=$appRoot; backup=$backupRoot; from_version=$installedManifest.version;
+                      to_version=$manifest.version; target_manifest_sha256=(FileDigest (ScopedPath $backupRoot 'PACKAGE-MANIFEST.json'));
+                      installed_manifest_sha256=(FileDigest (ScopedPath $appRoot 'PACKAGE-MANIFEST.json')) }
+        $receiptTemp = $receiptPath + '.' + [Guid]::NewGuid().ToString('N') + '.tmp'
+        try {
+            [IO.File]::WriteAllText($receiptTemp, ($receipt | ConvertTo-Json), [Text.UTF8Encoding]::new($false))
+            [IO.File]::Move($receiptTemp,$receiptPath)
+        } finally { if (Test-Path -LiteralPath $receiptTemp) { Remove-Item -LiteralPath $receiptTemp } }
+    }
     Remove-Item -LiteralPath $PlanPath
     Write-Host "Updated to $($plan.version). Backup: $backupRoot"
     exit 0

@@ -61,6 +61,12 @@
           <button id="video-resample" type="button" class="st-btn st-btn--secondary" hidden>按新参数重新采样</button>
         </div>
         <p id="video-sampling-status" role="status">全程分段可按 24/30 FPS 覆盖所选窗口，总帧数不限于 64；逐段观察后汇总，耗时随段数增加。音轨不参与分析。</p>
+        <label class="st-checkbox"><input id="video-source-reuse" type="checkbox">复用原片：上传一次，分段分析和语音转录共用</label>
+        <label class="st-checkbox"><input id="video-save-progress" type="checkbox">保存分段进度，刷新或重启后可继续（本机保留原片和记录 24 小时）</label>
+        <label class="st-checkbox"><input id="video-continuity" type="checkbox">跨段衔接：参考上一段末帧和有界历史记录</label>
+        <label>采样策略<select id="video-strategy" aria-label="采样策略"><option value="uniform">均匀覆盖（默认）</option><option value="adaptive">自适应：保留全程覆盖，加密像素变化附近</option></select></label>
+        <button id="video-task-refresh" type="button" class="st-btn st-btn--secondary">查看保存的任务</button>
+        <div id="video-task-list" aria-live="polite"></div>
         <label class="st-checkbox"><input id="video-asr-enabled" type="checkbox">自动转录语音并分析对白（默认关闭）</label>
         <p class="muted">语音模型路径在“模型设置 → 可选语音转录”中独立设置。对白时间为段级近似范围，可提供已校对的时标字幕。</p>
         <label>已有时标字幕（可选，不加载语音模型）<textarea id="video-timed-transcript" rows="2" placeholder="粘贴 SRT、VTT、Confucius result_json 或带 cues 的时标 JSON"></textarea></label>
@@ -279,6 +285,7 @@
 <div class="scrim" id="scrim" hidden></div>
 <div class="st-toasts" id="toasts" aria-live="polite"></div>
 <script src="web/video-analysis.js"></script>
+<script src="web/video-tasks.js"></script>
 <script src="web/speech-analysis.js"></script>
 <script src="web/app.js"></script>
 </body>

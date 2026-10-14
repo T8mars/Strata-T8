@@ -72,8 +72,11 @@ def discard_owned_pending_stage(root, plan):
             return
         stage = original_stage.resolve()
         if (stage.parent != temp_root or not stage.name.startswith('Strata-T8-update-')
-                or (stage/'backup').exists() or Path(plan['stage']).resolve() != stage/'incoming'
-                or Path(plan['backup']).resolve() != stage/'backup'):
+                or (stage/'backup').exists() or Path(plan['stage']).resolve() != stage/'incoming'):
+            return
+        from portable_restore import backup_destination
+        backup = Path(plan['backup']).resolve()
+        if backup not in (stage/'backup',backup_destination(root,plan['stage_owner'])) or backup.exists():
             return
         marker = stage/'stage-owner.json'
         if marker.is_symlink() or getattr(marker, 'is_junction', lambda: False)():
@@ -106,12 +109,15 @@ def discard_owned_pending_stage(root, plan):
 def safe_path(root, relative):
     if not isinstance(relative, str):
         raise ValueError('Package path must be a string')
+    from check_private_paths import is_private_path
+    if is_private_path(relative):
+        raise ValueError('Private planning file in package')
     path = PurePosixPath(relative)
     if not relative or '\\' in relative or ':' in relative or path.is_absolute() or any(p in ('..', '.') for p in relative.split('/')):
         raise ValueError(f'Unsafe package path: {relative}')
     if any(not p or p.endswith((' ', '.')) or PureWindowsPath(p).is_reserved() or re.search(r'[<>"|?*\x00-\x1f\x7f]', p) for p in relative.split('/')):
         raise ValueError(f'Invalid Windows package path: {relative}')
-    if path.parts[0].lower() in ('strata-data', 'models', 'packs', 'mtp', '.git', 'logs', '.portable-update', '.asr-cache'):
+    if path.parts[0].lower() in ('strata-data', 'models', 'packs', 'mtp', '.git', 'logs', '.portable-update', '.asr-cache', '.video-tasks'):
         raise ValueError(f'User data path in package: {relative}')
     if path.parts[0].lower() in ('portable-settings.json','asr-settings.json') or re.fullmatch(r'strata-.*\.json', relative, re.I):
         raise ValueError(f'User configuration in package: {relative}')
@@ -370,27 +376,36 @@ def prepare(root=ROOT, release=None, edition=None):
         return None
     name = archive_name(release['tag_name'].removeprefix('v'), edition)
     assets = {a['name']: a for a in release['assets']}
-    if name not in assets or name+'.sha256' not in assets:
+    from component_updates import index_name, from_release
+    component_name = index_name(release['tag_name'].removeprefix('v'),edition)
+    use_components = component_name in assets
+    if not use_components and (name not in assets or name+'.sha256' not in assets):
         raise ValueError('Release lacks the portable ZIP or SHA256 asset')
-    checksum = fetch(assets[name+'.sha256']['browser_download_url'], limit=4096).decode('ascii').strip()
-    digest, filename = checksum.split(maxsplit=1)
-    if filename.strip().lstrip('*') != name or not re.fullmatch('[0-9a-fA-F]{64}', digest):
-        raise ValueError('Invalid release checksum metadata')
+    if not use_components:
+        checksum = fetch(assets[name+'.sha256']['browser_download_url'], limit=4096).decode('ascii').strip()
+        digest, filename = checksum.split(maxsplit=1)
+        if filename.strip().lstrip('*') != name or not re.fullmatch('[0-9a-fA-F]{64}', digest):
+            raise ValueError('Invalid release checksum metadata')
     stage = Path(tempfile.mkdtemp(prefix='Strata-T8-update-'))
     owned_stage = stage.resolve()
     try:
         archive = stage/name
-        print(f'Downloading {name} ({assets[name]["size"]/1e9:.2f} GB) ...', flush=True)
-        count = fetch(assets[name]['browser_download_url'], archive)
-        with archive.open('rb') as stream:
-            actual = hashlib.file_digest(stream, 'sha256').hexdigest()
-        if count != assets[name]['size'] or actual.lower() != digest.lower():
-            raise ValueError('Release archive SHA256 or size mismatch')
         incoming = stage/'incoming'
         incoming.mkdir()
         token = uuid.uuid4().hex
         (stage/'stage-owner.json').write_text(json.dumps({'root': str(root.resolve()), 'token': token}), encoding='utf-8')
-        manifest = extract_release(archive, incoming)
+        if use_components:
+            print('Verifying installed components; downloading changed components only ...',flush=True)
+            manifest,component_result = from_release(root,incoming,release,edition,fetch)
+            print(f"Components downloaded: {component_result['downloaded']}; reused: {component_result['reused']}",flush=True)
+        else:
+            print(f'Downloading {name} ({assets[name]["size"]/1e9:.2f} GB) ...', flush=True)
+            count = fetch(assets[name]['browser_download_url'], archive)
+            with archive.open('rb') as stream:
+                actual = hashlib.file_digest(stream, 'sha256').hexdigest()
+            if count != assets[name]['size'] or actual.lower() != digest.lower():
+                raise ValueError('Release archive SHA256 or size mismatch')
+            manifest = extract_release(archive, incoming)
         if manifest.get('edition', 'Portable-NoModels') != edition:
             raise ValueError('Release edition differs from the requested edition')
         if manifest['version'] != release['tag_name'].removeprefix('v') or update_metadata(incoming)['version'] != manifest['version']:
@@ -407,12 +422,13 @@ def prepare(root=ROOT, release=None, edition=None):
             raise ValueError('Installed version or edition changed during update preparation')
         # Never overwrite files a user created that were not managed by their old package.
         check_installation_topology(root, manifest['files'], old['files'])
-        plan = {'root': str(root.resolve()), 'stage': str(incoming), 'backup': str(stage/'backup'),
+        from portable_restore import backup_destination
+        plan = {'root': str(root.resolve()), 'stage': str(incoming), 'backup': str(backup_destination(root,token)),
                 'new': manifest['files'], 'old': old['files'], 'version': manifest['version'],
                 'stage_owner': token,
                 'installed_manifest_sha256': hashlib.sha256(old_manifest_bytes).hexdigest(),
                 'manifest_sha256': hashlib.sha256((incoming/'PACKAGE-MANIFEST.json').read_bytes()).hexdigest()}
-        archive.unlink()
+        archive.unlink(missing_ok=True)
         publish_control_pair(root, plan_dir, plan)
         discard_owned_pending_stage(root, previous)
     except Exception:
@@ -431,8 +447,16 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--check', action='store_true')
     parser.add_argument('--edition', choices=['Portable-NoModels', 'VisionReady-NoMainModel'])
+    parser.add_argument('--restore', help='Reverse a successful upgrade by its local backup ID')
+    parser.add_argument('--backups', action='store_true', help='List locally retained successful upgrades')
     args = parser.parse_args()
-    if args.check:
+    if args.restore:
+        from portable_restore import prepare as restore
+        restore(ROOT,args.restore)
+    elif args.backups:
+        from portable_restore import list_backups
+        print(json.dumps(list_backups(ROOT),ensure_ascii=False))
+    elif args.check:
         release = check_update()
         print(release['html_url'] if release else 'No new version found, or GitHub is unavailable.')
     else:
