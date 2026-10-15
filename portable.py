@@ -91,7 +91,11 @@ def environment_check():
         raise RuntimeError('Windows 10 1903 (build 18362) or later is required for UTF-8 model paths')
     modules = ['numpy', 'jinja2', 'regex', 'yaml', 'tqdm', 'requests', 'PIL', 'psutil', 'av']
     for name in modules:
-        __import__(name)
+        try:
+            __import__(name)
+        except (ImportError, OSError) as error:
+            from tools.runtime_diagnostics import import_failure
+            raise RuntimeError(import_failure(ROOT, name, error)) from error
     for line in upstream.requirement_lines() + upstream.requirement_lines(ROOT/'requirements-portable.txt') + upstream.CUDA_WHEELS:
         from pip._vendor.packaging.requirements import Requirement
         req = Requirement(line)

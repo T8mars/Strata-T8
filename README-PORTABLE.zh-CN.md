@@ -60,6 +60,12 @@ OpenAI API：`http://127.0.0.1:8080/v1`；默认仅监听本机。
 
 `PACKAGE-MANIFEST.json` 记录每个程序文件的大小与 SHA256；运行 `VERIFY-PACKAGE.bat` 可检查。包内保留 Strata、Python、gguf-py、Python 依赖和 CUDA/ROCm 的随附许可证。模型另遵循自己的许可证。
 
+启动报 `DLL load failed while importing _core` 时，运行 `CHECK-ENV.bat`；它会标明失败的 Python 组件，并将诊断写到 `logs/runtime-diagnostics.json`。再运行 `VERIFY-PACKAGE.bat` 区分解压文件损坏与系统 DLL 不可用。不要只凭 `_core` 判断是 CUDA 或模型问题。
+
+IQ3_S 可在部分 64GB 内存电脑上运行，但必须留出系统及其他程序的空间。内存接近满载且磁盘持续繁忙时，先查看当前空闲内存、上下文长度和服务日志；可关闭其他大型程序、降低上下文，或另行准备 IQ2_XS。加载阶段 GPU 利用率低本身不能证明 CUDA 失效。文件总大小包含留在 SSD 的数据，不等于全部驻留内存。
+
+使用 Release 中的 `Windows-x64-VisionReady-NoMainModel.zip` 或 `Portable-NoModels.zip` 完整解压后启动；GitHub 的 `Source code` 不是含 Python 的整合包。聊天地址以设置页的“进入聊天”为准。包内 `llama.cpp` 用于 GGUF/视觉依赖，整合包聊天引擎仍为 Strata；若看到其他服务页面，请附地址、包版本和诊断结果反馈。
+
 [项目与最新 Release](https://github.com/T8mars/Strata-T8) · [上游 Strata](https://github.com/Niko1221/Strata)
 
 ## 视觉与 ComfyUI
