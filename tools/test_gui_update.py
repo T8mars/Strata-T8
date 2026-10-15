@@ -24,6 +24,8 @@ class WindowsUpdateHelper(unittest.TestCase):
             for source in python.parent.iterdir():
                 if source.is_file() and (source.suffix.lower() in ('.dll','.pyd','.zip','._pth') or source.name=='python.exe'):
                     shutil.copy2(source,root/'runtime/python'/source.name)
+            (root/'logs').mkdir()
+            status=Path(temporary)/'handoff.json'
             settings=root/'portable-settings.json';settings.write_bytes(b'{"portable_data_dir":"D:/my model"}')
             original=settings.read_bytes()
             (root/'tools/portable_update.py').write_text('''from pathlib import Path
@@ -48,11 +50,17 @@ s=HTTPServer(('127.0.0.1',int(sys.argv[-1])),H);s.handle_request();s.server_clos
             parent=subprocess.Popen([sys.executable,'-c','import time;time.sleep(.5)'])
             try:
                 result=subprocess.run(['powershell.exe','-NoProfile','-ExecutionPolicy','Bypass','-File',str(ROOT/'tools/gui_portable_update.ps1'),
-                    '-AppRoot',str(root),'-ParentId',str(parent.pid),'-UIPort',str(port),'-NonInteractive'],
+                    '-AppRoot',str(root),'-ParentId',str(parent.pid),'-UIPort',str(port),'-NonInteractive',
+                    '-StatusFile',str(status),'-HandoffNonce','a'*32,'-LogPath',str(root/'logs/update-helper.log')],
                     capture_output=True,timeout=55,creationflags=subprocess.CREATE_NO_WINDOW)
                 self.assertEqual(result.returncode,0,result.stdout+result.stderr)
                 self.assertEqual(settings.read_bytes(),original)
                 self.assertEqual(json.loads((root/'restart-args.json').read_text())[-3:],['settings','--ui-port',str(port)])
+                receipt=json.loads(status.read_text('utf-8-sig'))
+                self.assertEqual(receipt['state'],'completed')
+                self.assertEqual(receipt['nonce'],'a'*32)
+                self.assertEqual(receipt['parent_id'],parent.pid)
+                self.assertIn('Opening model settings',(root/'logs/update-helper.log').read_text('utf-8-sig'))
             finally:
                 if parent.poll() is None:parent.terminate()
                 parent.wait(timeout=5)

@@ -15,7 +15,7 @@
 | VisionReady-NoMainModel.zip | 推荐，包含视觉编码器 |
 | Portable-NoModels.zip | 不含任何权重，兼容旧版更新器 |
 
-1. 解压运行包，双击 **START-HERE.bat**，直接打开本地模型设置页；没有主模型也可以进入。
+1. 解压运行包，双击 **Strata-T8.exe**，直接打开本地模型设置页；没有主模型也可以进入。`START-HERE.bat` 保留兼容。
 2. 选择收到的完整 **Strata-data** 模型目录，点击 **保存并进入**。模型可放在其他磁盘，页面会检查文件、保存配置并启动服务。
 3. 后续启动自动进入聊天；在 **模型设置** 点击其他模型卡片即可自动停止当前服务并切换，正在生成的回答会中断。手动输入路径后点 **保存并切换模型**。SC117 变体显示为 **SC117 Uncensored**。关闭启动窗口或按 Ctrl+C 停止。
 
@@ -29,7 +29,7 @@ Release 附 SHA256，VERIFY-PACKAGE.bat 检查解压文件。请下载发行资�
 
 ## 视频进度与更新
 
-可选原片复用、分段与汇总进度恢复、自适应采样和跨段参考，默认关闭，详见[视频进度说明](docs/VIDEO-PROGRESS.zh-CN.md)。完整离线安装入口为 `START-HERE.bat`；一键更新可复用未变化的组件，并保留成功升级的离线回退备份。[组件更新与回退](docs/COMPONENT-UPDATES.zh-CN.md)
+可选原片复用、分段与汇总进度恢复、自适应采样和跨段参考，默认关闭，详见[视频进度说明](docs/VIDEO-PROGRESS.zh-CN.md)。完整离线安装入口为 `Strata-T8.exe`；分发时压缩整个文件夹，保留包内运行环境。一键更新可复用未变化的组件，并保留成功升级的离线回退备份。[组件更新与回退](docs/COMPONENT-UPDATES.zh-CN.md)
 
 ## ComfyUI
 
@@ -69,11 +69,11 @@ Windows 10 1903+/11 x64、AVX2 CPU、SSD。NVIDIA RTX 20/30/40/50 系列建议 1
 
 仓库每日检查上游正式版本，合并及测试通过后自动打包发布；可在 [Actions](https://github.com/T8mars/Strata-T8/actions) 手动同步 main。冲突、测试失败或缺少匹配引擎时停止发布。[更新机制](docs/UPDATING-T8.md)
 
-当前发行版 **0.1.42-t8.9** 基于上游 [v0.1.42](https://github.com/Niko1221/Strata/releases/tag/v0.1.42)，配套节点 **1.3.0** 和 ComfyUI Protocol 1。新增可选视频进度恢复、自适应采样、跨段衔接，以及组件更新和成功升级回退；已有语音转录与音画联合分析继续可用。视频设置默认折叠，按秒数与帧率分段；原生双帧编码仍使用采样帧。现有主模型和视觉权重可沿用。[视频进度与验证范围](docs/VIDEO-PROGRESS.zh-CN.md)
+当前发行版 **0.1.42-t8.10** 基于上游 [v0.1.42](https://github.com/Niko1221/Strata/releases/tag/v0.1.42)，配套节点 **1.3.0** 和 ComfyUI Protocol 1。新增 EXE 启动器及可选局域网 API，修复网页一键更新移交与重连，补充运行环境诊断。已有视频进度恢复、自适应采样、语音转录与音画联合分析继续保留。现有主模型和视觉权重可沿用。[视频进度与验证范围](docs/VIDEO-PROGRESS.zh-CN.md)
 
 上游在适用 NVIDIA 配置中默认启用专家尾部跳过和实测 PCIe 分配，回答可能略有变化。需要恢复此前行为，可在运行配置的 `env` 对象设置 `"STRATA_ROUTE_TAIL_SKIP":"0"` 和 `"STRATA_PCIE_FRAC_DEFAULT":"old"`，然后重启；已有显式 `--pcie-frac` 参数继续优先。上游性能数字取决于硬件与模型，不代表本机速度。
 
-OpenAI Base URL：页面所示服务地址加 `/v1`（空闲时默认 `http://127.0.0.1:8080/v1`）；Anthropic：`/v1/messages`；Responses：`/v1/responses`。默认监听本机，对外监听必须设置 API key。
+OpenAI Base URL：页面所示服务地址加 `/v1`（空闲时默认 `http://127.0.0.1:8080/v1`）；Anthropic：`/v1/messages`；Responses：`/v1/responses`。默认仅本机。在模型设置页展开 **API 访问设置**，选择 **开放局域网 API**、生成并复制至少 16 位 API Key，再保存；已运行的服务自动重启。就绪后复制 **局域网 Base URL** 和实际模型 ID 给同一局域网的客户端，填写相同密钥。设置页仍只在本机开放。[访问设置](docs/MODEL-SETUP.zh-CN.md#局域网-api)
 
 源码 [MIT](LICENSE)，视觉权重 [Apache-2.0](vision/LICENSE.txt)，其他组件保留随附许可证。感谢 [Niko1221/Strata](https://github.com/Niko1221/Strata)、[Qwen](https://huggingface.co/Qwen)、[ISTA-DASLab](https://huggingface.co/ISTA-DASLab)、[ComfyUI](https://github.com/Comfy-Org/ComfyUI) 和社区贡献者。[上游 README](README-UPSTREAM.md)
 

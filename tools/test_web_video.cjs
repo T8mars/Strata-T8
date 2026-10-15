@@ -198,7 +198,7 @@ function setupPage(legacy=false, invalid=false) {
     defaults:{path:'E:\\old',port:8080,context:32768,backend:'cuda',vision:'gpu',native_video:true},vision_available:true,folder_picker:true};
   const get=id=>nodes[id] || (nodes[id]=element());
   get('vision').options=[];
-  const context=vm.createContext({console,URL,URLSearchParams,setTimeout,Date,
+  const context=vm.createContext({console,URL,URLSearchParams,setTimeout,clearTimeout,AbortController,Date,crypto:require('node:crypto').webcrypto,
     document:{getElementById:get,querySelector:()=>({content:'fixture-token'}),createElement:()=>element()},
     location:{search:''},window:{location:{assign(url){navigations.push(url);}}},
     fetch:async (url,options)=>{
@@ -216,6 +216,25 @@ function setupPage(legacy=false, invalid=false) {
   vm.runInContext(script,context); vm.runInContext('render('+JSON.stringify(current)+')',context);
   return {nodes,calls,navigations,context,run:code=>vm.runInContext(code,context)};
 }
+test('LAN base URLs require ready authenticated service and private IPv4 matching the actual API port',async()=>{
+  const ui=setupPage();
+  ui.run("render({...state,api_connection:{model_id:'live-id',base_url:'http://127.0.0.1:8080/v1',api_key_required:true,lan_base_urls:['http://8.8.8.8:8080/v1','http://192.168.0.5:9999/v1','http://192.168.0.5:8080/v1?key=secret','http://192.168.0.5:8080/v1']}})");
+  assert.equal(ui.nodes['lan-connection'].hidden,false);assert.equal(ui.nodes['lan-base-url'].value,'http://192.168.0.5:8080/v1');
+  ui.context.navigator={clipboard:{writeText:async value=>assert.equal(value,'http://192.168.0.5:8080/v1')}};
+  await ui.nodes['copy-lan-base'].onclick();
+  ui.run("render({...state,job:{state:'starting'}})");assert.equal(ui.nodes['lan-connection'].hidden,true);
+  assert.equal(ui.nodes['lan-base-url'].value,'');
+});
+test('LAN settings generate a key, reject clearing in LAN mode, and submit without navigation',async()=>{
+  const ui=setupPage();assert.equal(ui.nodes['api-scope'].value,'local');
+  ui.nodes['generate-network-key'].onclick();assert.match(ui.nodes['network-key'].value,/^strata_[0-9a-f]{48}$/);
+  ui.nodes['api-scope'].value='lan';ui.nodes['clear-network-key'].checked=true;ui.nodes['api-scope'].onchange();
+  assert.equal(ui.nodes['clear-network-key'].checked,false);assert.equal(ui.nodes['clear-network-key'].disabled,true);
+  await ui.nodes['network-form'].onsubmit({preventDefault(){}});
+  const call=ui.calls.find(c=>c.url==='/api/network');assert.equal(call.body.scope,'lan');assert.equal(call.body.clear_api_key,false);
+  assert.match(call.body.api_key,/^strata_/);assert.equal(ui.nodes['network-key'].value,'');
+  assert.equal(ui.nodes['save-network'].disabled,true);assert.equal(ui.navigations.length,0);
+});
 test('model card immediately switches on both new and already-running older launchers',async()=>{
   for (const legacy of [false,true]) {
     const ui=setupPage(legacy); await ui.run('scan()');
@@ -232,6 +251,59 @@ test('model card immediately switches on both new and already-running older laun
 test('invalid model selection does not stop the running backend',async()=>{
   const ui=setupPage(false,true); await ui.run('scan()'); await ui.nodes.candidates.children[1].querySelector('.candidate-select').onclick();
   assert.equal(ui.calls.filter(c=>c.url==='/api/stop').length,0); assert.equal(ui.nodes['error-box'].hidden,false);
+});
+
+test('updater acknowledgement shows progress instead of the stale new-version message',async()=>{
+  const ui=setupPage();
+  ui.run("render({...state,update:{supported:true,state:'ready',available:true,message:'发现新版本'}})");
+  await ui.nodes['update-start'].onclick();
+  assert.equal(ui.run('state.job.state'),'updating');
+  assert.match(ui.nodes['update-message'].textContent,/确认更新程序/);
+  assert.equal(ui.nodes.save.disabled,true);
+});
+
+test('the old update page reloads its token after the same installation restarts',async()=>{
+  const ui=setupPage();let reloads=0;
+  ui.context.window.location.replace=url=>{assert.equal(url,'/');reloads++;};
+  ui.run("render({...state,app_root:'E:/Strata',instance_id:'old',version:'1',job:{state:'updating',message:'working'}})");
+  ui.context.fetch=async()=>({ok:true,json:async()=>({service:'strata-portable-ui',app_root:'E:/Strata',instance_id:'new',version:'1'})});
+  await ui.run('reconnectAfterUpdate()');assert.equal(reloads,1);
+});
+
+test('an unrelated service or the original launcher cannot trigger an update-page reload',async()=>{
+  const ui=setupPage();let reloads=0;
+  ui.context.window.location.replace=()=>{reloads++;};
+  ui.run("render({...state,app_root:'E:/Strata',instance_id:'old',version:'1',job:{state:'updating',message:'working'}})");
+  for(const identity of [
+    {service:'strata-portable-ui',app_root:'E:/Other',instance_id:'new',version:'2'},
+    {service:'strata-portable-ui',app_root:'E:/Strata',instance_id:'old',version:'1'},
+    {service:'llama.cpp',app_root:'E:/Strata',instance_id:'new',version:'2'},
+  ]) {
+    ui.context.fetch=async()=>({ok:true,json:async()=>identity});
+    await ui.run('reconnectAfterUpdate()');
+  }
+  assert.equal(reloads,0);
+});
+
+test('an update that stays disconnected exposes recovery instructions',async()=>{
+  const ui=setupPage();
+  ui.run("render({...state,job:{state:'updating',message:'working'}});updateStartedAt=Date.now()-121000");
+  ui.context.fetch=async()=>{throw Error('network unavailable');};
+  await ui.run('reconnectAfterUpdate()');
+  assert.equal(ui.nodes['error-box'].hidden,false);
+  assert.match(ui.nodes['error-detail'].textContent,/UPDATE-PORTABLE\.bat/);
+  assert.match(ui.nodes['update-message'].textContent,/update-helper\.log/);
+});
+
+test('a stalled status request is aborted and releases the polling lock',async()=>{
+  const ui=setupPage();const timers=[];
+  ui.context.setTimeout=fn=>{timers.push(fn);return timers.length;};
+  ui.context.clearTimeout=()=>{};
+  ui.context.fetch=async(_url,options)=>new Promise((_resolve,reject)=>options.signal.addEventListener('abort',()=>reject(Error('timed out'))));
+  const polling=ui.run('poll()');assert.equal(ui.run('polling'),true);
+  timers[0]();await polling;
+  assert.equal(ui.run('polling'),false);
+  assert.match(ui.nodes['error-detail'].textContent,/timed out/);
 });
 test('DSH connection uses the live API ID, copies it, and clears during a switch',async()=>{
   const ui=setupPage(), copied=[];

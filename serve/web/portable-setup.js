@@ -2,13 +2,19 @@
 const $ = id => document.getElementById(id);
 const token = document.querySelector('meta[name="strata-setup-token"]').content;
 let initialized = false, redirect = new URLSearchParams(location.search).get("enter") === "1", state = null, polling = false, choosing = false, preparedPath = null;
+let updateStartedAt = 0;
 async function api(path, body) {
   const options = {headers: {"X-Strata-Setup-Token": token}, cache: "no-store"};
   if (body !== undefined) { options.method = "POST"; options.headers["Content-Type"] = "application/json"; options.body = JSON.stringify(body); }
-  const response = await fetch(path, options);
-  const result = await response.json();
-  if (!response.ok) throw new Error(result.error || "操作未完成，请重试。");
-  return result;
+  const controller = ['/api/status', '/api/identity'].includes(path) ? new AbortController() : null;
+  const timer = controller ? setTimeout(() => controller.abort(), 5000) : null;
+  if (controller) options.signal = controller.signal;
+  try {
+    const response = await fetch(path, options);
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || "操作未完成，请重试。");
+    return result;
+  } finally { if (timer !== null) clearTimeout(timer); }
 }
 function fail(error) { $("error-detail").textContent = error.message || String(error); $("error-box").hidden = false; }
 function clearError() { $("error-box").hidden = true; }
@@ -48,6 +54,20 @@ function renderApiConnection(current, chat) {
   $('api-key-hint').textContent = visible ? (info.api_key_required ? 'API Key：填写你为此服务设置的密钥。' : '当前服务未启用 API Key；客户端要求填写时，可填本地占位值 strata。') : '';
   $('api-models-link').hidden = !visible;
   if (visible) $('api-models-link').href = base + '/models'; else $('api-models-link').removeAttribute('href');
+  const lan = visible && info.api_key_required ? (info.lan_base_urls || []).filter(value => validLanBase(value, new URL(base).port)) : [];
+  $('lan-connection').hidden = !lan.length;
+  if ($('lan-base-url').value !== (lan[0] || '')) $('api-copy-status').textContent = '';
+  $('lan-base-url').value = lan[0] || '';
+  $('lan-alt-addresses').textContent = lan.length > 1 ? '其他网卡地址：' + lan.slice(1).join('；') : '';
+  $('copy-lan-base').disabled = !lan.length;
+}
+function validLanBase(value, port) {
+  try {
+    const u = new URL(value), a = u.hostname.split('.').map(Number);
+    return u.protocol === 'http:' && u.port === port && u.pathname === '/v1' && !u.search && !u.hash && !u.username && !u.password &&
+      /^\d+\.\d+\.\d+\.\d+$/.test(u.hostname) && a.every(x => x >= 0 && x <= 255) &&
+      (a[0] === 10 || (a[0] === 192 && a[1] === 168) || (a[0] === 172 && a[1] >= 16 && a[1] <= 31));
+  } catch(e) { return false; }
 }
 async function copyModelField(field, status, available = () => true) {
   const value = field.value;
@@ -77,11 +97,15 @@ function render(current) {
     $("backend").value = d.backend; $("vision").value = d.vision; $("native-video").checked = d.native_video;
     $("browse").hidden = !current.folder_picker;
     $("download-path").value = d.path || "";
+    $('api-scope').value = current.network?.scope || 'local';
     for (const option of $("vision").options) if (["gpu", "cpu"].includes(option.value)) option.disabled = !current.vision_available;
     initialized = true;
   }
   const busy = ["preparing", "configuring", "starting", "stopping", "updating"].includes(current.job.state);
   const blocked = busy || choosing;
+  for (const id of ['api-scope','network-key','generate-network-key','copy-network-key','clear-network-key','save-network']) $(id).disabled = blocked;
+  $('clear-network-key').disabled = blocked || $('api-scope').value === 'lan';
+  $('network-key-status').textContent = current.network?.api_key_configured ? '已有密钥；页面不回显。留空保留，填写新值则替换。' : '尚未设置密钥。局域网模式必须先设置。';
   for (const id of ["model-path", "browse", "check", "scan", "port", "context", "backend", "vision", "native-video", "save"]) $(id).disabled = blocked;
   for (const id of ["download-path", "download-consent", "prepare"]) $(id).disabled = blocked || current.running;
   for (const button of $("candidates").querySelectorAll(".candidate-select")) button.disabled = blocked;
@@ -94,10 +118,12 @@ function render(current) {
   $("status-badge").textContent = badges[current.job.state] || "待设置"; $("status-badge").dataset.state = current.job.state;
   $("status-message").textContent = current.job.message;
   const update = current.update;
-  $("update-message").textContent = update ? update.message + (!update.supported ? ' 源码仓库请使用 Git 更新。' : '') : '重启此启动器后可检查版本更新。';
+  $("update-message").textContent = current.job.state === 'updating' ? current.job.message :
+    update ? update.message + (!update.supported ? ' 源码仓库请使用 Git 更新。' : '') : '重启此启动器后可检查版本更新。';
   $("update-check").disabled = busy || update?.state === 'checking' || !update;
   $("update-start").disabled = busy || !update?.supported || update.state !== 'ready' || !update.available;
-  if (current.job.state === 'updating') redirect = false;
+  if (current.job.state === 'updating') { redirect = false; if (!updateStartedAt) updateStartedAt = Date.now(); }
+  else updateStartedAt = 0;
   $("current-model").textContent = current.model ? current.model.label + " · " + current.model.path : "尚未连接模型";
   const chat = current.job.state === "ready" ? localChatURL(current.chat_url) : null;
   renderApiConnection(current, chat);
@@ -117,9 +143,25 @@ function render(current) {
 async function poll() {
   if (polling) return;
   polling = true;
-  try { const current = await api("/api/status"); render(current); } catch (e) { fail(e); }
+  try { const current = await api("/api/status"); render(current); }
+  catch (e) {
+    if (state?.job.state === 'updating') await reconnectAfterUpdate();
+    else fail(e);
+  }
   finally { polling = false; }
   setTimeout(poll, state && ["preparing", "configuring", "starting", "stopping"].includes(state.job.state) ? 600 : 2500);
+}
+async function reconnectAfterUpdate() {
+  $('update-message').textContent = '更新时启动器会暂时断开。请查看更新窗口或 logs/update-helper.log；服务恢复后本页会自动刷新。';
+  try {
+    const identity = await api('/api/identity');
+    const sameApp = identity.service === 'strata-portable-ui' && state.app_root && identity.app_root === state.app_root;
+    const restarted = identity.instance_id && identity.instance_id !== state.instance_id;
+    if (sameApp && (restarted || identity.version !== state.version)) { window.location.replace('/'); return; }
+  } catch (_) { /* The helper is still working, or it failed before a restart. */ }
+  if (updateStartedAt && Date.now() - updateStartedAt > 120000) {
+    fail(new Error('尚未连接到更新后的启动器。下载较慢时请查看更新窗口和 logs/update-helper.log；若窗口已报错，请关闭后运行 UPDATE-PORTABLE.bat，或用 START-HERE.bat 重新打开设置页。'));
+  }
 }
 async function scan() {
   clearError();
@@ -207,7 +249,13 @@ $("start").onclick = async () => { clearError(); redirect = true; try { await ap
 $("stop").onclick = async () => { clearError(); redirect = false; try { await api("/api/stop", {}); } catch (e) { fail(e); } };
 $("prepare").onclick = async () => { clearError(); redirect = false; try { await api("/api/prepare", {path: $("download-path").value.trim(), accept_download: $("download-consent").checked}); } catch (e) { fail(e); } };
 $("update-check").onclick = async () => { clearError(); try { await api('/api/update/check', {}); render(await api('/api/status')); } catch (e) { fail(e); } };
-$("update-start").onclick = async () => { clearError(); redirect = false; $("update-start").disabled = true; try { await api('/api/update/start', {}); $("update-message").textContent = '更新窗口已打开。此页面会暂时断开，完成后将重新打开模型设置页。'; } catch (e) { fail(e); if(state) render(state); } };
+$("update-start").onclick = async () => {
+  clearError(); redirect = false; $("update-start").disabled = true;
+  try {
+    await api('/api/update/start', {});
+    if (state) render({...state, job:{state:'updating',message:'正在确认更新程序是否就绪，随后会自动停止服务。进度见更新窗口和 logs/update-helper.log。'}});
+  } catch (e) { fail(e); if(state) render(state); }
+};
 if ($('backup-list')) $('backup-list').onclick=async()=>{
   const list=$('backup-versions');list.replaceChildren();clearError();
   try {
@@ -218,7 +266,7 @@ if ($('backup-list')) $('backup-list').onclick=async()=>{
       text.textContent=`${backup.to_version} → ${backup.from_version} `;button.type='button';button.className='text-button';
       button.textContent=backup.available?'回退到此版本':'当前版本不匹配';button.disabled=!backup.available;
       button.onclick=async()=>{clearError();button.disabled=true;redirect=false;
-        try{await api('/api/update/restore',{id:backup.id});$('update-message').textContent='回退窗口已打开，完成后会重新打开模型设置页。';}
+        try{await api('/api/update/restore',{id:backup.id});if(state)render({...state,job:{state:'updating',message:'正在确认回退程序就绪，进度见更新窗口和 logs/update-helper.log。'}});}
         catch(error){fail(error);button.disabled=false;}};
       row.append(text,button);list.append(row);
     }
@@ -226,7 +274,28 @@ if ($('backup-list')) $('backup-list').onclick=async()=>{
 };
 $('copy-api-model').onclick = () => copyApiValue('api-model-id');
 $('copy-api-base').onclick = () => copyApiValue('api-base-url');
-for (const id of ['api-model-id', 'api-base-url']) $(id).onclick = () => $(id).select();
+$('copy-lan-base').onclick = () => copyModelField($('lan-base-url'),$('api-copy-status'),()=>!$('lan-connection').hidden);
+for (const id of ['api-model-id', 'api-base-url','lan-base-url']) $(id).onclick = () => $(id).select();
+$('api-scope').onchange = () => {
+  $('clear-network-key').disabled = $('api-scope').value === 'lan';
+  if ($('api-scope').value === 'lan') $('clear-network-key').checked = false;
+};
+$('generate-network-key').onclick = () => {
+  const bytes = crypto.getRandomValues(new Uint8Array(24));
+  $('network-key').value = 'strata_' + Array.from(bytes,b=>b.toString(16).padStart(2,'0')).join('');
+  $('clear-network-key').checked = false;
+  $('network-save-status').textContent = '已生成新密钥；请先复制给客户端，再保存设置。';
+};
+$('copy-network-key').onclick = () => copyModelField($('network-key'),$('network-save-status'));
+$('network-form').onsubmit = async e => {
+  e.preventDefault();clearError();$('save-network').disabled=true;
+  try {
+    await api('/api/network',{scope:$('api-scope').value,api_key:$('network-key').value,clear_api_key:$('clear-network-key').checked});
+    $('network-key').value='';$('clear-network-key').checked=false;
+    $('network-save-status').textContent='正在应用访问设置；已运行的模型服务会自动重启。';
+    render({...state,job:{state:'configuring',message:'正在应用 API 访问设置…'}});
+  } catch(e) { fail(e);$('save-network').disabled=false; }
+};
 const asrFields = ['model_dir','vad_dir','quantization','device','language','context','audio_track','channel','offset_ms'];
 const asrElement = key => $('asr-'+key.replaceAll('_','-'));
 function showAsrSettings(result) {

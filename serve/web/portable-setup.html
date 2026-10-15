@@ -41,12 +41,22 @@
           <div class="path-row"><input id="api-model-id" type="text" readonly spellcheck="false"><button id="copy-api-model" type="button" class="button secondary">复制</button></div>
           <label for="api-base-url">OpenAI Base URL</label>
           <div class="path-row"><input id="api-base-url" type="text" readonly spellcheck="false"><button id="copy-api-base" type="button" class="button secondary">复制</button></div>
+          <div id="lan-connection" hidden><label for="lan-base-url">局域网 Base URL</label><div class="path-row"><input id="lan-base-url" type="text" readonly spellcheck="false"><button id="copy-lan-base" type="button" class="button secondary">复制</button></div><p id="lan-alt-addresses" class="field-help"></p><p class="field-help">其他设备与本机连接同一局域网，填写此地址、上方模型 ID 和你设置的 API Key。</p></div>
           <p class="field-help" id="api-key-hint"></p>
           <a id="api-models-link" target="_blank" rel="noopener noreferrer">查看服务模型列表 ↗</a>
           <p class="field-help" id="api-copy-status" role="status"></p>
         </section>
         <section class="card status-card" aria-labelledby="status-heading"><div class="card-heading"><span class="step">02</span><h2 id="status-heading">服务状态</h2></div><span class="badge" id="status-badge">待设置</span><p class="status-message" id="status-message" aria-live="polite">正在读取设置…</p><p class="muted" id="current-model"></p><a id="enter-chat" class="button primary full" hidden>进入聊天</a><button id="start" type="button" class="button secondary full" hidden>启动已有配置</button><button id="stop" type="button" class="text-button" hidden>停止服务并更换模型</button><p class="field-help">模型按需加载。首次发送请求时，请等待模型加载完成。</p></section>
         <section class="card help-card"><h2>还没有模型？</h2><p>向分发者获取独立模型包，解压后选择完整模型目录。也可在这里下载并准备官方 IQ3_S。</p><details><summary>下载 / 准备官方模型</summary><label for="download-path">模型保存目录</label><input id="download-path" type="text" placeholder="例如 D:\模型\Strata-data" autocomplete="off" spellcheck="false"><p>最多约 89GB 下载，另需预处理空间。优先使用 ModelScope、国内镜像；已有校验通过的文件会复用。仅有官方 GGUF 时，可放到该目录的 models/IQ3_S 内。</p><label class="checkbox"><input id="download-consent" type="checkbox">我已了解下载流量与磁盘需求</label><button type="button" id="prepare" class="button secondary full">下载并准备模型</button></details><details><summary>模型来源与安装说明</summary><div class="source-links"><a href="https://modelscope.cn/models/ISTA-DASLab/Qwen3.8-Flash-Next-GSQ-RCO-GGUF" target="_blank" rel="noopener noreferrer">ModelScope</a><a href="https://hf-mirror.com/ISTA-DASLab/Qwen3.8-Flash-Next-GSQ-RCO-GGUF/tree/main/IQ3_S" target="_blank" rel="noopener noreferrer">国内镜像</a><a href="https://huggingface.co/ISTA-DASLab/Qwen3.8-Flash-Next-GSQ-RCO-GGUF" target="_blank" rel="noopener noreferrer">Hugging Face</a></div><p>其他变体（如 SC117）请选择已经准备好的对应模型目录；官方准备功能不会混用已有变体。</p><a href="https://github.com/T8mars/Strata-T8#readme" target="_blank" rel="noopener noreferrer">查看完整模型安装说明 ↗</a></details></section>
+        <section class="card network-card"><details><summary>API 访问设置 · 本机 / 局域网</summary><form id="network-form">
+          <p class="field-help">默认仅本机。开启局域网后自动重启本启动器的模型服务；正在生成的回答会中断。模型设置页始终只在本机开放。</p>
+          <label for="api-scope">访问范围</label><select id="api-scope"><option value="local">仅本机（默认）</option><option value="lan">开放局域网 API</option></select>
+          <label for="network-key">API Key</label><input id="network-key" type="password" autocomplete="new-password" maxlength="256" spellcheck="false" placeholder="局域网至少 16 位；留空保留已存密钥">
+          <div class="directory-actions"><button id="generate-network-key" type="button" class="text-button">生成密钥</button><button id="copy-network-key" type="button" class="text-button">复制新密钥</button></div>
+          <label class="checkbox"><input id="clear-network-key" type="checkbox">清除密钥（仅本机模式可用）</label>
+          <p class="field-help" id="network-key-status"></p><p class="field-help">开启鉴权后，DSH、ComfyUI 等客户端都需填写同一密钥；网页聊天在齿轮设置中填写 API Key。若其他设备无法连接，请在 Windows 防火墙的专用网络中允许本包 Python 使用当前服务端口。</p>
+          <button id="save-network" type="submit" class="button primary">保存 API 设置</button><p id="network-save-status" class="field-help" role="status"></p>
+        </form></details></section>
       </aside>
     </div>
     <section class="card asr-settings-card">

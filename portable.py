@@ -91,7 +91,11 @@ def environment_check():
         raise RuntimeError('Windows 10 1903 (build 18362) or later is required for UTF-8 model paths')
     modules = ['numpy', 'jinja2', 'regex', 'yaml', 'tqdm', 'requests', 'PIL', 'psutil', 'av']
     for name in modules:
-        __import__(name)
+        try:
+            __import__(name)
+        except (ImportError, OSError) as error:
+            from tools.runtime_diagnostics import import_failure
+            raise RuntimeError(import_failure(ROOT, name, error)) from error
     for line in upstream.requirement_lines() + upstream.requirement_lines(ROOT/'requirements-portable.txt') + upstream.CUDA_WHEELS:
         from pip._vendor.packaging.requirements import Requirement
         req = Requirement(line)
@@ -482,12 +486,22 @@ def main():
         config = set_native_video(config, args.native_video)
     if args.vision is not None or args.vision_tokens is not None or args.native_video is not None:
         save_json(cfg, config)
+    from serve import api_access
+    if 'portable_api' in read_state():
+        config = api_access.apply(config, api_access.load(sys.modules[__name__], config))
+        save_json(cfg, config)
+    if config.get('host', '127.0.0.1') not in ('127.0.0.1', 'localhost', '::1') and not config.get('api_key'):
+        raise RuntimeError('LAN API requires an API Key. Set it in the model settings page first.')
     port = args.port or config.get('port', 8080)
     command = [sys.executable, '-X', 'utf8', '-u', str(ROOT/'serve/server.py'), '--engine', 'strata', '--config', str(cfg), '--port', str(port)]
     if not args.no_browser:
         command.append('--open')
     print(f'Starting Strata: http://127.0.0.1:{port}', flush=True)
     try:
+        if 'portable_api' in read_state():
+            environment = dict(os.environ)
+            environment.pop('STRATA_API_KEY', None)
+            return subprocess.call(command, cwd=ROOT, env=environment)
         return subprocess.call(command, cwd=ROOT)
     except KeyboardInterrupt:
         return 0

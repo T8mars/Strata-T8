@@ -20,15 +20,40 @@ import threading
 import time
 from urllib.parse import urlsplit
 import webbrowser
+from serve import api_access
 
 ROOT = Path(__file__).resolve().parents[1]
 BODY_LIMIT = 16 * 1024
 LOG_LIMIT = 16 * 1024
 UI_PORTS = range(17880, 17912)
+UPDATE_READY_SECONDS = 12
 
 
 class SetupError(ValueError):
     pass
+
+
+def wait_update_helper(process, receipt, nonce, root):
+    """A spawned PowerShell process is not proof that its script loaded successfully."""
+    deadline = time.monotonic() + UPDATE_READY_SECONDS
+    while time.monotonic() < deadline:
+        code = process.poll()
+        if code is not None:
+            raise SetupError(f'更新程序提前退出（代码 {code}）。启动器保持打开，请运行 UPDATE-PORTABLE.bat 查看错误。')
+        try:
+            if receipt.stat().st_size > 16384:
+                raise SetupError('更新程序的启动回执无效。')
+            status = json.loads(receipt.read_text('utf-8-sig'))
+        except FileNotFoundError:
+            time.sleep(.05)
+            continue
+        if (not isinstance(status, dict) or status.get('nonce') != nonce
+                or status.get('app_root') != str(root) or status.get('parent_id') != os.getpid()):
+            raise SetupError('更新程序的启动回执与当前整合包不匹配。')
+        if status.get('state') != 'waiting_parent':
+            raise SetupError('更新程序未能就绪：'+str(status.get('error') or status.get('state')))
+        return
+    raise SetupError('更新程序在 12 秒内未就绪，启动器保持打开。请运行 UPDATE-PORTABLE.bat 查看错误。')
 
 
 def free_port(preferred=8080, *, strict=False, exclude=()):
@@ -136,6 +161,7 @@ class ModelSetup:
             raise SetupError('模型设置必须从当前程序目录启动。')
         self.version = json.loads((self.root/'meta.json').read_text(encoding='utf-8'))['version']
         self.token = secrets.token_urlsafe(32)
+        self.instance_id = secrets.token_hex(16)
         self.lock = threading.RLock()
         self.folder_lock = threading.Lock()
         self.closed = threading.Event()
@@ -241,17 +267,22 @@ class ModelSetup:
             if self.process is not None and not running and self.job['state'] == 'ready':
                 self.job = {'state': 'error', 'message': '服务已退出，请重新启动。', 'error': '服务进程已结束。'}
             connection = None
+            network = self.network_settings()
             if running and self.job['state'] == 'ready' and self.backend_port and self.backend_model_id:
                 base = f'http://127.0.0.1:{self.backend_port}/v1'
                 connection = {'model_id': self.backend_model_id, 'base_url': base, 'models_url': base+'/models',
-                              'api_key_required': bool((self.backend_config or {}).get('api_key'))}
-            return {'version': self.version, 'job': dict(self.job), 'model': self.model,
+                              'api_key_required': bool((self.backend_config or {}).get('api_key')),
+                              'lan_base_urls': [f'http://{ip}:{self.backend_port}/v1' for ip in api_access.ipv4_addresses()]
+                                  if network['scope'] == 'lan' and (self.backend_config or {}).get('host') == '0.0.0.0' else []}
+            return {'version': self.version, 'app_root': str(self.root), 'instance_id': self.instance_id,
+                    'job': dict(self.job), 'model': self.model,
                     'configured': self.current_config is not None, 'running': running,
                     'chat_url': f'http://127.0.0.1:{self.backend_port}/' if running and self.job['state'] == 'ready' else None,
                     'defaults': self.defaults(), 'vision_available': self.vision_available(),
                     'folder_picker': os.name == 'nt', 'configuration_error': self.current_error,
                     'prepared_model': self.prepared_model,
                     'api_connection': connection,
+                    'network': api_access.public(network),
                     'update': dict(self.update),
                     'log_tail': self._tail(self.job_log) if self.job_log and self.job_log.is_file() else ''}
 
@@ -272,6 +303,49 @@ class ModelSetup:
         with Path(path).open('rb') as f:
             f.seek(max(0, Path(path).stat().st_size-LOG_LIMIT))
             return f.read(LOG_LIMIT).decode('utf-8', 'replace')
+
+    def network_settings(self):
+        with self.lock:
+            saved = self.portable.read_state().get('portable_api')
+            if saved is not None:
+                return api_access.normalize(saved)
+            config = self.portable.read_config(self.current_config) if self.current_config else {}
+            return api_access.load(self.portable,config)
+
+    def save_network(self,data):
+        with self.lock:
+            if self.closed.is_set() or self.job['state'] in ('preparing','configuring','starting','stopping','updating'):
+                raise SetupError('请先完成当前操作。')
+            settings = api_access.normalize(data,self.network_settings())
+            running = self.process is not None and self.process.poll() is None
+            state_path = self.portable.STATE
+            previous_state = state_path.read_bytes() if state_path.exists() else None
+            path = self.current_config
+            previous_config = path.read_bytes() if path and path.exists() else None
+            self.job={'state':'configuring','message':'正在保存 API 访问设置；已运行的服务将自动重启…','error':None}
+        def work():
+            try:
+                if running:self.stop_backend()
+                if self.closed.is_set():return
+                with self.lock:
+                    state=self.portable.read_state();state['portable_api']=settings
+                    self.portable.save_json(state_path,state)
+                    if path:
+                        config=self.portable.read_config(path)
+                        self.portable.save_json(path,api_access.apply(config,settings))
+                if running and not self.closed.is_set():self._start_backend()
+                else:self.set_job('idle','API 访问设置已保存，启动模型服务后生效。')
+            except Exception as error:
+                if running:self.stop_backend()
+                with self.lock:
+                    try:
+                        if previous_state is None:state_path.unlink(missing_ok=True)
+                        else:self.portable.atomic_bytes(state_path,previous_state)
+                        if path and previous_config is not None:self.portable.atomic_bytes(path,previous_config)
+                    except OSError as restore_error:
+                        self.set_job('error','API 设置保存失败，请检查配置文件。',f'{error}\n配置恢复失败：{restore_error}');return
+                    self.set_job('error','API 设置未应用，原设置已保留。',str(error))
+        threading.Thread(target=work,daemon=True).start()
 
     def begin(self, data=None, *, existing=False):
         if existing:
@@ -411,21 +485,34 @@ class ModelSetup:
         if not self.portable.same_machine(state.get('portable_fingerprint'), current):
             raise SetupError('程序位置、模型或硬件已变化，请重新保存模型设置。')
         if state['portable_fingerprint'].get('version') != current['version'] or state['portable_fingerprint'].get('edition') != current.get('edition'):
-            self.portable.refresh_updated_config(self.current_config, state, current)
-            config = self.portable.read_config(self.current_config)
+            with self.lock:
+                self.portable.refresh_updated_config(self.current_config, state, current)
+                config = self.portable.read_config(self.current_config)
+        settings = self.network_settings()
+        host = '0.0.0.0' if settings['scope']=='lan' else '127.0.0.1'
         preferred = getattr(self.options, 'port', None) or config.get('port', 8080)
         self.backend_port = free_port(preferred, strict=getattr(self.options, 'port', None) is not None,
                                       exclude=[self.http.server_port])
         if self.backend_port != config.get('port', 8080):
             config['port'] = self.backend_port
-            self.portable.save_json(self.current_config, config)
+            with self.lock:self.portable.save_json(self.current_config, config)
+        if 'portable_api' in self.portable.read_state():
+            config = api_access.apply(config,settings)
+            with self.lock:self.portable.save_json(self.current_config,config)
+        if host != '127.0.0.1' and not config.get('api_key'):
+            raise SetupError('局域网服务必须设置 API Key。')
         self.backend_config = config
         self.backend_model_id = None
         self.backend_id = secrets.token_hex(16)
         self.set_job('starting', '正在启动本地服务，模型将在首次请求时加载…')
         command = [sys.executable, '-X', 'utf8', '-u', str(self.root/'serve/server.py'), '--engine', 'strata',
-                   '--config', str(self.current_config), '--host', '127.0.0.1', '--port', str(self.backend_port), '--lazy']
+                   '--config', str(self.current_config), '--host', host, '--port', str(self.backend_port), '--lazy']
         self.log = self._log_path('server.log').open('wb')
+        environment = {**os.environ, 'PYTHONDONTWRITEBYTECODE': '1', 'STRATA_PORTABLE_UI_URL': self.url,
+                       'STRATA_PORTABLE_MODEL_LABEL': (self.model or {}).get('label', ''),
+                       'STRATA_PORTABLE_UI_ID': self.backend_id}
+        if 'portable_api' in state:
+            environment.pop('STRATA_API_KEY',None)
         from serve.winjob import contain
         with self.lock:
             if self.closed.is_set():
@@ -433,9 +520,7 @@ class ModelSetup:
                 self.log = None
                 return
             self.process = subprocess.Popen(command, cwd=self.root, stdout=self.log, stderr=subprocess.STDOUT,
-                         env={**os.environ, 'PYTHONDONTWRITEBYTECODE': '1', 'STRATA_PORTABLE_UI_URL': self.url,
-                              'STRATA_PORTABLE_MODEL_LABEL': (self.model or {}).get('label', ''),
-                              'STRATA_PORTABLE_UI_ID': self.backend_id},
+                         env=environment,
                          creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
             contain(self.process)
             process = self.process
@@ -495,8 +580,9 @@ class ModelSetup:
                 read_receipt(self.root,restore_id)
             elif self.update['state'] != 'ready' or not self.update['available']:
                 raise SetupError('请先检查更新，确认有可用的新版本。')
-            self.job = {'state': 'updating', 'message': '正在打开更新窗口。完成后将重新打开模型设置页。', 'error': None}
+            self.job = {'state': 'updating', 'message': '正在启动更新程序，确认就绪后才停止当前服务…', 'error': None}
         def work():
+            helper_process = None
             try:
                 source = _regular(self.root/'tools/gui_portable_update.ps1', self.root)
                 temporary = Path(tempfile.mkdtemp(prefix='Strata-T8-ui-update-')).resolve()
@@ -504,16 +590,38 @@ class ModelSetup:
                     raise SetupError('更新工作目录必须位于程序目录外。')
                 helper = temporary/'update.ps1'
                 shutil.copy2(source, helper)
-                self.stop_backend()
+                nonce = secrets.token_hex(16)
+                receipt = temporary/'status.json'
+                log = _regular(self.root/'logs/update-helper.log', self.root)
+                log.parent.mkdir(parents=True, exist_ok=True)
                 # This helper must survive this launcher; do not put it in the
                 # owned backend's kill-on-close Job Object.
                 arguments=['powershell.exe','-NoProfile','-ExecutionPolicy','Bypass','-File',str(helper),
-                           '-AppRoot',str(self.root),'-ParentId',str(os.getpid()),'-UIPort',str(self.http.server_port)]
+                           '-AppRoot',str(self.root),'-ParentId',str(os.getpid()),'-UIPort',str(self.http.server_port),
+                           '-StatusFile',str(receipt),'-HandoffNonce',nonce,'-LogPath',str(log)]
                 if restore_id is not None:arguments.extend(['-RestoreId',restore_id])
-                subprocess.Popen(arguments,
-                                 cwd=temporary, creationflags=getattr(subprocess,'CREATE_NEW_CONSOLE',0))
+                # A native EXE proxy also holds a managed file open. Wait for
+                # this actual parent, never an arbitrary environment-supplied PID.
+                import psutil
+                try:
+                    parent = psutil.Process(os.getpid()).parent()
+                    if parent and Path(parent.exe()).resolve() == self.root/'Strata-T8.exe':
+                        arguments.extend(['-LauncherId',str(parent.pid)])
+                except (OSError,psutil.Error):
+                    pass
+                helper_process = subprocess.Popen(arguments,
+                    cwd=temporary, creationflags=getattr(subprocess,'CREATE_NEW_CONSOLE',0))
+                wait_update_helper(helper_process, receipt, nonce, self.root)
+                self.set_job('updating', '更新程序已就绪，正在停止当前服务；下载进度见更新窗口和 logs/update-helper.log。')
+                self.stop_backend()
                 self.closed.set()
-            except (OSError, ValueError, RuntimeError) as error:
+            except Exception as error:
+                if helper_process is not None and helper_process.poll() is None:
+                    try:
+                        helper_process.terminate()
+                        helper_process.wait(timeout=3)
+                    except (OSError, subprocess.SubprocessError):
+                        pass
                 self.set_job('error', '更新未启动，请重试或运行 UPDATE-PORTABLE.bat。', str(error))
         threading.Thread(target=work, daemon=True).start()
 
@@ -592,6 +700,8 @@ def handler(app):
             pass
 
         def _send(self, status, body, kind='application/json; charset=utf-8'):
+            if status >= 400:
+                self._discard_request_body()
             data = json.dumps(body, ensure_ascii=False, allow_nan=False).encode('utf-8') if isinstance(body, dict) else body
             self.send_response(status)
             self.send_header('Content-Type', kind)
@@ -609,23 +719,47 @@ def handler(app):
         def _guard(self, *, token=False):
             valid = {f'127.0.0.1:{self.server.server_port}', f'localhost:{self.server.server_port}'}
             if len(self.headers.get_all('Host', [])) != 1 or self.headers.get('Host') not in valid:
-                self._send(403, {'error': '仅允许本机访问模型设置。'})
+                self._reject({'error': '仅允许本机访问模型设置。'})
                 return False
             origin = self.headers.get('Origin')
             if len(self.headers.get_all('Origin', [])) > 1 or (origin is not None and origin not in {'http://'+h for h in valid}):
-                self._send(403, {'error': '请从本地模型设置页面操作。'})
+                self._reject({'error': '请从本地模型设置页面操作。'})
                 return False
             if token and (len(self.headers.get_all('X-Strata-Setup-Token', [])) != 1 or not hmac.compare_digest(self.headers.get('X-Strata-Setup-Token', '').encode('utf-8'), app.token.encode('ascii'))):
-                self._send(403, {'error': '页面会话已失效，请刷新后再试。'})
+                self._reject({'error': '页面会话已失效，请刷新后再试。'})
                 return False
             return True
+
+        def _reject(self, body):
+            self._send(403,body)
+
+        def _discard_request_body(self):
+            # An unread POST body can reset the TCP connection on Windows before
+            # the browser receives the 403. Consume only a small, bounded body;
+            # never parse it or let a stalled sender delay rejection indefinitely.
+            length = self.headers.get('Content-Length', '')
+            if self.command == 'POST' and not getattr(self, '_request_body_read', False):
+                deadline = time.monotonic() + .25
+                bounded_length = (self.headers.get('Transfer-Encoding') is None
+                                  and len(self.headers.get_all('Content-Length', [])) == 1
+                                  and len(length) <= 8 and length.isascii() and length.isdigit())
+                remaining = min(int(length), BODY_LIMIT) if bounded_length else BODY_LIMIT
+                try:
+                    while remaining and time.monotonic() < deadline:
+                        self.connection.settimeout(max(.001, deadline-time.monotonic()))
+                        chunk = self.rfile.read1(min(remaining, 4096))
+                        if not chunk:break
+                        remaining -= len(chunk)
+                except OSError:
+                    pass
 
         def do_GET(self):
             if not self._guard():
                 return
             path = urlsplit(self.path).path
             if path == '/api/identity':
-                self._send(200, {'service': 'strata-portable-ui', 'app_root': str(app.root), 'version': app.version})
+                self._send(200, {'service': 'strata-portable-ui', 'app_root': str(app.root),
+                                 'version': app.version, 'instance_id': app.instance_id})
                 return
             if path == '/':
                 body = (app.root/'serve/web/portable-setup.html').read_text(encoding='utf-8')
@@ -676,6 +810,7 @@ def handler(app):
                 from tools.portable_update import update_json
                 self.connection.settimeout(5)
                 raw = self.rfile.read(int(length))
+                self._request_body_read = True
                 if len(raw) != int(length):
                     raise SetupError('请求内容不完整。')
                 data = update_json(raw)
@@ -704,6 +839,9 @@ def handler(app):
                         if app.closed.is_set() or app.job['state'] == 'updating':
                             raise SetupError('更新或关闭期间不能修改语音设置，请稍后重试。')
                         self._send(200, {'settings':asr_config.save(app.root, data), 'capabilities':asr_config.availability(app.root)})
+                elif path == '/api/network':
+                    app.save_network(data)
+                    self._send(202, {'accepted': True})
                 elif path == '/api/update/check' and not data:
                     app.check_updates()
                     self._send(202, {'accepted': True})

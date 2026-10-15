@@ -117,7 +117,9 @@ root=Path.cwd(); time.sleep(float(sys.argv[1]))
 if sys.argv[2]=='fail': raise SystemExit(7)
 port=int(sys.argv[3]); fingerprint=json.loads(sys.argv[4])
 (root/'strata-iq3_s.json').write_text(json.dumps({'exe':'fixture.exe','args':[],'port':port}),encoding='utf-8')
-(root/'portable-settings.json').write_text(json.dumps({'portable_data_dir':fingerprint['data'],'portable_config':'strata-iq3_s.json','portable_fingerprint':fingerprint}),encoding='utf-8')
+state=json.loads((root/'portable-settings.json').read_text(encoding='utf-8')) if (root/'portable-settings.json').exists() else {}
+state.update(portable_data_dir=fingerprint['data'],portable_config='strata-iq3_s.json',portable_fingerprint=fingerprint)
+(root/'portable-settings.json').write_text(json.dumps(state),encoding='utf-8')
 '''
                 port = args[args.index('--port')+1]
                 replaced = [sys.executable,'-c',code,str(delay),'fail' if fail else 'ok',port,json.dumps(self.fingerprint)]
@@ -155,6 +157,14 @@ HTTPServer(('127.0.0.1',int(sys.argv[1])),H).serve_forever()
         config.write_text(json.dumps({'exe':'fixture','args':[],'api_key':'private-key','port':8080}))
         self.app.current_config = config
         self.assertNotIn('private-key',json.dumps(self.request('/api/status')[2]))
+
+    def test_rejected_small_posts_deliver_a_visible_error_without_applying_settings(self):
+        for headers in ({'Origin':'https://other.example'},{'X-Strata-Setup-Token':'expired'}):
+            for _ in range(5):
+                status,_,body=self.request('/api/network',{'scope':'lan','api_key':'fixture-key-12345'},headers)
+                self.assertEqual(status,403)
+                self.assertIn('error',body)
+        self.assertFalse(portable.STATE.exists())
 
     def test_asr_settings_save_does_not_start_or_switch_any_model(self):
         with mock.patch.object(ui.subprocess,'Popen',side_effect=AssertionError('model process')):
@@ -266,7 +276,12 @@ HTTPServer(('127.0.0.1',int(sys.argv[1])),H).serve_forever()
         (self.root/'tools').mkdir()
         (self.root/'tools/gui_portable_update.ps1').write_text('# fixture helper')
         self.app.update.update(supported=True,state='ready',available=True)
-        with mock.patch.object(self.app,'stop_backend') as stop, mock.patch.object(ui.subprocess,'Popen') as launch, \
+        def acknowledge(args, **kwargs):
+            receipt = Path(args[args.index('-StatusFile')+1])
+            receipt.write_text(json.dumps({'state':'waiting_parent',
+                'nonce':args[args.index('-HandoffNonce')+1], 'app_root':args[args.index('-AppRoot')+1], 'parent_id':os.getpid()}))
+            return mock.Mock(poll=lambda: None)
+        with mock.patch.object(self.app,'stop_backend') as stop, mock.patch.object(ui.subprocess,'Popen',side_effect=acknowledge) as launch, \
              mock.patch('serve.winjob.contain') as contain:
             self.assertEqual(self.request('/api/update/start',{})[0],202)
             self.assertTrue(self.app.closed.wait(5))
@@ -277,12 +292,47 @@ HTTPServer(('127.0.0.1',int(sys.argv[1])),H).serve_forever()
             self.assertEqual(Path(args[args.index('-AppRoot')+1]).resolve(),self.root.resolve())
             stop.assert_called_once()
             contain.assert_not_called()
+            helper.unlink(); (helper.parent/'status.json').unlink(); helper.parent.rmdir()
+
+    def test_update_helper_failure_keeps_launcher_and_running_backend(self):
+        (self.root/'tools').mkdir()
+        (self.root/'tools/gui_portable_update.ps1').write_text('# fixture helper')
+        self.app.update.update(supported=True,state='ready',available=True)
+        with mock.patch.object(self.app,'stop_backend') as stop, \
+             mock.patch.object(ui.subprocess,'Popen',return_value=mock.Mock(poll=lambda:1)) as launch:
+            self.assertEqual(self.request('/api/update/start',{})[0],202)
+            self.wait_job(states=('error',))
+            self.assertFalse(self.app.closed.is_set())
+            stop.assert_not_called()
+            self.assertIn('提前退出',self.app.job['error'])
+            self.assertEqual(self.request('/api/status')[0],200)
+            args=launch.call_args.args[0]
+            helper=Path(args[args.index('-File')+1])
+            self.assertTrue(helper.parent.name.startswith('Strata-T8-ui-update-'))
             helper.unlink(); helper.parent.rmdir()
 
     def test_updating_blocks_overlapping_model_mutations(self):
         self.app.job['state']='updating'
         self.assertEqual(self.request('/api/import',self.payload())[0],400)
         self.assertEqual(self.request('/api/stop',{})[0],400)
+
+    def test_backend_stop_timeout_becomes_visible_update_error_without_closing_launcher(self):
+        (self.root/'tools').mkdir()
+        (self.root/'tools/gui_portable_update.ps1').write_text('# fixture helper')
+        self.app.update.update(supported=True,state='ready',available=True)
+        process=mock.Mock(poll=lambda:None)
+        with mock.patch.object(ui,'wait_update_helper'), \
+             mock.patch.object(ui.subprocess,'Popen',return_value=process) as launch, \
+             mock.patch.object(self.app,'stop_backend',side_effect=subprocess.TimeoutExpired('owned backend',10)):
+            self.assertEqual(self.request('/api/update/start',{})[0],202)
+            self.wait_job(states=('error',))
+            self.assertFalse(self.app.closed.is_set())
+            process.terminate.assert_called_once()
+            self.assertIn('timed out',self.app.job['error'])
+            self.assertEqual(self.request('/api/status')[0],200)
+            args=launch.call_args.args[0];helper=Path(args[args.index('-File')+1])
+            self.assertTrue(helper.parent.name.startswith('Strata-T8-ui-update-'))
+            helper.unlink();helper.parent.rmdir()
 
     def test_static_files_have_local_content_security_headers(self):
         for path in ('/setup.js','/setup.css'):

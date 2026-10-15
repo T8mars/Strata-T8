@@ -261,6 +261,8 @@ def main():
     bootstrap_gguf(cache)
     if features.get('native_video_cuda'):
         subprocess.run([str(python), '-X', 'utf8', str(ROOT/'tools/build_native_portable.py')], check=True)
+    if features.get('portable_exe_launcher'):
+        subprocess.run([str(python), '-X', 'utf8', str(ROOT/'tools/build_windows_launcher.py')], check=True)
     print(f'Runtime ready for Strata {version}', flush=True)
 
 
