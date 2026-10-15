@@ -45,6 +45,8 @@ DOCS = (
     'VALIDATION-VIDEO-SPEECH-T8.md',
     'VIDEO-PROGRESS.zh-CN.md',
     'COMPONENT-UPDATES.zh-CN.md',
+    'QUANTS.md',
+    'PREFILL_HEAD_ALIAS.md',
 )
 
 

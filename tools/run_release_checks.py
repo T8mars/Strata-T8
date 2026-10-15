@@ -17,6 +17,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(ROOT), str(ROOT/'tools')]
 
 POSIX_CASES = (
+    'serve.test_cache_drop.CacheDrop.test_on',
     'serve.test_server.StartCrashReported.test_sigill_is_reported_not_retried',
     'serve.test_server.StartCrashReported.test_a_silent_exit_is_retried_without_claiming_the_gpu_runtime',
     'serve.test_server.StartCrashReported.test_the_runtimes_own_failure_is_named',
@@ -87,6 +88,7 @@ def main():
     passed = result.wasSuccessful() and (not args.strict or (result.testsRun > 0 and not result.skipped))
     print(json.dumps({'group': args.group, 'tests': result.testsRun, 'failures': len(result.failures),
                       'errors': len(result.errors), 'skipped': len(result.skipped),
+                      'skipped_cases': [{'id': case.id(), 'reason': reason} for case, reason in result.skipped],
                       'seconds': round(time.monotonic()-started, 3),
                       'strict': args.strict, 'passed': passed}), flush=True)
     return 0 if passed else 1
