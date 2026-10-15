@@ -7,7 +7,7 @@
 ## 开始使用
 
 1. 解压到可写的 SSD 目录，不要在压缩包内运行。
-2. 双击 **START-HERE.bat**，浏览器直接打开模型设置页；尚未提供模型也能进入。
+2. 双击 **Strata-T8.exe**，浏览器直接打开模型设置页；尚未提供模型也能进入。`START-HERE.bat` 同样可用。分发时压缩整个文件夹，EXE 需要包内的 `runtime` 等目录。
 3. 选择收到的完整 **Strata-data** 目录，点击 **保存并进入**。可选择页面发现的本机模型或其他磁盘目录。
 4. 配置完成后进入聊天。后续启动自动使用已配置的服务；在 **模型设置** 点击其他模型卡片即可自动停止当前服务并切换，正在生成的回答会中断。手动填写路径后点击 **保存并切换模型**。SC117 显示为 **SC117 Uncensored**。按 Ctrl+C 或关闭启动窗口停止。
 
@@ -46,9 +46,9 @@ PREPARE-MODEL.bat --data-dir "D:\模型\Strata-data"
 
 ## 程序更新
 
-退出 Strata 后运行 `UPDATE-PORTABLE.bat`（`UPDATE.bat` 同样可用）。它从 T8mars/Strata-T8 最新正式 Release 下载完整包，检查 SHA256 和文件清单，保留模型、配置、日志及浏览器聊天记录。新文件与自建文件重名时拒绝覆盖；替换失败回滚。
+设置页 **一键更新** 会确认更新程序就绪，再停止本启动器的服务，自动下载、校验、安装并重新打开设置页。也可退出 Strata 后运行 `UPDATE-PORTABLE.bat`（`UPDATE.bat` 同样可用）。更新从 T8mars/Strata-T8 最新正式 Release 获取，优先复用未变化的组件；保留模型、配置、日志及浏览器聊天记录。新文件与自建文件重名时拒绝覆盖；替换失败回滚。
 
-结果保存在 `.portable-update/result.json`；其中记录备份路径。备份保存在系统临时目录，确认更新正常后可以自行删除。GitHub 不可达时检查失败不影响本地启动。当前采用完整包更新，大小按发行类型而定。NoModels 更新后运行 INSTALL-VISION.bat 切换至 VisionReady；启动器记录发行类型并刷新视觉配置。旧版未记录类型的配置可用 `START-HERE.bat --vision gpu` 启用视觉。
+结果保存在 `.portable-update/result.json`，更新进度写入 `logs/update-helper.log`；成功升级后可在页面查看并离线回退。旧版不支持组件时使用完整 ZIP。GitHub 不可达时检查失败不影响本地启动。NoModels 更新后运行 INSTALL-VISION.bat 切换至 VisionReady；启动器记录发行类型并刷新视觉配置。旧版未记录类型的配置可用 `START-HERE.bat --vision gpu` 启用视觉。
 
 聊天记录由上游网页保存在浏览器；继续使用相同的浏览器、地址和端口即可。异步检查不会强制升级或打断推理。
 
@@ -57,6 +57,8 @@ PREPARE-MODEL.bat --data-dir "D:\模型\Strata-data"
 Windows 10 1903+/11 x64、AVX2 CPU、兼容显卡与驱动。NVIDIA 建议 12GB 以上显存、驱动 580+；IQ3_S 建议 96GB 以上内存。AMD 兼容列表见 `docs/AMD_HIP.md`。VisionReady 在导入兼容 Qwen 主模型后自动配置视觉，NoModels 默认为文本模式；Windows AMD 视觉暂不支持。RTX 4060 Ti 16GB / 128GB 内存已验收；AMD 实机推理尚未验收。
 
 OpenAI API：`http://127.0.0.1:8080/v1`；默认仅监听本机。
+
+局域网：在模型设置页展开 **API 访问设置**，选择 **开放局域网 API**，生成并复制密钥后保存。服务自动重启，就绪后显示可复制的局域网地址。其他设备填写此地址、实际模型 ID 和相同 API Key；模型设置页始终只在本机开放。Windows 防火墙需允许包内 Python 在专用网络使用当前服务端口。[详细设置](docs/MODEL-SETUP.zh-CN.md#局域网-api)
 
 `PACKAGE-MANIFEST.json` 记录每个程序文件的大小与 SHA256；运行 `VERIFY-PACKAGE.bat` 可检查。包内保留 Strata、Python、gguf-py、Python 依赖和 CUDA/ROCm 的随附许可证。模型另遵循自己的许可证。
 

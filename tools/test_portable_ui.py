@@ -117,7 +117,9 @@ root=Path.cwd(); time.sleep(float(sys.argv[1]))
 if sys.argv[2]=='fail': raise SystemExit(7)
 port=int(sys.argv[3]); fingerprint=json.loads(sys.argv[4])
 (root/'strata-iq3_s.json').write_text(json.dumps({'exe':'fixture.exe','args':[],'port':port}),encoding='utf-8')
-(root/'portable-settings.json').write_text(json.dumps({'portable_data_dir':fingerprint['data'],'portable_config':'strata-iq3_s.json','portable_fingerprint':fingerprint}),encoding='utf-8')
+state=json.loads((root/'portable-settings.json').read_text(encoding='utf-8')) if (root/'portable-settings.json').exists() else {}
+state.update(portable_data_dir=fingerprint['data'],portable_config='strata-iq3_s.json',portable_fingerprint=fingerprint)
+(root/'portable-settings.json').write_text(json.dumps(state),encoding='utf-8')
 '''
                 port = args[args.index('--port')+1]
                 replaced = [sys.executable,'-c',code,str(delay),'fail' if fail else 'ok',port,json.dumps(self.fingerprint)]

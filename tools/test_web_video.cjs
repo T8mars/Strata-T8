@@ -198,7 +198,7 @@ function setupPage(legacy=false, invalid=false) {
     defaults:{path:'E:\\old',port:8080,context:32768,backend:'cuda',vision:'gpu',native_video:true},vision_available:true,folder_picker:true};
   const get=id=>nodes[id] || (nodes[id]=element());
   get('vision').options=[];
-  const context=vm.createContext({console,URL,URLSearchParams,setTimeout,clearTimeout,AbortController,Date,
+  const context=vm.createContext({console,URL,URLSearchParams,setTimeout,clearTimeout,AbortController,Date,crypto:require('node:crypto').webcrypto,
     document:{getElementById:get,querySelector:()=>({content:'fixture-token'}),createElement:()=>element()},
     location:{search:''},window:{location:{assign(url){navigations.push(url);}}},
     fetch:async (url,options)=>{
@@ -216,6 +216,25 @@ function setupPage(legacy=false, invalid=false) {
   vm.runInContext(script,context); vm.runInContext('render('+JSON.stringify(current)+')',context);
   return {nodes,calls,navigations,context,run:code=>vm.runInContext(code,context)};
 }
+test('LAN base URLs require ready authenticated service and private IPv4 matching the actual API port',async()=>{
+  const ui=setupPage();
+  ui.run("render({...state,api_connection:{model_id:'live-id',base_url:'http://127.0.0.1:8080/v1',api_key_required:true,lan_base_urls:['http://8.8.8.8:8080/v1','http://192.168.0.5:9999/v1','http://192.168.0.5:8080/v1?key=secret','http://192.168.0.5:8080/v1']}})");
+  assert.equal(ui.nodes['lan-connection'].hidden,false);assert.equal(ui.nodes['lan-base-url'].value,'http://192.168.0.5:8080/v1');
+  ui.context.navigator={clipboard:{writeText:async value=>assert.equal(value,'http://192.168.0.5:8080/v1')}};
+  await ui.nodes['copy-lan-base'].onclick();
+  ui.run("render({...state,job:{state:'starting'}})");assert.equal(ui.nodes['lan-connection'].hidden,true);
+  assert.equal(ui.nodes['lan-base-url'].value,'');
+});
+test('LAN settings generate a key, reject clearing in LAN mode, and submit without navigation',async()=>{
+  const ui=setupPage();assert.equal(ui.nodes['api-scope'].value,'local');
+  ui.nodes['generate-network-key'].onclick();assert.match(ui.nodes['network-key'].value,/^strata_[0-9a-f]{48}$/);
+  ui.nodes['api-scope'].value='lan';ui.nodes['clear-network-key'].checked=true;ui.nodes['api-scope'].onchange();
+  assert.equal(ui.nodes['clear-network-key'].checked,false);assert.equal(ui.nodes['clear-network-key'].disabled,true);
+  await ui.nodes['network-form'].onsubmit({preventDefault(){}});
+  const call=ui.calls.find(c=>c.url==='/api/network');assert.equal(call.body.scope,'lan');assert.equal(call.body.clear_api_key,false);
+  assert.match(call.body.api_key,/^strata_/);assert.equal(ui.nodes['network-key'].value,'');
+  assert.equal(ui.nodes['save-network'].disabled,true);assert.equal(ui.navigations.length,0);
+});
 test('model card immediately switches on both new and already-running older launchers',async()=>{
   for (const legacy of [false,true]) {
     const ui=setupPage(legacy); await ui.run('scan()');

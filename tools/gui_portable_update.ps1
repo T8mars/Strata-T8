@@ -6,7 +6,8 @@ param(
     [ValidatePattern('^[0-9a-f]{32}$')][string]$RestoreId,
     [string]$StatusFile,
     [ValidatePattern('^[0-9a-f]{32}$')][string]$HandoffNonce,
-    [string]$LogPath
+    [string]$LogPath,
+    [ValidateRange(0,2147483647)][int]$LauncherId = 0
 )
 $ErrorActionPreference = 'Stop'
 $env:PYTHONHOME = $null
@@ -18,7 +19,7 @@ $resultCode = 1
 $transcribing = $false
 function Write-UpdateStatus([string]$State, [string]$Detail = '') {
     if (!$StatusFile) { return }
-    $record = @{state=$State; error=$Detail; nonce=$HandoffNonce; app_root=$appDirectory; parent_id=$ParentId}
+    $record = @{state=$State; error=$Detail; nonce=$HandoffNonce; app_root=$appDirectory; parent_id=$ParentId; launcher_id=$LauncherId}
     $pending = $StatusFile + '.tmp'
     [IO.File]::WriteAllText($pending, ($record | ConvertTo-Json -Compress), [Text.UTF8Encoding]::new($false))
     Move-Item -LiteralPath $pending -Destination $StatusFile -Force
@@ -31,6 +32,10 @@ try {
     Write-Host 'Waiting for the launcher to exit; models and settings are preserved.'
     $parent = Get-Process -Id $ParentId -ErrorAction SilentlyContinue
     if ($parent -and !$parent.WaitForExit(60000)) { throw 'Launcher is still running. No update was applied.' }
+    if ($LauncherId -gt 0 -and $LauncherId -ne $ParentId) {
+        $proxy = Get-Process -Id $LauncherId -ErrorAction SilentlyContinue
+        if ($proxy -and !$proxy.WaitForExit(10000)) { throw 'The EXE launcher has not exited. No update was applied.' }
+    }
     Write-UpdateStatus 'downloading'
     $python = Join-Path $appDirectory 'runtime/python/python.exe'
     if ($RestoreId) { & $python -X utf8 -u (Join-Path $appDirectory 'tools/portable_update.py') --restore $RestoreId }

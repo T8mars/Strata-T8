@@ -54,6 +54,20 @@ function renderApiConnection(current, chat) {
   $('api-key-hint').textContent = visible ? (info.api_key_required ? 'API Key：填写你为此服务设置的密钥。' : '当前服务未启用 API Key；客户端要求填写时，可填本地占位值 strata。') : '';
   $('api-models-link').hidden = !visible;
   if (visible) $('api-models-link').href = base + '/models'; else $('api-models-link').removeAttribute('href');
+  const lan = visible && info.api_key_required ? (info.lan_base_urls || []).filter(value => validLanBase(value, new URL(base).port)) : [];
+  $('lan-connection').hidden = !lan.length;
+  if ($('lan-base-url').value !== (lan[0] || '')) $('api-copy-status').textContent = '';
+  $('lan-base-url').value = lan[0] || '';
+  $('lan-alt-addresses').textContent = lan.length > 1 ? '其他网卡地址：' + lan.slice(1).join('；') : '';
+  $('copy-lan-base').disabled = !lan.length;
+}
+function validLanBase(value, port) {
+  try {
+    const u = new URL(value), a = u.hostname.split('.').map(Number);
+    return u.protocol === 'http:' && u.port === port && u.pathname === '/v1' && !u.search && !u.hash && !u.username && !u.password &&
+      /^\d+\.\d+\.\d+\.\d+$/.test(u.hostname) && a.every(x => x >= 0 && x <= 255) &&
+      (a[0] === 10 || (a[0] === 192 && a[1] === 168) || (a[0] === 172 && a[1] >= 16 && a[1] <= 31));
+  } catch(e) { return false; }
 }
 async function copyModelField(field, status, available = () => true) {
   const value = field.value;
@@ -83,11 +97,15 @@ function render(current) {
     $("backend").value = d.backend; $("vision").value = d.vision; $("native-video").checked = d.native_video;
     $("browse").hidden = !current.folder_picker;
     $("download-path").value = d.path || "";
+    $('api-scope').value = current.network?.scope || 'local';
     for (const option of $("vision").options) if (["gpu", "cpu"].includes(option.value)) option.disabled = !current.vision_available;
     initialized = true;
   }
   const busy = ["preparing", "configuring", "starting", "stopping", "updating"].includes(current.job.state);
   const blocked = busy || choosing;
+  for (const id of ['api-scope','network-key','generate-network-key','copy-network-key','clear-network-key','save-network']) $(id).disabled = blocked;
+  $('clear-network-key').disabled = blocked || $('api-scope').value === 'lan';
+  $('network-key-status').textContent = current.network?.api_key_configured ? '已有密钥；页面不回显。留空保留，填写新值则替换。' : '尚未设置密钥。局域网模式必须先设置。';
   for (const id of ["model-path", "browse", "check", "scan", "port", "context", "backend", "vision", "native-video", "save"]) $(id).disabled = blocked;
   for (const id of ["download-path", "download-consent", "prepare"]) $(id).disabled = blocked || current.running;
   for (const button of $("candidates").querySelectorAll(".candidate-select")) button.disabled = blocked;
@@ -256,7 +274,28 @@ if ($('backup-list')) $('backup-list').onclick=async()=>{
 };
 $('copy-api-model').onclick = () => copyApiValue('api-model-id');
 $('copy-api-base').onclick = () => copyApiValue('api-base-url');
-for (const id of ['api-model-id', 'api-base-url']) $(id).onclick = () => $(id).select();
+$('copy-lan-base').onclick = () => copyModelField($('lan-base-url'),$('api-copy-status'),()=>!$('lan-connection').hidden);
+for (const id of ['api-model-id', 'api-base-url','lan-base-url']) $(id).onclick = () => $(id).select();
+$('api-scope').onchange = () => {
+  $('clear-network-key').disabled = $('api-scope').value === 'lan';
+  if ($('api-scope').value === 'lan') $('clear-network-key').checked = false;
+};
+$('generate-network-key').onclick = () => {
+  const bytes = crypto.getRandomValues(new Uint8Array(24));
+  $('network-key').value = 'strata_' + Array.from(bytes,b=>b.toString(16).padStart(2,'0')).join('');
+  $('clear-network-key').checked = false;
+  $('network-save-status').textContent = '已生成新密钥；请先复制给客户端，再保存设置。';
+};
+$('copy-network-key').onclick = () => copyModelField($('network-key'),$('network-save-status'));
+$('network-form').onsubmit = async e => {
+  e.preventDefault();clearError();$('save-network').disabled=true;
+  try {
+    await api('/api/network',{scope:$('api-scope').value,api_key:$('network-key').value,clear_api_key:$('clear-network-key').checked});
+    $('network-key').value='';$('clear-network-key').checked=false;
+    $('network-save-status').textContent='正在应用访问设置；已运行的模型服务会自动重启。';
+    render({...state,job:{state:'configuring',message:'正在应用 API 访问设置…'}});
+  } catch(e) { fail(e);$('save-network').disabled=false; }
+};
 const asrFields = ['model_dir','vad_dir','quantization','device','language','context','audio_track','channel','offset_ms'];
 const asrElement = key => $('asr-'+key.replaceAll('_','-'));
 function showAsrSettings(result) {

@@ -20,6 +20,7 @@ import threading
 import time
 from urllib.parse import urlsplit
 import webbrowser
+from serve import api_access
 
 ROOT = Path(__file__).resolve().parents[1]
 BODY_LIMIT = 16 * 1024
@@ -266,10 +267,13 @@ class ModelSetup:
             if self.process is not None and not running and self.job['state'] == 'ready':
                 self.job = {'state': 'error', 'message': '服务已退出，请重新启动。', 'error': '服务进程已结束。'}
             connection = None
+            network = self.network_settings()
             if running and self.job['state'] == 'ready' and self.backend_port and self.backend_model_id:
                 base = f'http://127.0.0.1:{self.backend_port}/v1'
                 connection = {'model_id': self.backend_model_id, 'base_url': base, 'models_url': base+'/models',
-                              'api_key_required': bool((self.backend_config or {}).get('api_key'))}
+                              'api_key_required': bool((self.backend_config or {}).get('api_key')),
+                              'lan_base_urls': [f'http://{ip}:{self.backend_port}/v1' for ip in api_access.ipv4_addresses()]
+                                  if network['scope'] == 'lan' and (self.backend_config or {}).get('host') == '0.0.0.0' else []}
             return {'version': self.version, 'app_root': str(self.root), 'instance_id': self.instance_id,
                     'job': dict(self.job), 'model': self.model,
                     'configured': self.current_config is not None, 'running': running,
@@ -278,6 +282,7 @@ class ModelSetup:
                     'folder_picker': os.name == 'nt', 'configuration_error': self.current_error,
                     'prepared_model': self.prepared_model,
                     'api_connection': connection,
+                    'network': api_access.public(network),
                     'update': dict(self.update),
                     'log_tail': self._tail(self.job_log) if self.job_log and self.job_log.is_file() else ''}
 
@@ -298,6 +303,43 @@ class ModelSetup:
         with Path(path).open('rb') as f:
             f.seek(max(0, Path(path).stat().st_size-LOG_LIMIT))
             return f.read(LOG_LIMIT).decode('utf-8', 'replace')
+
+    def network_settings(self):
+        config = self.portable.read_config(self.current_config) if self.current_config else {}
+        return api_access.load(self.portable,config)
+
+    def save_network(self,data):
+        with self.lock:
+            if self.closed.is_set() or self.job['state'] in ('preparing','configuring','starting','stopping','updating'):
+                raise SetupError('请先完成当前操作。')
+            settings = api_access.normalize(data,self.network_settings())
+            running = self.process is not None and self.process.poll() is None
+            state_path = self.portable.STATE
+            previous_state = state_path.read_bytes() if state_path.exists() else None
+            path = self.current_config
+            previous_config = path.read_bytes() if path and path.exists() else None
+            self.job={'state':'configuring','message':'正在保存 API 访问设置；已运行的服务将自动重启…','error':None}
+        def work():
+            try:
+                if running:self.stop_backend()
+                if self.closed.is_set():return
+                state=self.portable.read_state();state['portable_api']=settings
+                self.portable.save_json(state_path,state)
+                if path:
+                    config=self.portable.read_config(path)
+                    self.portable.save_json(path,api_access.apply(config,settings))
+                if running and not self.closed.is_set():self._start_backend()
+                else:self.set_job('idle','API 访问设置已保存，启动模型服务后生效。')
+            except Exception as error:
+                if running:self.stop_backend()
+                try:
+                    if previous_state is None:state_path.unlink(missing_ok=True)
+                    else:self.portable.atomic_bytes(state_path,previous_state)
+                    if path and previous_config is not None:self.portable.atomic_bytes(path,previous_config)
+                except OSError:
+                    self.set_job('error','API 设置保存失败，请检查配置文件。',str(error));return
+                self.set_job('error','API 设置未应用，原设置已保留。',str(error))
+        threading.Thread(target=work,daemon=True).start()
 
     def begin(self, data=None, *, existing=False):
         if existing:
@@ -439,19 +481,31 @@ class ModelSetup:
         if state['portable_fingerprint'].get('version') != current['version'] or state['portable_fingerprint'].get('edition') != current.get('edition'):
             self.portable.refresh_updated_config(self.current_config, state, current)
             config = self.portable.read_config(self.current_config)
+        settings = self.network_settings()
+        host = '0.0.0.0' if settings['scope']=='lan' else '127.0.0.1'
         preferred = getattr(self.options, 'port', None) or config.get('port', 8080)
         self.backend_port = free_port(preferred, strict=getattr(self.options, 'port', None) is not None,
                                       exclude=[self.http.server_port])
         if self.backend_port != config.get('port', 8080):
             config['port'] = self.backend_port
             self.portable.save_json(self.current_config, config)
+        if 'portable_api' in self.portable.read_state():
+            config = api_access.apply(config,settings)
+            self.portable.save_json(self.current_config,config)
+        if host != '127.0.0.1' and not config.get('api_key'):
+            raise SetupError('局域网服务必须设置 API Key。')
         self.backend_config = config
         self.backend_model_id = None
         self.backend_id = secrets.token_hex(16)
         self.set_job('starting', '正在启动本地服务，模型将在首次请求时加载…')
         command = [sys.executable, '-X', 'utf8', '-u', str(self.root/'serve/server.py'), '--engine', 'strata',
-                   '--config', str(self.current_config), '--host', '127.0.0.1', '--port', str(self.backend_port), '--lazy']
+                   '--config', str(self.current_config), '--host', host, '--port', str(self.backend_port), '--lazy']
         self.log = self._log_path('server.log').open('wb')
+        environment = {**os.environ, 'PYTHONDONTWRITEBYTECODE': '1', 'STRATA_PORTABLE_UI_URL': self.url,
+                       'STRATA_PORTABLE_MODEL_LABEL': (self.model or {}).get('label', ''),
+                       'STRATA_PORTABLE_UI_ID': self.backend_id}
+        if 'portable_api' in state:
+            environment.pop('STRATA_API_KEY',None)
         from serve.winjob import contain
         with self.lock:
             if self.closed.is_set():
@@ -459,9 +513,7 @@ class ModelSetup:
                 self.log = None
                 return
             self.process = subprocess.Popen(command, cwd=self.root, stdout=self.log, stderr=subprocess.STDOUT,
-                         env={**os.environ, 'PYTHONDONTWRITEBYTECODE': '1', 'STRATA_PORTABLE_UI_URL': self.url,
-                              'STRATA_PORTABLE_MODEL_LABEL': (self.model or {}).get('label', ''),
-                              'STRATA_PORTABLE_UI_ID': self.backend_id},
+                         env=environment,
                          creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
             contain(self.process)
             process = self.process
@@ -541,6 +593,15 @@ class ModelSetup:
                            '-AppRoot',str(self.root),'-ParentId',str(os.getpid()),'-UIPort',str(self.http.server_port),
                            '-StatusFile',str(receipt),'-HandoffNonce',nonce,'-LogPath',str(log)]
                 if restore_id is not None:arguments.extend(['-RestoreId',restore_id])
+                # A native EXE proxy also holds a managed file open. Wait for
+                # this actual parent, never an arbitrary environment-supplied PID.
+                import psutil
+                try:
+                    parent = psutil.Process(os.getpid()).parent()
+                    if parent and Path(parent.exe()).resolve() == self.root/'Strata-T8.exe':
+                        arguments.extend(['-LauncherId',str(parent.pid)])
+                except (OSError,psutil.Error):
+                    pass
                 helper_process = subprocess.Popen(arguments,
                     cwd=temporary, creationflags=getattr(subprocess,'CREATE_NEW_CONSOLE',0))
                 wait_update_helper(helper_process, receipt, nonce, self.root)
@@ -745,6 +806,9 @@ def handler(app):
                         if app.closed.is_set() or app.job['state'] == 'updating':
                             raise SetupError('更新或关闭期间不能修改语音设置，请稍后重试。')
                         self._send(200, {'settings':asr_config.save(app.root, data), 'capabilities':asr_config.availability(app.root)})
+                elif path == '/api/network':
+                    app.save_network(data)
+                    self._send(202, {'accepted': True})
                 elif path == '/api/update/check' and not data:
                     app.check_updates()
                     self._send(202, {'accepted': True})

@@ -1,5 +1,7 @@
 {
   "portable_windows": true,
+  "portable_exe_launcher": true,
+  "portable_lan_api": true,
   "bundled_python": true,
   "bundled_cuda": true,
   "bundled_hip": true,

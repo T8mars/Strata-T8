@@ -113,6 +113,9 @@ def main():
     weights = weight_declaration(edition)
     identity = build_identity(META, source_version())
     features = json.loads((ROOT/'features.json').read_text(encoding='utf-8'))
+    if features.get('portable_exe_launcher'):
+        from build_windows_launcher import verify as verify_launcher
+        verify_launcher(ROOT)
     if features.get('video_sampling_cpu'):
         from prepare_video_runtime import verify as verify_video_runtime
         verify_video_runtime(ROOT)
@@ -150,6 +153,9 @@ def main():
     features['bundled_vision_weights'] = weights['vision']
     (TARGET/'features.json').write_text(json.dumps(features, indent=2), encoding='utf-8')
     shutil.copy2(ROOT/'START-PORTABLE.bat', TARGET/'START-HERE.bat')
+    if features.get('portable_exe_launcher'):
+        for name in ('Strata-T8.exe','LAUNCHER-BUILD.json'):
+            shutil.copy2(ROOT/name,TARGET/name)
     shutil.copy2(ROOT/'UPDATE-PORTABLE.bat', TARGET/'UPDATE.bat')
     for file in ['README-UPSTREAM.md']:
         shutil.copy2(ROOT/file, TARGET/file)
