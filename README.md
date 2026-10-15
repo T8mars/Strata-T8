@@ -69,7 +69,7 @@ Windows 10 1903+/11 x64、AVX2 CPU、SSD。NVIDIA RTX 20/30/40/50 系列建议 1
 
 仓库每日检查上游正式版本，合并及测试通过后自动打包发布；可在 [Actions](https://github.com/T8mars/Strata-T8/actions) 手动同步 main。冲突、测试失败或缺少匹配引擎时停止发布。[更新机制](docs/UPDATING-T8.md)
 
-当前发行版 **0.1.42-t8.10** 基于上游 [v0.1.42](https://github.com/Niko1221/Strata/releases/tag/v0.1.42)，配套节点 **1.3.0** 和 ComfyUI Protocol 1。新增 EXE 启动器及可选局域网 API，修复网页一键更新移交与重连，补充运行环境诊断。已有视频进度恢复、自适应采样、语音转录与音画联合分析继续保留。现有主模型和视觉权重可沿用。[视频进度与验证范围](docs/VIDEO-PROGRESS.zh-CN.md)
+当前源码基于上游 [v0.1.44.1](https://github.com/Niko1221/Strata/releases/tag/v0.1.44.1)，配套节点 **1.3.0** 和 ComfyUI Protocol 1。同步图像缓存、启动诊断、Responses API 推理设置及安装配置保留等修复。T8 的 EXE 启动器、局域网 API、自动更新、视频进度恢复、自适应采样、语音转录与音画联合分析继续保留。现有主模型和视觉权重可沿用；已发布整合包的版本以 [Release](https://github.com/T8mars/Strata-T8/releases/latest) 为准。[视频进度与验证范围](docs/VIDEO-PROGRESS.zh-CN.md)
 
 上游在适用 NVIDIA 配置中默认启用专家尾部跳过和实测 PCIe 分配，回答可能略有变化。需要恢复此前行为，可在运行配置的 `env` 对象设置 `"STRATA_ROUTE_TAIL_SKIP":"0"` 和 `"STRATA_PCIE_FRAC_DEFAULT":"old"`，然后重启；已有显式 `--pcie-frac` 参数继续优先。上游性能数字取决于硬件与模型，不代表本机速度。
 
