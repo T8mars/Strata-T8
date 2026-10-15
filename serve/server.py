@@ -3519,8 +3519,22 @@ class Service:
         """Start the engine if it is not running (unloaded, or it died - issue #27), after the before_load hook and
         the free-VRAM check.  The caller holds self.fifo."""
         check_cancel(cancel)
-        if self.loaded() and not self._vision_down():
-            return
+        if self.loaded():
+            if not self._vision_down():
+                return
+            # The main model already owns its VRAM. Its cold-load admission
+            # check would count that as another program and reject recovery.
+            # Restart only the companion encoder, retaining conversation state.
+            print("[strata] starting the vision encoder again ...", flush=True)
+            if cancel is None:
+                self.vision.restart()
+            else:
+                self.vision.restart(cancel=cancel)
+            check_cancel(cancel)
+            if self.loaded():
+                return
+            # If the main engine died during the encoder restart, its normal
+            # before_load hook and full-model VRAM check still apply below.
         hook_failed = None
         if self.before_load:
             cmd = self.before_load
