@@ -97,6 +97,39 @@ class NativeBuildTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'engine and vision'):
             b.validate_native_build(self.native, self.root)
 
+    def add_kquant_library(self):
+        name = 'strata_kq.dll'
+        source = self.root/'artifacts'/name
+        source.write_bytes(b'new source-matched kquant library')
+        self.artifacts[name] = source
+        (self.engine/name).write_bytes(b'old vendor kquant library')
+        self.native['schema'] = 2
+        self.native['outputs'][name] = {'sha256': b.digest(source), 'size': source.stat().st_size,
+            'cuda_architectures': list(b.ARCHITECTURES), 'ptx_architectures': ['120']}
+
+    def test_new_engine_requires_source_matched_kquant_library(self):
+        (self.root/'CMakeLists.txt').write_text('add_library(strata_kq SHARED kernels.cu)\n')
+        with self.assertRaisesRegex(ValueError, 'source-matched strata_kq.dll'):
+            b.validate_native_build(self.native, self.root, check_source=False)
+
+    def test_schema_two_cannot_omit_library_proof(self):
+        self.native['schema'] = 2
+        with self.assertRaises(ValueError):
+            b.validate_native_build(self.native, self.root)
+
+    def test_library_is_installed_and_hash_checked_without_executable_manifest_patch(self):
+        self.add_kquant_library()
+        patcher = lambda p: {'sha256_after': b.digest(p), 'manifest': 'activeCodePage=UTF-8'}
+        with patch('windows_utf8_manifest.patch_executable', side_effect=patcher) as patch_exe:
+            b.install_build(self.root, self.root, self.artifacts, copy.deepcopy(self.native), self.root/'build')
+        self.assertEqual(patch_exe.call_count, 2)
+        installed = json.loads((self.engine/'BUILD.json').read_text())['t8_native_build']
+        b.validate_native_build(installed, self.root, self.engine)
+        self.assertEqual((self.engine/'strata_kq.dll').read_bytes(), self.artifacts['strata_kq.dll'].read_bytes())
+        (self.engine/'strata_kq.dll').write_bytes(b'stale vendor library')
+        with self.assertRaisesRegex(ValueError, 'checksum failed: strata_kq.dll'):
+            b.validate_native_build(installed, self.root, self.engine)
+
     def test_artifact_mismatch_blocks_release(self):
         with self.assertRaisesRegex(ValueError, 'checksum failed'):
             b.validate_native_build(self.native, self.root, self.engine)

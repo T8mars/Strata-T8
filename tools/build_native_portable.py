@@ -131,7 +131,7 @@ def source_identity(root, third_party):
 
 
 def validate_native_build(native, root, engine_directory=None, check_source=True, require_source=False):
-    if not isinstance(native, dict) or native.get('schema') != 1 or native.get('capabilities') != {
+    if not isinstance(native, dict) or native.get('schema') not in (1, 2) or native.get('capabilities') != {
         'native_video': True, 'geniv': 1, 'encv': 1, 'sve': 1}:
         raise ValueError('Missing native-video build capability/contract')
     if native.get('cuda_architectures') != list(ARCHITECTURES) or native.get('portable') is not True:
@@ -155,10 +155,17 @@ def validate_native_build(native, root, engine_directory=None, check_source=True
         if (Path(root)/'third_party/llama.cpp/src/llama.cpp').is_file() and canonical_digest(llama_inputs(root)) != third['source_tree_sha256']:
             raise ValueError('Pinned native third-party source changed: rebuild required')
     outputs = native.get('outputs', {})
-    if set(outputs) != {'strata.exe', 'strata-vision.exe'}:
+    expected = {'strata.exe', 'strata-vision.exe'}
+    if native['schema'] == 2:
+        expected.add('strata_kq.dll')
+    cmake_file = Path(root)/'CMakeLists.txt'
+    if (native['schema'] == 1 and cmake_file.is_file()
+            and re.search(r'add_library\(strata_kq\s+SHARED', cmake_file.read_text('utf-8'))):
+        raise ValueError('Native build requires a source-matched strata_kq.dll')
+    if set(outputs) != expected:
         raise ValueError('Native build must include engine and vision executables')
     for name, item in outputs.items():
-        if not isinstance(item, dict) or not re.fullmatch('[a-f0-9]{64}', item.get('sha256', '')) or item.get('utf8_manifest') != 'activeCodePage=UTF-8':
+        if not isinstance(item, dict) or not re.fullmatch('[a-f0-9]{64}', item.get('sha256', '')) or (name.endswith('.exe') and item.get('utf8_manifest') != 'activeCodePage=UTF-8'):
             raise ValueError('Native executable lacks checksum or UTF-8 manifest identity')
         if type(item.get('size')) is not int or item['size'] <= 0:
             raise ValueError('Native executable lacks a positive byte size')
@@ -320,11 +327,12 @@ def install_build(root, destination, artifacts, native, build_root):
                 if not backup.exists(): shutil.copy2(old, backup)
                 native['vendor_binaries'][name] = {'sha256': digest(backup)}
             shutil.copy2(source, old)
-            patch = patch_executable(old)
-            native['outputs'][name].update(sha256=patch['sha256_after'], size=old.stat().st_size,
-                                           utf8_manifest=patch['manifest'])
-            key = 'engine_utf8' if name == 'strata.exe' else 'vision_utf8'
-            build.setdefault('portable_patches', {})[key] = patch
+            if name.endswith('.exe'):
+                patch = patch_executable(old)
+                native['outputs'][name].update(sha256=patch['sha256_after'], size=old.stat().st_size,
+                                               utf8_manifest=patch['manifest'])
+                key = 'engine_utf8' if name == 'strata.exe' else 'vision_utf8'
+                build.setdefault('portable_patches', {})[key] = patch
         build['capabilities'] = {**build.get('capabilities', {}), 'native_video': True, 'geniv': 1, 'encv': 1}
         cuda_series = re.search(r'release ([0-9]+\.[0-9]+)', native.get('compiler', {}).get('cuda', ''))
         if not cuda_series:
@@ -394,7 +402,7 @@ def main(argv=None):
     directories = {'engine': build_root/'engine-portable', 'vision': build_root/'vision-portable'}
     engine_flags = ['-DSTRATA_ENABLE_CUDA=ON', '-DSTRATA_BUILD_TESTS=OFF', '-DSTRATA_GGML_DIR='+str(root/'third_party/llama.cpp')]
     vision_flags = ['-DSTRATA_VISION_CUDA=ON', '-DSTRATA_VISION_CONTRACT_TESTS=ON', '-DLLAMA_DIR='+str(root/'third_party/llama.cpp')]
-    for kind, source, flags, targets in [('engine', root, engine_flags, ['strata']),
+    for kind, source, flags, targets in [('engine', root, engine_flags, ['strata', 'strata_kq']),
                 ('vision', root/'tools/vision', vision_flags, ['strata-vision', 'strata-native-vision-test'])]:
         run([cmake, '-S', source, '-B', directories[kind], *common, *flags], env, build_root/f'{kind}-configure.log')
         run([cmake, '--build', directories[kind], '--target', *targets, '-j', args.jobs], env, build_root/f'{kind}-build.log')
@@ -402,13 +410,15 @@ def main(argv=None):
     if source_identity(root, third_party) != identity:
         raise ValueError('Native source changed during the build; nothing installed')
     cuobjdump = executable('cuobjdump', env, [Path(nvcc).parent/'cuobjdump.exe'])
-    artifacts = {'strata.exe': directories['engine']/'strata.exe', 'strata-vision.exe': directories['vision']/'bin/strata-vision.exe'}
+    artifacts = {'strata.exe': directories['engine']/'strata.exe',
+                 'strata-vision.exe': directories['vision']/'bin/strata-vision.exe',
+                 'strata_kq.dll': directories['engine']/'strata_kq.dll'}
     outputs = {name: {'sha256': digest(path), 'size': path.stat().st_size,
         'cuda_architectures': cuda_architecture_proof(path, cuobjdump, env),
         'ptx_architectures':cuda_ptx_proof(path,cuobjdump,env)} for name, path in artifacts.items()}
     compiler = msvc_compiler_record(directories, env)
     source_commit = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=root, env=env, text=True).strip()
-    native = {'schema': 1, 'source_commit': source_commit, 'source_identity': identity,
+    native = {'schema': 2, 'source_commit': source_commit, 'source_identity': identity,
         'third_party_pin': third_party['commit'], 'cuda_architectures': list(ARCHITECTURES), 'portable': True,
         'cuda_targets':list(CUDA_TARGETS), 'fatbinary_compression':'size',
         'compiler': {**compiler, 'cuda': cuda_version,
