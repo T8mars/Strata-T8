@@ -6,6 +6,7 @@ from pathlib import Path
 import shutil
 import subprocess
 import sys
+import sysconfig
 import tempfile
 import unittest
 from unittest import mock
@@ -59,6 +60,18 @@ class ImportErrors(unittest.TestCase):
             for file in Path(sys.executable).parent.iterdir():
                 if file.is_file() and (file.suffix.lower() in ('.dll','.pyd','.zip','._pth') or file.name == 'python.exe'):
                     shutil.copy2(file, runtime/file.name)
+            # Actions uses a full Python installation, while release acceptance
+            # uses the embedded ZIP. Both fixtures need their own standard library.
+            stem = f'python{sys.version_info.major}{sys.version_info.minor}'
+            if not (runtime/(stem+'.zip')).is_file():
+                standard = Path(sysconfig.get_path('stdlib'))
+                self.assertTrue((standard/'encodings/__init__.py').is_file())
+                shutil.copytree(standard, runtime/'Lib', ignore=shutil.ignore_patterns(
+                    'site-packages','__pycache__','test','tests','ensurepip','idlelib','tkinter'))
+                extensions = Path(sys.base_prefix)/'DLLs'
+                if extensions.is_dir():
+                    shutil.copytree(extensions, runtime/'DLLs', ignore=shutil.ignore_patterns('__pycache__'))
+            (runtime/(stem+'._pth')).write_text(stem+'.zip\n.\nDLLs\nLib\nLib\\site-packages\n',encoding='ascii')
             base = runtime/'Lib/site-packages'
             source = Path(av.__file__).parent
             shutil.copytree(source, base/'av', ignore=shutil.ignore_patterns('__pycache__'))
