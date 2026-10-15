@@ -85,8 +85,9 @@ class NetworkSettings(unittest.TestCase):
             self.request('/api/import',self.payload());self.assertEqual(self.wait_job(),'ready')
         before=portable.STATE.read_bytes();path=self.app.current_config;config=path.read_bytes()
         with mock.patch.object(self.app,'_start_backend',side_effect=OSError('fixture failure')):
-            self.request('/api/network',{'scope':'lan','api_key':'secret-fixture-key'})
-            self.assertEqual(self.wait_job(),'error')
+            self.assertEqual(self.request('/api/network',{'scope':'lan','api_key':'secret-fixture-key'})[0],202)
+            self.assertEqual(self.wait_job(),'error',self.app.job)
+        self.assertIn('原设置已保留',self.app.job['message'])
         self.assertEqual(portable.STATE.read_bytes(),before)
         self.assertEqual(path.read_bytes(),config)
         self.assertIsNone(self.app.process)

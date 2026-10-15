@@ -305,8 +305,12 @@ class ModelSetup:
             return f.read(LOG_LIMIT).decode('utf-8', 'replace')
 
     def network_settings(self):
-        config = self.portable.read_config(self.current_config) if self.current_config else {}
-        return api_access.load(self.portable,config)
+        with self.lock:
+            saved = self.portable.read_state().get('portable_api')
+            if saved is not None:
+                return api_access.normalize(saved)
+            config = self.portable.read_config(self.current_config) if self.current_config else {}
+            return api_access.load(self.portable,config)
 
     def save_network(self,data):
         with self.lock:
@@ -323,22 +327,24 @@ class ModelSetup:
             try:
                 if running:self.stop_backend()
                 if self.closed.is_set():return
-                state=self.portable.read_state();state['portable_api']=settings
-                self.portable.save_json(state_path,state)
-                if path:
-                    config=self.portable.read_config(path)
-                    self.portable.save_json(path,api_access.apply(config,settings))
+                with self.lock:
+                    state=self.portable.read_state();state['portable_api']=settings
+                    self.portable.save_json(state_path,state)
+                    if path:
+                        config=self.portable.read_config(path)
+                        self.portable.save_json(path,api_access.apply(config,settings))
                 if running and not self.closed.is_set():self._start_backend()
                 else:self.set_job('idle','API 访问设置已保存，启动模型服务后生效。')
             except Exception as error:
                 if running:self.stop_backend()
-                try:
-                    if previous_state is None:state_path.unlink(missing_ok=True)
-                    else:self.portable.atomic_bytes(state_path,previous_state)
-                    if path and previous_config is not None:self.portable.atomic_bytes(path,previous_config)
-                except OSError:
-                    self.set_job('error','API 设置保存失败，请检查配置文件。',str(error));return
-                self.set_job('error','API 设置未应用，原设置已保留。',str(error))
+                with self.lock:
+                    try:
+                        if previous_state is None:state_path.unlink(missing_ok=True)
+                        else:self.portable.atomic_bytes(state_path,previous_state)
+                        if path and previous_config is not None:self.portable.atomic_bytes(path,previous_config)
+                    except OSError as restore_error:
+                        self.set_job('error','API 设置保存失败，请检查配置文件。',f'{error}\n配置恢复失败：{restore_error}');return
+                    self.set_job('error','API 设置未应用，原设置已保留。',str(error))
         threading.Thread(target=work,daemon=True).start()
 
     def begin(self, data=None, *, existing=False):
@@ -479,8 +485,9 @@ class ModelSetup:
         if not self.portable.same_machine(state.get('portable_fingerprint'), current):
             raise SetupError('程序位置、模型或硬件已变化，请重新保存模型设置。')
         if state['portable_fingerprint'].get('version') != current['version'] or state['portable_fingerprint'].get('edition') != current.get('edition'):
-            self.portable.refresh_updated_config(self.current_config, state, current)
-            config = self.portable.read_config(self.current_config)
+            with self.lock:
+                self.portable.refresh_updated_config(self.current_config, state, current)
+                config = self.portable.read_config(self.current_config)
         settings = self.network_settings()
         host = '0.0.0.0' if settings['scope']=='lan' else '127.0.0.1'
         preferred = getattr(self.options, 'port', None) or config.get('port', 8080)
@@ -488,10 +495,10 @@ class ModelSetup:
                                       exclude=[self.http.server_port])
         if self.backend_port != config.get('port', 8080):
             config['port'] = self.backend_port
-            self.portable.save_json(self.current_config, config)
+            with self.lock:self.portable.save_json(self.current_config, config)
         if 'portable_api' in self.portable.read_state():
             config = api_access.apply(config,settings)
-            self.portable.save_json(self.current_config,config)
+            with self.lock:self.portable.save_json(self.current_config,config)
         if host != '127.0.0.1' and not config.get('api_key'):
             raise SetupError('局域网服务必须设置 API Key。')
         self.backend_config = config
@@ -710,16 +717,37 @@ def handler(app):
         def _guard(self, *, token=False):
             valid = {f'127.0.0.1:{self.server.server_port}', f'localhost:{self.server.server_port}'}
             if len(self.headers.get_all('Host', [])) != 1 or self.headers.get('Host') not in valid:
-                self._send(403, {'error': '仅允许本机访问模型设置。'})
+                self._reject({'error': '仅允许本机访问模型设置。'})
                 return False
             origin = self.headers.get('Origin')
             if len(self.headers.get_all('Origin', [])) > 1 or (origin is not None and origin not in {'http://'+h for h in valid}):
-                self._send(403, {'error': '请从本地模型设置页面操作。'})
+                self._reject({'error': '请从本地模型设置页面操作。'})
                 return False
             if token and (len(self.headers.get_all('X-Strata-Setup-Token', [])) != 1 or not hmac.compare_digest(self.headers.get('X-Strata-Setup-Token', '').encode('utf-8'), app.token.encode('ascii'))):
-                self._send(403, {'error': '页面会话已失效，请刷新后再试。'})
+                self._reject({'error': '页面会话已失效，请刷新后再试。'})
                 return False
             return True
+
+        def _reject(self, body):
+            # An unread POST body can reset the TCP connection on Windows before
+            # the browser receives the 403. Consume only a small, bounded body;
+            # never parse it or let a stalled sender delay rejection indefinitely.
+            length = self.headers.get('Content-Length', '')
+            if (self.command == 'POST' and self.headers.get('Transfer-Encoding') is None
+                    and len(self.headers.get_all('Content-Length', [])) == 1
+                    and len(length) <= 6 and length.isascii() and length.isdigit()
+                    and int(length) <= BODY_LIMIT):
+                deadline = time.monotonic() + .25
+                remaining = int(length)
+                try:
+                    while remaining and time.monotonic() < deadline:
+                        self.connection.settimeout(max(.001, deadline-time.monotonic()))
+                        chunk = self.rfile.read1(min(remaining, 4096))
+                        if not chunk:break
+                        remaining -= len(chunk)
+                except OSError:
+                    pass
+            self._send(403,body)
 
         def do_GET(self):
             if not self._guard():

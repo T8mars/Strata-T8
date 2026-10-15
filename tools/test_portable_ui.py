@@ -158,6 +158,14 @@ HTTPServer(('127.0.0.1',int(sys.argv[1])),H).serve_forever()
         self.app.current_config = config
         self.assertNotIn('private-key',json.dumps(self.request('/api/status')[2]))
 
+    def test_rejected_small_posts_deliver_a_visible_error_without_applying_settings(self):
+        for headers in ({'Origin':'https://other.example'},{'X-Strata-Setup-Token':'expired'}):
+            for _ in range(5):
+                status,_,body=self.request('/api/network',{'scope':'lan','api_key':'fixture-key-12345'},headers)
+                self.assertEqual(status,403)
+                self.assertIn('error',body)
+        self.assertFalse(portable.STATE.exists())
+
     def test_asr_settings_save_does_not_start_or_switch_any_model(self):
         with mock.patch.object(ui.subprocess,'Popen',side_effect=AssertionError('model process')):
             status,_,result=self.request('/api/asr/settings',{'model_dir':'E:\\语音 模型','quantization':'Q4_K_M','device':'cpu'})
