@@ -700,6 +700,8 @@ def handler(app):
             pass
 
         def _send(self, status, body, kind='application/json; charset=utf-8'):
+            if status >= 400:
+                self._discard_request_body()
             data = json.dumps(body, ensure_ascii=False, allow_nan=False).encode('utf-8') if isinstance(body, dict) else body
             self.send_response(status)
             self.send_header('Content-Type', kind)
@@ -729,16 +731,19 @@ def handler(app):
             return True
 
         def _reject(self, body):
+            self._send(403,body)
+
+        def _discard_request_body(self):
             # An unread POST body can reset the TCP connection on Windows before
             # the browser receives the 403. Consume only a small, bounded body;
             # never parse it or let a stalled sender delay rejection indefinitely.
             length = self.headers.get('Content-Length', '')
-            if (self.command == 'POST' and self.headers.get('Transfer-Encoding') is None
-                    and len(self.headers.get_all('Content-Length', [])) == 1
-                    and len(length) <= 6 and length.isascii() and length.isdigit()
-                    and int(length) <= BODY_LIMIT):
+            if self.command == 'POST' and not getattr(self, '_request_body_read', False):
                 deadline = time.monotonic() + .25
-                remaining = int(length)
+                bounded_length = (self.headers.get('Transfer-Encoding') is None
+                                  and len(self.headers.get_all('Content-Length', [])) == 1
+                                  and len(length) <= 8 and length.isascii() and length.isdigit())
+                remaining = min(int(length), BODY_LIMIT) if bounded_length else BODY_LIMIT
                 try:
                     while remaining and time.monotonic() < deadline:
                         self.connection.settimeout(max(.001, deadline-time.monotonic()))
@@ -747,7 +752,6 @@ def handler(app):
                         remaining -= len(chunk)
                 except OSError:
                     pass
-            self._send(403,body)
 
         def do_GET(self):
             if not self._guard():
@@ -806,6 +810,7 @@ def handler(app):
                 from tools.portable_update import update_json
                 self.connection.settimeout(5)
                 raw = self.rfile.read(int(length))
+                self._request_body_read = True
                 if len(raw) != int(length):
                     raise SetupError('请求内容不完整。')
                 data = update_json(raw)
