@@ -38,6 +38,7 @@ DOCS = (
     'VALIDATION-UPSTREAM-01402-T8.md',
     'VALIDATION-UPSTREAM-01404-T8.md',
     'VALIDATION-UPSTREAM-0142-T8.md',
+    'VALIDATION-UPSTREAM-01441-T8.md',
     'VIDEO-ANALYSIS.zh-CN.md',
     'VALIDATION-VIDEO-T8.md',
     'MODEL-SETUP.zh-CN.md',
@@ -190,7 +191,9 @@ def main():
     validate_manifest(TARGET, save, verify=False)
     archive = OUT/(NAME+'.zip')
     print(json.dumps({'writing_archive': str(archive), 'files': len(save['files'])}), flush=True)
-    with zipfile.ZipFile(archive, 'w', compression=zipfile.ZIP_DEFLATED, compresslevel=6, allowZip64=True) as z:
+    # Keep complete offline environments below the per-asset limit without
+    # changing ZIP compatibility with already distributed update clients.
+    with zipfile.ZipFile(archive, 'w', compression=zipfile.ZIP_DEFLATED, compresslevel=9, allowZip64=True) as z:
         for file in package_files():
             z.write(file, NAME+'/'+file.relative_to(TARGET).as_posix())
     with archive.open('rb') as stream:
