@@ -7,6 +7,10 @@ on:
 permissions:
   contents: read
 jobs:
+  native-sycl:
+    uses: ./.github/workflows/native-sycl.yml
+    with:
+      ref: ${{ github.sha }}
   native-hip:
     uses: ./.github/workflows/native-hip.yml
     with:

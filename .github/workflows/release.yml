@@ -36,8 +36,15 @@ jobs:
       ref: ${{ needs.source.outputs.commit }}
     permissions:
       contents: read
+  sycl-compile:
+    needs: source
+    uses: ./.github/workflows/native-sycl.yml
+    with:
+      ref: ${{ needs.source.outputs.commit }}
+    permissions:
+      contents: read
   release:
-    needs: [source, hip-compile]
+    needs: [source, hip-compile, sycl-compile]
     runs-on: windows-2022
     timeout-minutes: 180
     env:

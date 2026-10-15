@@ -1,0 +1,55 @@
+name: Shared-source SYCL compile
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Exact source commit or branch to compile
+        required: true
+        type: string
+  workflow_call:
+    inputs:
+      ref:
+        required: true
+        type: string
+permissions:
+  contents: read
+jobs:
+  compile:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+      - name: Prepare pinned native sources without model downloads
+        run: python3 -c "import sys;sys.path.insert(0,'tools');import build_native_portable as b;b.prepare_llama(b.ROOT,b.ROOT/'.portable-build')"
+      - name: Compile and link the Intel backend
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .portable-build/sycl-compile
+          # Same development base as upstream sycl/tools/Dockerfile, frozen to its amd64 digest.
+          image=ghcr.io/snailium/llama.cpp-sycl-intel-b70/llama-sycl-b70@sha256:88c955421f674526f057dd8fcc3aa47759e87195a82f271a6713ae597b7f31e7
+          docker run --rm --entrypoint /bin/bash -v "$PWD:/work" -w /work "$image" -lc '
+            set -eo pipefail
+            apt-get update -qq
+            DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends cmake ninja-build git intel-oneapi-dpcpp-ct
+            source /opt/intel/oneapi/setvars.sh > /dev/null
+            icpx --version
+            cmake -S sycl -B .portable-build/sycl-compile -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=icx -DCMAKE_CXX_COMPILER=icpx -DSTRATA_GGML_DIR=/work/third_party/llama.cpp
+            cmake --build .portable-build/sycl-compile --target strata -j 2
+            icpx -std=c++17 -O2 -I include tools/vision/native_vision_test.cpp -o .portable-build/sycl-compile/native-vision-contract
+            .portable-build/sycl-compile/native-vision-contract
+            git -c safe.directory=/work rev-parse HEAD > .portable-build/sycl-compile/SOURCE-COMMIT.txt
+          ' 2>&1 | tee .portable-build/sycl-build.log
+      - name: Retain compiler evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sycl-shared-source-compile
+          path: |
+            .portable-build/sycl-build.log
+            .portable-build/sycl-compile/CMakeCache.txt
+            .portable-build/sycl-compile/SOURCE-COMMIT.txt
+            .portable-build/sycl-compile/strata
+            .portable-build/sycl-compile/native-vision-contract
