@@ -103,18 +103,24 @@ class NativeBuildTests(unittest.TestCase):
         source.write_bytes(b'new source-matched kquant library')
         self.artifacts[name] = source
         (self.engine/name).write_bytes(b'old vendor kquant library')
-        self.native['schema'] = 2
-        self.native['outputs'][name] = {'sha256': b.digest(source), 'size': source.stat().st_size,
-            'cuda_architectures': list(b.ARCHITECTURES), 'ptx_architectures': ['120']}
+        self.native['libraries'] = {name: {'sha256': b.digest(source), 'size': source.stat().st_size,
+            'cuda_architectures': list(b.ARCHITECTURES), 'ptx_architectures': ['120']}}
 
     def test_new_engine_requires_source_matched_kquant_library(self):
         (self.root/'CMakeLists.txt').write_text('add_library(strata_kq SHARED kernels.cu)\n')
         with self.assertRaisesRegex(ValueError, 'source-matched strata_kq.dll'):
             b.validate_native_build(self.native, self.root, check_source=False)
 
-    def test_schema_two_cannot_omit_library_proof(self):
-        self.native['schema'] = 2
-        with self.assertRaises(ValueError):
+    def test_library_keeps_legacy_updater_schema_and_executable_output_contract(self):
+        self.add_kquant_library()
+        b.validate_native_build(self.native, self.root)
+        self.assertEqual(self.native['schema'], 1)
+        self.assertEqual(set(self.native['outputs']), {'strata.exe', 'strata-vision.exe'})
+        self.assertEqual(set(self.native['libraries']), {'strata_kq.dll'})
+
+    def test_unknown_library_cannot_bypass_hash_validation(self):
+        self.native['libraries'] = {'unverified.dll': {}}
+        with self.assertRaisesRegex(ValueError, 'library build proof'):
             b.validate_native_build(self.native, self.root)
 
     def test_library_is_installed_and_hash_checked_without_executable_manifest_patch(self):

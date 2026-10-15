@@ -1,7 +1,7 @@
 """Build the opt-in T8 CUDA video engine before packaging; recipients need no compiler.
 
-Keep the verified vendor DLLs and upstream_asset identity. Build both executables
-for the same seven supported CUDA architectures, then atomically install a new
+Keep vendor runtime DLLs and upstream_asset identity. Build both executables and
+the K-quant library for the same seven CUDA architectures, then atomically install a new
 engine tree. --verify refuses changed native inputs or stale executable hashes.
 """
 from __future__ import annotations
@@ -131,7 +131,7 @@ def source_identity(root, third_party):
 
 
 def validate_native_build(native, root, engine_directory=None, check_source=True, require_source=False):
-    if not isinstance(native, dict) or native.get('schema') not in (1, 2) or native.get('capabilities') != {
+    if not isinstance(native, dict) or native.get('schema') != 1 or native.get('capabilities') != {
         'native_video': True, 'geniv': 1, 'encv': 1, 'sve': 1}:
         raise ValueError('Missing native-video build capability/contract')
     if native.get('cuda_architectures') != list(ARCHITECTURES) or native.get('portable') is not True:
@@ -155,16 +155,17 @@ def validate_native_build(native, root, engine_directory=None, check_source=True
         if (Path(root)/'third_party/llama.cpp/src/llama.cpp').is_file() and canonical_digest(llama_inputs(root)) != third['source_tree_sha256']:
             raise ValueError('Pinned native third-party source changed: rebuild required')
     outputs = native.get('outputs', {})
-    expected = {'strata.exe', 'strata-vision.exe'}
-    if native['schema'] == 2:
-        expected.add('strata_kq.dll')
     cmake_file = Path(root)/'CMakeLists.txt'
-    if (native['schema'] == 1 and cmake_file.is_file()
-            and re.search(r'add_library\(strata_kq\s+SHARED', cmake_file.read_text('utf-8'))):
+    libraries = native.get('libraries', {})
+    if not isinstance(libraries, dict) or set(libraries) - {'strata_kq.dll'}:
+        raise ValueError('Invalid native library build proof')
+    requires_kq = (cmake_file.is_file()
+                   and re.search(r'add_library\(strata_kq\s+SHARED', cmake_file.read_text('utf-8')))
+    if requires_kq and 'strata_kq.dll' not in libraries:
         raise ValueError('Native build requires a source-matched strata_kq.dll')
-    if set(outputs) != expected:
+    if set(outputs) != {'strata.exe', 'strata-vision.exe'}:
         raise ValueError('Native build must include engine and vision executables')
-    for name, item in outputs.items():
+    for name, item in {**outputs, **libraries}.items():
         if not isinstance(item, dict) or not re.fullmatch('[a-f0-9]{64}', item.get('sha256', '')) or (name.endswith('.exe') and item.get('utf8_manifest') != 'activeCodePage=UTF-8'):
             raise ValueError('Native executable lacks checksum or UTF-8 manifest identity')
         if type(item.get('size')) is not int or item['size'] <= 0:
@@ -333,6 +334,8 @@ def install_build(root, destination, artifacts, native, build_root):
                                                utf8_manifest=patch['manifest'])
                 key = 'engine_utf8' if name == 'strata.exe' else 'vision_utf8'
                 build.setdefault('portable_patches', {})[key] = patch
+            else:
+                native['libraries'][name].update(sha256=digest(old), size=old.stat().st_size)
         build['capabilities'] = {**build.get('capabilities', {}), 'native_video': True, 'geniv': 1, 'encv': 1}
         cuda_series = re.search(r'release ([0-9]+\.[0-9]+)', native.get('compiler', {}).get('cuda', ''))
         if not cuda_series:
@@ -418,7 +421,9 @@ def main(argv=None):
         'ptx_architectures':cuda_ptx_proof(path,cuobjdump,env)} for name, path in artifacts.items()}
     compiler = msvc_compiler_record(directories, env)
     source_commit = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=root, env=env, text=True).strip()
-    native = {'schema': 2, 'source_commit': source_commit, 'source_identity': identity,
+    # Older portable updaters require schema 1 and exactly two executable outputs.
+    # Keep that public contract; the full package also hashes every library file.
+    native = {'schema': 1, 'source_commit': source_commit, 'source_identity': identity,
         'third_party_pin': third_party['commit'], 'cuda_architectures': list(ARCHITECTURES), 'portable': True,
         'cuda_targets':list(CUDA_TARGETS), 'fatbinary_compression':'size',
         'compiler': {**compiler, 'cuda': cuda_version,
@@ -426,7 +431,9 @@ def main(argv=None):
         'flags': {'common': common, 'engine': engine_flags, 'vision': vision_flags},
         'capabilities': {'native_video': True, 'geniv': 1, 'encv': 1, 'sve': 1},
         'validation': {'cpu_contract': True, 'cuda_fatbinary_architectures': True,
-                       'gpu_hardware': 'not established by build; see separate inference acceptance'}, 'outputs': outputs}
+                       'gpu_hardware': 'not established by build; see separate inference acceptance'},
+              'outputs': {name: item for name, item in outputs.items() if name.endswith('.exe')},
+              'libraries': {name: item for name, item in outputs.items() if name.endswith('.dll')}}
     install_build(root, destination, artifacts, native, build_root)
     (build_root/'NATIVE-BUILD.json').write_text(json.dumps(native, ensure_ascii=False, indent=2)+'\n', encoding='utf-8')
     print('Installed portable T8 native CUDA build; vendor HIP remains without native-video support', flush=True)
