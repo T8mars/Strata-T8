@@ -16,6 +16,29 @@ import unittest
 ROOT = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(ROOT), str(ROOT/'tools')]
 
+POSIX_CASES = (
+    'serve.test_server.StartCrashReported.test_sigill_is_reported_not_retried',
+    'serve.test_server.StartCrashReported.test_a_silent_exit_is_retried_without_claiming_the_gpu_runtime',
+    'serve.test_server.StartCrashReported.test_the_runtimes_own_failure_is_named',
+    'tools.test_setup_mac.RepackGuard.test_a_live_lock_is_seen_a_stale_one_is_dropped',
+    'tools.test_setup_mac.RepackGuard.test_start_refuses_while_a_repack_runs',
+)
+
+
+def applicable_suite(suite, *, windows):
+    """Route the named POSIX cases to their actual host; do not mask any other skip."""
+    selected, routed = unittest.TestSuite(), []
+    for item in suite:
+        if isinstance(item, unittest.TestSuite):
+            children, omitted = applicable_suite(item, windows=windows)
+            selected.addTests(children)
+            routed.extend(omitted)
+        elif windows and item.id() in POSIX_CASES:
+            routed.append(item.id())
+        else:
+            selected.addTest(item)
+    return selected, routed
+
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
@@ -46,7 +69,7 @@ def main():
     elif args.group == 'posix':
         if os.name == 'nt':
             parser.error('posix checks require a POSIX host')
-        modules = ['tools.test_docker_entrypoint']
+        modules = ['tools.test_docker_entrypoint', *POSIX_CASES]
     else:
         modules = ['serve.'+path.stem for path in sorted((ROOT/'serve').glob('test_*.py'))
                    if path.stem != 'test_detok']
@@ -56,6 +79,9 @@ def main():
     if args.group != 'nodes':
         print(json.dumps({'group': args.group, 'modules': modules, 'strict': args.strict}), flush=True)
         suite = unittest.defaultTestLoader.loadTestsFromNames(modules)
+    suite, routed = applicable_suite(suite, windows=os.name == 'nt')
+    if routed:
+        print(json.dumps({'routed_to_posix_gate': routed}), flush=True)
     started = time.monotonic()
     result = unittest.TextTestRunner(verbosity=1).run(suite)
     passed = result.wasSuccessful() and (not args.strict or (result.testsRun > 0 and not result.skipped))
