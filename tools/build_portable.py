@@ -143,7 +143,9 @@ def main():
     # Patch staged copies too: locally cached vendor engines may predate bootstrap.
     for backend in ['engine', 'engine-hip']:
         patch_engine(TARGET/backend)
-    copy_source('data', ('experimental-speed-projection',))
+    # This Windows edition contains CUDA/HIP only. The Intel-only routing
+    # profile is unnecessary here and older Windows updaters do not allow it.
+    copy_source('data', ('experimental-speed-projection', 'expert-profile-sycl.bin'))
     copy_source('vision', ('weights',))
     if weights['vision']:
         from prepare_portable_vision import verify
