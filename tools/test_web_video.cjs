@@ -198,7 +198,7 @@ function setupPage(legacy=false, invalid=false) {
     defaults:{path:'E:\\old',port:8080,context:32768,backend:'cuda',vision:'gpu',native_video:true},vision_available:true,folder_picker:true};
   const get=id=>nodes[id] || (nodes[id]=element());
   get('vision').options=[];
-  const context=vm.createContext({console,URL,URLSearchParams,setTimeout,Date,
+  const context=vm.createContext({console,URL,URLSearchParams,setTimeout,clearTimeout,AbortController,Date,
     document:{getElementById:get,querySelector:()=>({content:'fixture-token'}),createElement:()=>element()},
     location:{search:''},window:{location:{assign(url){navigations.push(url);}}},
     fetch:async (url,options)=>{
@@ -232,6 +232,59 @@ test('model card immediately switches on both new and already-running older laun
 test('invalid model selection does not stop the running backend',async()=>{
   const ui=setupPage(false,true); await ui.run('scan()'); await ui.nodes.candidates.children[1].querySelector('.candidate-select').onclick();
   assert.equal(ui.calls.filter(c=>c.url==='/api/stop').length,0); assert.equal(ui.nodes['error-box'].hidden,false);
+});
+
+test('updater acknowledgement shows progress instead of the stale new-version message',async()=>{
+  const ui=setupPage();
+  ui.run("render({...state,update:{supported:true,state:'ready',available:true,message:'发现新版本'}})");
+  await ui.nodes['update-start'].onclick();
+  assert.equal(ui.run('state.job.state'),'updating');
+  assert.match(ui.nodes['update-message'].textContent,/确认更新程序/);
+  assert.equal(ui.nodes.save.disabled,true);
+});
+
+test('the old update page reloads its token after the same installation restarts',async()=>{
+  const ui=setupPage();let reloads=0;
+  ui.context.window.location.replace=url=>{assert.equal(url,'/');reloads++;};
+  ui.run("render({...state,app_root:'E:/Strata',instance_id:'old',version:'1',job:{state:'updating',message:'working'}})");
+  ui.context.fetch=async()=>({ok:true,json:async()=>({service:'strata-portable-ui',app_root:'E:/Strata',instance_id:'new',version:'1'})});
+  await ui.run('reconnectAfterUpdate()');assert.equal(reloads,1);
+});
+
+test('an unrelated service or the original launcher cannot trigger an update-page reload',async()=>{
+  const ui=setupPage();let reloads=0;
+  ui.context.window.location.replace=()=>{reloads++;};
+  ui.run("render({...state,app_root:'E:/Strata',instance_id:'old',version:'1',job:{state:'updating',message:'working'}})");
+  for(const identity of [
+    {service:'strata-portable-ui',app_root:'E:/Other',instance_id:'new',version:'2'},
+    {service:'strata-portable-ui',app_root:'E:/Strata',instance_id:'old',version:'1'},
+    {service:'llama.cpp',app_root:'E:/Strata',instance_id:'new',version:'2'},
+  ]) {
+    ui.context.fetch=async()=>({ok:true,json:async()=>identity});
+    await ui.run('reconnectAfterUpdate()');
+  }
+  assert.equal(reloads,0);
+});
+
+test('an update that stays disconnected exposes recovery instructions',async()=>{
+  const ui=setupPage();
+  ui.run("render({...state,job:{state:'updating',message:'working'}});updateStartedAt=Date.now()-121000");
+  ui.context.fetch=async()=>{throw Error('network unavailable');};
+  await ui.run('reconnectAfterUpdate()');
+  assert.equal(ui.nodes['error-box'].hidden,false);
+  assert.match(ui.nodes['error-detail'].textContent,/UPDATE-PORTABLE\.bat/);
+  assert.match(ui.nodes['update-message'].textContent,/update-helper\.log/);
+});
+
+test('a stalled status request is aborted and releases the polling lock',async()=>{
+  const ui=setupPage();const timers=[];
+  ui.context.setTimeout=fn=>{timers.push(fn);return timers.length;};
+  ui.context.clearTimeout=()=>{};
+  ui.context.fetch=async(_url,options)=>new Promise((_resolve,reject)=>options.signal.addEventListener('abort',()=>reject(Error('timed out'))));
+  const polling=ui.run('poll()');assert.equal(ui.run('polling'),true);
+  timers[0]();await polling;
+  assert.equal(ui.run('polling'),false);
+  assert.match(ui.nodes['error-detail'].textContent,/timed out/);
 });
 test('DSH connection uses the live API ID, copies it, and clears during a switch',async()=>{
   const ui=setupPage(), copied=[];

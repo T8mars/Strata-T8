@@ -2,13 +2,19 @@
 const $ = id => document.getElementById(id);
 const token = document.querySelector('meta[name="strata-setup-token"]').content;
 let initialized = false, redirect = new URLSearchParams(location.search).get("enter") === "1", state = null, polling = false, choosing = false, preparedPath = null;
+let updateStartedAt = 0;
 async function api(path, body) {
   const options = {headers: {"X-Strata-Setup-Token": token}, cache: "no-store"};
   if (body !== undefined) { options.method = "POST"; options.headers["Content-Type"] = "application/json"; options.body = JSON.stringify(body); }
-  const response = await fetch(path, options);
-  const result = await response.json();
-  if (!response.ok) throw new Error(result.error || "操作未完成，请重试。");
-  return result;
+  const controller = ['/api/status', '/api/identity'].includes(path) ? new AbortController() : null;
+  const timer = controller ? setTimeout(() => controller.abort(), 5000) : null;
+  if (controller) options.signal = controller.signal;
+  try {
+    const response = await fetch(path, options);
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || "操作未完成，请重试。");
+    return result;
+  } finally { if (timer !== null) clearTimeout(timer); }
 }
 function fail(error) { $("error-detail").textContent = error.message || String(error); $("error-box").hidden = false; }
 function clearError() { $("error-box").hidden = true; }
@@ -94,10 +100,12 @@ function render(current) {
   $("status-badge").textContent = badges[current.job.state] || "待设置"; $("status-badge").dataset.state = current.job.state;
   $("status-message").textContent = current.job.message;
   const update = current.update;
-  $("update-message").textContent = update ? update.message + (!update.supported ? ' 源码仓库请使用 Git 更新。' : '') : '重启此启动器后可检查版本更新。';
+  $("update-message").textContent = current.job.state === 'updating' ? current.job.message :
+    update ? update.message + (!update.supported ? ' 源码仓库请使用 Git 更新。' : '') : '重启此启动器后可检查版本更新。';
   $("update-check").disabled = busy || update?.state === 'checking' || !update;
   $("update-start").disabled = busy || !update?.supported || update.state !== 'ready' || !update.available;
-  if (current.job.state === 'updating') redirect = false;
+  if (current.job.state === 'updating') { redirect = false; if (!updateStartedAt) updateStartedAt = Date.now(); }
+  else updateStartedAt = 0;
   $("current-model").textContent = current.model ? current.model.label + " · " + current.model.path : "尚未连接模型";
   const chat = current.job.state === "ready" ? localChatURL(current.chat_url) : null;
   renderApiConnection(current, chat);
@@ -117,9 +125,25 @@ function render(current) {
 async function poll() {
   if (polling) return;
   polling = true;
-  try { const current = await api("/api/status"); render(current); } catch (e) { fail(e); }
+  try { const current = await api("/api/status"); render(current); }
+  catch (e) {
+    if (state?.job.state === 'updating') await reconnectAfterUpdate();
+    else fail(e);
+  }
   finally { polling = false; }
   setTimeout(poll, state && ["preparing", "configuring", "starting", "stopping"].includes(state.job.state) ? 600 : 2500);
+}
+async function reconnectAfterUpdate() {
+  $('update-message').textContent = '更新时启动器会暂时断开。请查看更新窗口或 logs/update-helper.log；服务恢复后本页会自动刷新。';
+  try {
+    const identity = await api('/api/identity');
+    const sameApp = identity.service === 'strata-portable-ui' && state.app_root && identity.app_root === state.app_root;
+    const restarted = identity.instance_id && identity.instance_id !== state.instance_id;
+    if (sameApp && (restarted || identity.version !== state.version)) { window.location.replace('/'); return; }
+  } catch (_) { /* The helper is still working, or it failed before a restart. */ }
+  if (updateStartedAt && Date.now() - updateStartedAt > 120000) {
+    fail(new Error('尚未连接到更新后的启动器。下载较慢时请查看更新窗口和 logs/update-helper.log；若窗口已报错，请关闭后运行 UPDATE-PORTABLE.bat，或用 START-HERE.bat 重新打开设置页。'));
+  }
 }
 async function scan() {
   clearError();
@@ -207,7 +231,13 @@ $("start").onclick = async () => { clearError(); redirect = true; try { await ap
 $("stop").onclick = async () => { clearError(); redirect = false; try { await api("/api/stop", {}); } catch (e) { fail(e); } };
 $("prepare").onclick = async () => { clearError(); redirect = false; try { await api("/api/prepare", {path: $("download-path").value.trim(), accept_download: $("download-consent").checked}); } catch (e) { fail(e); } };
 $("update-check").onclick = async () => { clearError(); try { await api('/api/update/check', {}); render(await api('/api/status')); } catch (e) { fail(e); } };
-$("update-start").onclick = async () => { clearError(); redirect = false; $("update-start").disabled = true; try { await api('/api/update/start', {}); $("update-message").textContent = '更新窗口已打开。此页面会暂时断开，完成后将重新打开模型设置页。'; } catch (e) { fail(e); if(state) render(state); } };
+$("update-start").onclick = async () => {
+  clearError(); redirect = false; $("update-start").disabled = true;
+  try {
+    await api('/api/update/start', {});
+    if (state) render({...state, job:{state:'updating',message:'正在确认更新程序是否就绪，随后会自动停止服务。进度见更新窗口和 logs/update-helper.log。'}});
+  } catch (e) { fail(e); if(state) render(state); }
+};
 if ($('backup-list')) $('backup-list').onclick=async()=>{
   const list=$('backup-versions');list.replaceChildren();clearError();
   try {
@@ -218,7 +248,7 @@ if ($('backup-list')) $('backup-list').onclick=async()=>{
       text.textContent=`${backup.to_version} → ${backup.from_version} `;button.type='button';button.className='text-button';
       button.textContent=backup.available?'回退到此版本':'当前版本不匹配';button.disabled=!backup.available;
       button.onclick=async()=>{clearError();button.disabled=true;redirect=false;
-        try{await api('/api/update/restore',{id:backup.id});$('update-message').textContent='回退窗口已打开，完成后会重新打开模型设置页。';}
+        try{await api('/api/update/restore',{id:backup.id});if(state)render({...state,job:{state:'updating',message:'正在确认回退程序就绪，进度见更新窗口和 logs/update-helper.log。'}});}
         catch(error){fail(error);button.disabled=false;}};
       row.append(text,button);list.append(row);
     }

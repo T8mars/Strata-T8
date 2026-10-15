@@ -25,10 +25,34 @@ ROOT = Path(__file__).resolve().parents[1]
 BODY_LIMIT = 16 * 1024
 LOG_LIMIT = 16 * 1024
 UI_PORTS = range(17880, 17912)
+UPDATE_READY_SECONDS = 12
 
 
 class SetupError(ValueError):
     pass
+
+
+def wait_update_helper(process, receipt, nonce, root):
+    """A spawned PowerShell process is not proof that its script loaded successfully."""
+    deadline = time.monotonic() + UPDATE_READY_SECONDS
+    while time.monotonic() < deadline:
+        code = process.poll()
+        if code is not None:
+            raise SetupError(f'更新程序提前退出（代码 {code}）。启动器保持打开，请运行 UPDATE-PORTABLE.bat 查看错误。')
+        try:
+            if receipt.stat().st_size > 16384:
+                raise SetupError('更新程序的启动回执无效。')
+            status = json.loads(receipt.read_text('utf-8-sig'))
+        except FileNotFoundError:
+            time.sleep(.05)
+            continue
+        if (not isinstance(status, dict) or status.get('nonce') != nonce
+                or status.get('app_root') != str(root) or status.get('parent_id') != os.getpid()):
+            raise SetupError('更新程序的启动回执与当前整合包不匹配。')
+        if status.get('state') != 'waiting_parent':
+            raise SetupError('更新程序未能就绪：'+str(status.get('error') or status.get('state')))
+        return
+    raise SetupError('更新程序在 12 秒内未就绪，启动器保持打开。请运行 UPDATE-PORTABLE.bat 查看错误。')
 
 
 def free_port(preferred=8080, *, strict=False, exclude=()):
@@ -136,6 +160,7 @@ class ModelSetup:
             raise SetupError('模型设置必须从当前程序目录启动。')
         self.version = json.loads((self.root/'meta.json').read_text(encoding='utf-8'))['version']
         self.token = secrets.token_urlsafe(32)
+        self.instance_id = secrets.token_hex(16)
         self.lock = threading.RLock()
         self.folder_lock = threading.Lock()
         self.closed = threading.Event()
@@ -245,7 +270,8 @@ class ModelSetup:
                 base = f'http://127.0.0.1:{self.backend_port}/v1'
                 connection = {'model_id': self.backend_model_id, 'base_url': base, 'models_url': base+'/models',
                               'api_key_required': bool((self.backend_config or {}).get('api_key'))}
-            return {'version': self.version, 'job': dict(self.job), 'model': self.model,
+            return {'version': self.version, 'app_root': str(self.root), 'instance_id': self.instance_id,
+                    'job': dict(self.job), 'model': self.model,
                     'configured': self.current_config is not None, 'running': running,
                     'chat_url': f'http://127.0.0.1:{self.backend_port}/' if running and self.job['state'] == 'ready' else None,
                     'defaults': self.defaults(), 'vision_available': self.vision_available(),
@@ -495,8 +521,9 @@ class ModelSetup:
                 read_receipt(self.root,restore_id)
             elif self.update['state'] != 'ready' or not self.update['available']:
                 raise SetupError('请先检查更新，确认有可用的新版本。')
-            self.job = {'state': 'updating', 'message': '正在打开更新窗口。完成后将重新打开模型设置页。', 'error': None}
+            self.job = {'state': 'updating', 'message': '正在启动更新程序，确认就绪后才停止当前服务…', 'error': None}
         def work():
+            helper_process = None
             try:
                 source = _regular(self.root/'tools/gui_portable_update.ps1', self.root)
                 temporary = Path(tempfile.mkdtemp(prefix='Strata-T8-ui-update-')).resolve()
@@ -504,16 +531,29 @@ class ModelSetup:
                     raise SetupError('更新工作目录必须位于程序目录外。')
                 helper = temporary/'update.ps1'
                 shutil.copy2(source, helper)
-                self.stop_backend()
+                nonce = secrets.token_hex(16)
+                receipt = temporary/'status.json'
+                log = _regular(self.root/'logs/update-helper.log', self.root)
+                log.parent.mkdir(parents=True, exist_ok=True)
                 # This helper must survive this launcher; do not put it in the
                 # owned backend's kill-on-close Job Object.
                 arguments=['powershell.exe','-NoProfile','-ExecutionPolicy','Bypass','-File',str(helper),
-                           '-AppRoot',str(self.root),'-ParentId',str(os.getpid()),'-UIPort',str(self.http.server_port)]
+                           '-AppRoot',str(self.root),'-ParentId',str(os.getpid()),'-UIPort',str(self.http.server_port),
+                           '-StatusFile',str(receipt),'-HandoffNonce',nonce,'-LogPath',str(log)]
                 if restore_id is not None:arguments.extend(['-RestoreId',restore_id])
-                subprocess.Popen(arguments,
-                                 cwd=temporary, creationflags=getattr(subprocess,'CREATE_NEW_CONSOLE',0))
+                helper_process = subprocess.Popen(arguments,
+                    cwd=temporary, creationflags=getattr(subprocess,'CREATE_NEW_CONSOLE',0))
+                wait_update_helper(helper_process, receipt, nonce, self.root)
+                self.set_job('updating', '更新程序已就绪，正在停止当前服务；下载进度见更新窗口和 logs/update-helper.log。')
+                self.stop_backend()
                 self.closed.set()
-            except (OSError, ValueError, RuntimeError) as error:
+            except Exception as error:
+                if helper_process is not None and helper_process.poll() is None:
+                    try:
+                        helper_process.terminate()
+                        helper_process.wait(timeout=3)
+                    except (OSError, subprocess.SubprocessError):
+                        pass
                 self.set_job('error', '更新未启动，请重试或运行 UPDATE-PORTABLE.bat。', str(error))
         threading.Thread(target=work, daemon=True).start()
 
@@ -625,7 +665,8 @@ def handler(app):
                 return
             path = urlsplit(self.path).path
             if path == '/api/identity':
-                self._send(200, {'service': 'strata-portable-ui', 'app_root': str(app.root), 'version': app.version})
+                self._send(200, {'service': 'strata-portable-ui', 'app_root': str(app.root),
+                                 'version': app.version, 'instance_id': app.instance_id})
                 return
             if path == '/':
                 body = (app.root/'serve/web/portable-setup.html').read_text(encoding='utf-8')
