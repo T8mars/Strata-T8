@@ -16,6 +16,15 @@ def events_without_ids(events):
     return [(e.kind, e.text, (e.call.name, e.call.arguments) if e.call else None) for e in events]
 
 
+def parser_result(operation, *args):
+    # T8 rejects malformed trailing function content. The fast and reference walks
+    # must reject it identically as well as producing identical valid events.
+    try:
+        return ("events", events_without_ids(operation(*args)))
+    except frontend.StructuredOutputError as error:
+        return ("error", type(error), str(error))
+
+
 class CallScanTests(unittest.TestCase):
     def test_chunk_boundaries_literal_tags_multiple_calls_and_recovery(self):
         def call(value):
@@ -38,9 +47,13 @@ class CallScanTests(unittest.TestCase):
                 while pos < len(text):
                     end = pos + (rng.randint(1, 20) if width == 15 else width)
                     delta = text[pos:end]
-                    self.assertEqual(events_without_ids(a.feed(delta)), events_without_ids(b.feed(delta)))
+                    result = parser_result(a.feed, delta)
+                    self.assertEqual(result, parser_result(b.feed, delta))
                     pos = end
-                self.assertEqual(events_without_ids(a.finish()), events_without_ids(b.finish()))
+                    if result[0] == "error":
+                        break
+                else:
+                    self.assertEqual(parser_result(a.finish), parser_result(b.finish))
 
     def test_no_structural_rescans_until_closer_and_reset_for_next_call(self):
         parser = frontend.OutputParser(thinking=False)

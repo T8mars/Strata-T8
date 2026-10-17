@@ -24,11 +24,12 @@ TARGET = OUT/NAME
 # These files are operational documentation, not local planning or benchmark data.
 DOCS = (
     'INSTALL.md', 'AI_SETUP.md', 'MODELS.md', 'TROUBLESHOOTING.md', 'AMD_HIP.md',
-    'AMD_HIP_PERFORMANCE.md', 'STRIX_HALO.md', 'OLDER_GPUS.md', 'NVIDIA_V100.md',
+    'AMD_HIP_PERFORMANCE.md', 'STRIX_HALO.md', 'RADEON_780M.md', 'OLDER_GPUS.md', 'NVIDIA_V100.md',
     'HOW_IT_WORKS.md', 'DETAILS.md', 'BATCHING.md', 'MULTI_GPU.md', 'SECOND_GPU.md',
     'EXCHANGE_ROTATION.md', 'BATCHED_DMA.md', 'DISJOINT_EXPERT_CACHE.md',
     'KV_PREFETCH.md', 'MESSAGE_BOUNDARY_CACHE.md', 'PROMPT_CACHE_TAIL.md',
     'MCP_SERVER.md', 'UNSLOTH_Q4.md', 'UNSLOTH_Q6.md', 'ORCA.md', 'ORCA_Q4_K_S.md',
+    'QWEN36.md', 'EXPERTDEC.md', 'QSAROWS.md',
     'COMMUNITY_BENCHMARKS.md', 'INTEL.md', 'INTEL_ARC.md',
     'VRAM_ELASTIC.md', 'LLAMA_SWAP.md', 'RESEARCH_RUNS.md', 'LOGIT_BIAS.md',
     'UPDATING-T8.md', 'COMFYUI-T8.md', 'VALIDATION-T8.md', 'VALIDATION-COMFYUI-T8.md', 'AUDIT-20-T8.md',
@@ -39,6 +40,7 @@ DOCS = (
     'VALIDATION-UPSTREAM-01404-T8.md',
     'VALIDATION-UPSTREAM-0142-T8.md',
     'VALIDATION-UPSTREAM-01441-T8.md',
+    'VALIDATION-UPSTREAM-0145-T8.md',
     'VIDEO-ANALYSIS.zh-CN.md',
     'VALIDATION-VIDEO-T8.md',
     'MODEL-SETUP.zh-CN.md',
