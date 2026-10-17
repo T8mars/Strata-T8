@@ -4347,7 +4347,7 @@ class Service:
                 else:
                     items.append(item)
             placeholder.append({**message, 'content': items})
-        ids = self.encode_prompt(placeholder, tools, kwargs)
+        ids = self.encode_prompt(placeholder, tools, kwargs, store=False)
         if force and kwargs.get('enable_thinking', True) is False:
             ids += self.tok.encode(force, parse_special=True)
         self._video_context_precheck(ids, max_new)
@@ -4372,7 +4372,11 @@ class Service:
         self.embeddings.keys = None
         images = images_of(messages)
         if native:
-            self._video_context_precheck(ids, max_new)
+            try:
+                self._video_context_precheck(ids, max_new)
+            except ValueError:
+                self.forget_prompt(encoded_ids)
+                raise
             ids = self._prepare_native(ids, native_media, cancel)
         elif images:
             if self.vision is None:

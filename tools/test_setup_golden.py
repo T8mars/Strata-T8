@@ -118,6 +118,9 @@ def install(ram, found, argv, answers=None, extra=(), avx512=False, configs=()):
             mock.patch.object(setup, "refresh_draft_vocab", lambda *a, **k: None),
             mock.patch.object(setup, "write_run_script", lambda tag, cfg, port, *_: t / f"run-{tag}.bat"),
             mock.patch.object(setup, "saved_calibration", lambda cfg: None),
+            # CPU vision defaults use half the host's logical cores. The recorded PC has 12,
+            # so these hardware fixtures must not depend on the machine running the tests.
+            mock.patch.object(setup.os, "cpu_count", return_value=12),
             mock.patch.object(setup, "calibrate_config", mock.Mock(side_effect=AssertionError("calibrated"))),
             mock.patch.dict(sys.modules, {"gguf_reader": types.SimpleNamespace(GGUFFile=FakeGGUF)}),
             mock.patch.object(sys, "argv", ["setup.py", "--models-dir", str(t / "models"), *argv]

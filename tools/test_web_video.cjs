@@ -46,6 +46,8 @@ function videoPage() {
       return {ok:true,json:async()=>({choices:[{finish_reason:'stop',message:{content:'动作证据'}}]})};
     },
   });
+  // send() now uses the model-card sampling helper as well as the T8 video helpers.
+  vm.runInContext(source.slice(source.indexOf('const DEFAULTS ='), source.indexOf('let settings =')), context);
   vm.runInContext(source.slice(source.indexOf('let videoFrameLimit ='), source.indexOf('function isTextFile(')), context);
   return {context, fields, calls, saved, notices, run:code=>vm.runInContext(code,context)};
 }
