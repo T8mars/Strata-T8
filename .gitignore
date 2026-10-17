@@ -85,3 +85,6 @@ build-vision-cuda12.bat
 
 # Local planning only (case-insensitive spelling on Windows).
 **/[Rr][Oo][Aa][Dd][Mm][Aa][Pp].[Mm][Dd]
+
+# local Windows HIP packaging output
+dist-hip/
