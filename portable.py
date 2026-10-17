@@ -268,10 +268,25 @@ def _refresh_updated_config(cfg_path, state, current, *, enable_vision=False, vi
     if enable_vision and not config.get('vision') and config.get('backend') != 'hip':
         model = model_delivery(Path(current['data']))
         if model['family'] == 'qwen':
-            config = attach_vision(config, model, 'gpu', vision_tokens)
+            config = attach_vision(config, model, automatic_vision_mode(config, model, system=current), vision_tokens)
     save_json(cfg_path, config)
     state['portable_fingerprint'] = current
     save_json(STATE, state)
+
+
+def automatic_vision_mode(config, model, previous=None, system=None):
+    """Apply upstream's small-card recommendation only when no saved vision choice exists."""
+    if config.get('backend') == 'hip' or model['family'] != 'qwen':
+        return 'no'
+    old = (previous or {}).get('vision')
+    if old:
+        return 'gpu' if old.get('gpu', True) else 'cpu'
+    cards = [card for card in (system or {}).get('gpu', []) if isinstance(card, dict)]
+    selected = config.get('gpu', 0)
+    if isinstance(selected, list):
+        selected = selected[0] if selected else 0
+    gpu = next((card for card in cards if card.get('index', 0) == selected), cards[0] if cards else {})
+    return upstream.flash_vision_encoder('yes', gpu)
 
 
 def attach_vision(config, model, mode='gpu', tokens=None):
@@ -378,8 +393,7 @@ def configure(data, context=None, backend=None, vision=None, vision_tokens=None,
                 if key in old_config and (key != 'port' or port is None):
                     generated[key] = old_config[key]
             if vision == 'auto':
-                old_vision = old_config.get('vision') or {}
-                vision = ('gpu' if old_vision.get('gpu', True) else 'cpu') if generated.get('backend') != 'hip' and model['family'] == 'qwen' else 'no'
+                vision = automatic_vision_mode(generated, model, old_config, current_fingerprint)
             if vision and vision != 'no':
                 if isinstance(old_config.get('vision'), dict):
                     generated['vision'] = old_config['vision']
