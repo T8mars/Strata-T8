@@ -1,3 +1,13 @@
+## Strata-T8 0.1.45-t8.1
+
+同步上游 **v0.1.45**，升级 CUDA/HIP 引擎，合入模型兼容、提示缓存、工具调用解析、思考设置与配置诊断等稳定修复。新安装在低于 24GB 的 NVIDIA 卡上自动推荐 CPU 视觉编码；保留已有 CPU/GPU 选择及显式参数，实验性功能仍按需开启。
+
+修复上游提示缓存与 T8 视频预检、上下文超限拒绝之间的交互，保留临时视觉文件清理和视觉子进程恢复。模型自动切换、局域网 API、视频完整时长分段、可选语音对白融合、自适应采样、进度恢复、自动更新与离线回退继续可用。配套 ComfyUI **1.3.1**，14 个节点 ID 与协议 1 不变。
+
+3011 项严格回归与 Windows/Linux CI 通过。Windows / RTX 4060 Ti 16GB 与 SC117 IQ3_S 完成真实文本、图片恢复、12 秒原生视频 288 帧的时间覆盖、三段语音转录及真实 ComfyUI 工作流验证；ComfyUI 清空内存缓存后复用了 5 个磁盘阶段。AMD/HIP、Intel/SYCL 为编译验证，没有对应硬件推理结论；不据此宣称长视频理解准确率。
+
+两版内置 **Python 3.12.10、完整依赖、显卡运行库、CPU 语音环境和 EXE**。推荐 VisionReady，另含视觉权重与配置；主模型、MTP 与语音模型独立安装。现有用户在设置页一键更新或运行 `UPDATE-PORTABLE.bat`，模型与设置保留。[模型与路径](https://github.com/T8mars/Strata-T8/blob/main/README.md#模型下载) · [本版验证范围](https://github.com/T8mars/Strata-T8/blob/main/docs/VALIDATION-UPSTREAM-0145-T8.md)
+
 ## Strata-T8 0.1.44-t8.1
 
 同步上游 **v0.1.44.1**，更新 CUDA/HIP 引擎及固定依赖源码。包含上游的旧 CPU 启动、CUDA 12.0/12.1 编译、安装时保留既有模型规格、Responses API 思考设置等修复。既有模型可继续使用，普通启动和更新不下载主模型。
