@@ -64,6 +64,29 @@ def _zip_json(package, name, limit=32*1024**2):
     return value
 
 
+def audit_deepseek_vendor(receipt, descriptor, listed):
+    """DeepSeek keeps its signed vendor entrypoint, not the Qwen UTF-8 patch."""
+    from strata_control import engine_component, signing
+    if receipt.get('archive') != descriptor:
+        raise ValueError('DeepSeek vendor receipt differs from the pinned component')
+    with tempfile.TemporaryDirectory(prefix='Strata-vendor-audit-') as temporary:
+        folder = Path(temporary)
+        (folder/engine_component.MANIFEST).write_text(json.dumps(receipt.get('manifest')), encoding='utf-8')
+        component = engine_component.read_manifest(folder)
+    expected = {'entrypoint': 'strata-dsv41.exe', 'version': descriptor['version'],
+                'platform': 'windows-x86_64', 'backend': descriptor['backend'], 'variant': descriptor['variant']}
+    if any(component.raw.get(key) != value for key, value in expected.items()):
+        raise ValueError('DeepSeek vendor entrypoint or identity differs from the pinned component')
+    signing.verify_bytes(signing.load_trusted_keys(environ={}),
+                         engine_component.signing_payload(component.raw), component.signature)
+    for relative, digest, size in component.files:
+        if relative == 'BUILD.json':  # T8 adds provenance to this metadata only.
+            continue
+        entry = listed.get('engine-dsv41/'+relative, {})
+        if entry.get('sha256') != digest or entry.get('size') != size:
+            raise ValueError('DeepSeek executable or library differs from its signed vendor manifest: '+relative)
+
+
 def audit_archive(archive, checksum, meta, head, edition, *, root=ROOT):
     """Hash the archive and every listed member, without extracting vendor files."""
     archive, checksum = Path(archive), Path(checksum)
@@ -150,6 +173,10 @@ def audit_archive(archive, checksum, meta, head, edition, *, root=ROOT):
                     declared = listed.get(directory+'/'+binary, {})
                     if declared.get('sha256') != output['sha256'] or declared.get('size') != output.get('size'):
                         raise ValueError('Packaged native executable differs from its source-bound build: '+binary)
+            if directory == 'engine-dsv41':
+                receipt = _zip_json(package, prefix+'/'+directory+'/UPSTREAM-COMPONENT.json')
+                audit_deepseek_vendor(receipt, meta['engine_components'][directory], listed)
+                continue
             for binary, patch_key in (('strata.exe', 'engine_utf8'), ('strata-vision.exe', 'vision_utf8')):
                 rel = directory+'/'+binary
                 if rel not in listed:
