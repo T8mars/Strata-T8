@@ -487,6 +487,7 @@ class VideoEncoderProcesses(unittest.TestCase):
 
     def test_timeout_kills_child_cleans_and_restarts(self):
         obj = self.make()
+        normal_timeout = obj.encode_timeout_s
         (obj.dir/'mode').write_text('hang')
         obj.encode_timeout_s = .2
         before = time.monotonic()
@@ -497,6 +498,7 @@ class VideoEncoderProcesses(unittest.TestCase):
         self.assertFalse(list(obj.dir.glob('*.png')))
         self.assertFalse(list(obj.dir.glob('*.sve')))
         (obj.dir/'mode').write_text('ok')
+        obj.encode_timeout_s = normal_timeout
         obj.restart()
         path, rows = obj.encode_pair(png('red'), png('blue'))
         self.assertEqual(video.embedding_rows(path, rows), 2)

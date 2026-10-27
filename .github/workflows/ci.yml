@@ -30,6 +30,9 @@ jobs:
       - run: python tools/run_release_checks.py --group posix --strict
   test:
     runs-on: windows-latest
+    env:
+      # Match the UTF-8 mode used by the portable EXE and batch entry points.
+      PYTHONUTF8: '1'
     steps:
       - uses: actions/checkout@v4
       - name: Check independent node compatibility
