@@ -174,6 +174,9 @@ class Install(unittest.TestCase):
                    mock.patch.object(setup, "verify_sha256", lambda s, size, sha, own=False: self.calls.append(("sha", s.name, own))),
                    mock.patch.object(setup, "free_gb", lambda p: 900.0),
                    mock.patch.object(setup, "github_reachable", lambda timeout=10.0: self.github_up),
+                   # This suite models setup decisions, not the live update feed.
+                   # A new upstream engine must not change the missing-engine case.
+                   mock.patch.object(setup, "get_dsv41_engine", return_value=None),
                    mock.patch.object(setup, "pip_install", lambda *a, **k: None),
                    mock.patch.object(setup, "engine_step", engine_step),
                    mock.patch.object(setup, "run", lambda cmd, **k: self.calls.append(("run", cmd))),
