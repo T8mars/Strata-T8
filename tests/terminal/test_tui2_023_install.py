@@ -57,10 +57,13 @@ class WindowsInstaller(unittest.TestCase):
         runner = self.root / "run.ps1"
         runner.write_text("$ErrorActionPreference = 'Continue'\n"
                           f"$env:STRATA_FEED = '{feed}'; $env:STRATA_DATA_DIR = '{data}'; $env:STRATA_NO_PATH = '1'\n"
-                          f"try {{ Invoke-Expression (Get-Content -Raw -LiteralPath '{INSTALL_PS1}') }} catch {{ Write-Host \"STOPPED\" }}\n",
+                          f"try {{ Invoke-Expression (Get-Content -Raw -LiteralPath '{INSTALL_PS1}') }} catch {{ Write-Host \"STOPPED: $($_.Exception.Message)\" }}\n",
                           encoding="utf-8-sig")
+        # A pwsh 7 parent supplies its own module paths. Let Windows PowerShell
+        # 5.1 discover its own modules (including Get-FileHash) instead.
+        env = {key: value for key, value in os.environ.items() if key.upper() != "PSMODULEPATH"}
         done = subprocess.run([POWERSHELL, "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(runner)], capture_output=True, text=True,
-                              encoding="utf-8", errors="replace", timeout=300)
+                              encoding="utf-8", errors="replace", timeout=300, env=env)
         return done.stdout + done.stderr
 
     def test_a_folder_with_accented_letters_is_unpacked(self):

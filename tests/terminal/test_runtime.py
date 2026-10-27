@@ -85,6 +85,14 @@ class RuntimeTests(unittest.TestCase):
                 runtime.stop("local", timeout=12)
         except (OSError, profiles.ProfileError):
             pass
+        # A management subprocess cannot retain the starter's Popen handle.
+        # The engine is stopped before the owner finishes closing its log.
+        host = getattr(self, "external_host", None)
+        if host is not None:
+            deadline = time.monotonic() + 12
+            while procs.is_same(host.pid, host.token, host.cmd) and time.monotonic() < deadline:
+                time.sleep(0.05)
+            self.assertFalse(procs.is_same(host.pid, host.token, host.cmd), "test owner did not exit")
 
     def _cli(self, *args):
         output = io.StringIO()
@@ -260,6 +268,8 @@ class RuntimeTests(unittest.TestCase):
         code, started = send("runtime.start", start_params)
         self.assertEqual(code, 0, started)
         self.assertTrue(started["ok"])
+        self.external_host = procs.identify(runtime._read_state("local")["host_pid"])
+        self.assertIsNotNone(self.external_host)
         start_record = journal.load("local", started["operation_id"])
         self.assertEqual(start_record["kind"], "runtime.start")
         self.assertEqual(start_record["intent"]["expected_source_sha256"], start_params["if_source_sha256"])

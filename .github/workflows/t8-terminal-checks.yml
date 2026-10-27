@@ -16,6 +16,10 @@ jobs:
   terminal:
     runs-on: windows-2022
     timeout-minutes: 65
+    strategy:
+      fail-fast: false
+      matrix:
+        suite: [core, screens, walk-models, walk-other]
     env:
       PYTHONUTF8: '1'
       WT_SESSION: strata-tests
@@ -34,7 +38,15 @@ jobs:
         shell: pwsh
         run: |
           Remove-Item Env:NO_COLOR -ErrorAction SilentlyContinue
-          python -m pytest tests/terminal --import-mode=importlib -q --tb=short
+          $walk = 'tests/terminal/test_launch_tui_walk.py'
+          $screens = 'tests/terminal/test_launch_tui.py'
+          $models = 'test_every_key_on_every_screen or test_forward_and_back_every_combination'
+          switch ('${{ matrix.suite }}') {
+            'core' { python -m pytest tests/terminal --ignore=$walk --ignore=$screens --import-mode=importlib -q --tb=short --durations=15 }
+            'screens' { python -m pytest $screens --import-mode=importlib -v --tb=short --durations=15 }
+            'walk-models' { python -m pytest $walk -k $models --import-mode=importlib -v --tb=short --durations=15 }
+            'walk-other' { python -m pytest $walk -k "not ($models)" --import-mode=importlib -v --tb=short --durations=15 }
+          }
           exit $LASTEXITCODE
   model-packs:
     runs-on: ubuntu-24.04
