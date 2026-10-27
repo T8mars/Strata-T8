@@ -103,7 +103,8 @@ def start_of(p):
         out = subprocess.run(["ps", "-o", "lstart=,stat=", "-p", str(p)], capture_output=True, text=True, timeout=5).stdout.strip()
     except Exception:
         return None
-    return None if not out or out.endswith("Z") else "s:" + out
+    fields = out.rsplit(None, 1)
+    return None if len(fields) != 2 or fields[1].startswith("Z") else "s:" + fields[0]
 os.set_blocking(0, True)
 data = b""
 while True:
@@ -139,7 +140,10 @@ def _start_token(pid: int) -> str:
                              timeout=5).stdout.strip()
     except (OSError, subprocess.SubprocessError):
         return ""
-    return "" if not out or out.endswith("Z") else "s:" + out
+    # ps's state changes between R/S (and can include flags such as Z+). Only
+    # birth time identifies the process; including state can prevent cleanup.
+    fields = out.rsplit(None, 1)
+    return "" if len(fields) != 2 or fields[1].startswith("Z") else "s:" + fields[0]
 
 
 def _watch(child: subprocess.Popen) -> None:

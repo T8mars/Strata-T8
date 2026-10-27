@@ -17,6 +17,8 @@ import textwrap
 import time
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 POSIX = os.name == "posix"
@@ -47,6 +49,28 @@ SERVER = textwrap.dedent("""
 def alive(pid: int) -> bool:
     from strata_control import procs
     return procs.start_token(pid) is not None
+
+
+class WatcherIdentity(unittest.TestCase):
+    def test_parent_and_watcher_use_birth_time_not_mutable_process_state(self):
+        import ast
+        from serve import lifeline
+        # Execute the actual child-side parser without running its signal loop.
+        node = next(n for n in ast.parse(lifeline._WATCHER).body
+                    if isinstance(n, ast.FunctionDef) and n.name == 'start_of')
+        namespace = {'subprocess': subprocess}
+        exec(compile(ast.Module(body=[node], type_ignores=[]), '<watcher>', 'exec'), namespace)
+        birth = 'Wed Oct 28 02:00:00 2026'
+        for state in ('R', 'S', 'Ss', 'Sl', 'S+'):
+            with self.subTest(state=state), mock.patch.object(subprocess, 'run',
+                    return_value=SimpleNamespace(stdout=birth+' '+state+'\n')):
+                self.assertEqual(lifeline._start_token(123), 's:'+birth)
+                self.assertEqual(namespace['start_of'](123), 's:'+birth)
+        for output in ('', birth+' Z', birth+' Z+'):
+            with self.subTest(output=output), mock.patch.object(subprocess, 'run',
+                    return_value=SimpleNamespace(stdout=output)):
+                self.assertEqual(lifeline._start_token(123), '')
+                self.assertIsNone(namespace['start_of'](123))
 
 
 class Lifeline(unittest.TestCase):
