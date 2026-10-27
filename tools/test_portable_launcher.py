@@ -14,7 +14,7 @@ class OfflineLauncher(unittest.TestCase):
                 portable.environment_check()
 
     def guards(self):
-        names = ['settings_path', 'other_installs', 'data_folder', 'get_llama_cpp', 'pip_install', 'download', 'get_prebuilt_hip', 'run']
+        names = ['settings_path', 'other_installs', 'data_folder', 'get_llama_cpp', 'pip_install', 'download', '_urlopen', 'get_prebuilt_hip', 'run']
         return mock.patch.multiple(portable.upstream, **{name: mock.DEFAULT for name in names})
 
     def test_corrupt_delivery_cannot_trigger_child_model_download(self):
@@ -23,6 +23,13 @@ class OfflineLauncher(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, 'PREPARE-MODEL'):
                 portable.upstream.run(['python', str(portable.ROOT/'tools/mtp_fetch.py'), 'fetch', '--out', 'missing'])
             originals['run'].assert_not_called()
+
+    def test_head_probe_cannot_bypass_offline_launch(self):
+        with self.guards(), mock.patch('urllib.request.urlopen'), mock.patch('urllib.request.build_opener') as network:
+            portable.isolate_setup()
+            with self.assertRaisesRegex(RuntimeError, 'Offline package'):
+                portable.upstream._urlopen(portable.urllib.request.Request('https://example.invalid/model', method='HEAD'))
+            network.assert_not_called()
 
     def test_local_preparation_is_allowed_and_network_guard_is_restored(self):
         with self.guards() as originals, mock.patch('urllib.request.urlopen'):
@@ -112,7 +119,8 @@ class UpdateConfiguration(unittest.TestCase):
                     self.assertEqual(saved[key], config[key])
                 engine = 'engine-hip' if backend == 'hip' else 'engine'
                 self.assertEqual(saved['exe'], str(root/engine/'strata.exe'))
-                self.assertEqual(saved['lib_dirs'], [str(root/backend)])
+                expected = [root/'engine', root/'cuda'] if backend == 'cuda' else [root/'hip']
+                self.assertEqual(saved['lib_dirs'], list(map(str, expected)))
                 self.assertEqual(portable.read_json(root/'state.json')['portable_fingerprint']['version'], 'new')
                 upgrade.assert_called_once()
 

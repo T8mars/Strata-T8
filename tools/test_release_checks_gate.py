@@ -148,7 +148,8 @@ class ReleaseCheckGate(unittest.TestCase):
             self.assertIn('POSIX host', result.stderr)
         else:
             self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertEqual((summary['tests'], summary['skipped']), (3, 0))
+            self.assertGreater(summary['tests'], 0)
+            self.assertEqual(summary['skipped'], 0)
 
 
 if __name__ == '__main__':

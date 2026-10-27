@@ -120,6 +120,7 @@ def isolate_setup():
     def deny_download(*args, **kwargs):
         raise RuntimeError('Offline package: missing model component. Copy the complete Strata-data folder from the model delivery.')
     upstream.download = deny_download
+    upstream._urlopen = deny_download
     urllib.request.urlopen = deny_download
     original_run = upstream.run
     def offline_run(command, *args, **kwargs):
@@ -130,10 +131,32 @@ def isolate_setup():
         return original_run(command, *args, **kwargs)
     upstream.run = offline_run
     def hip_engine(url_base, gpu, updating=False):
-        engine = ROOT/'engine-hip'
+        engine = bundled_hip_engine(gpu)
         upstream.hip_runtime_beside_exe(engine)
         return engine
     upstream.get_prebuilt_hip = hip_engine
+
+
+def bundled_hip_engine(gpu):
+    arch = gpu.get('arch', '')
+    directories = ('engine-hip', 'engine-hip-rdna2', 'engine-hip-rdna3')
+    for name in directories:
+        manifest = ROOT/name/'BUILD.json'
+        if manifest.is_file() and arch in read_json(manifest).get('archs', []):
+            return ROOT/name
+    if not (ROOT/'engine-hip-rdna2').exists():
+        return ROOT/'engine-hip'  # legacy portable layout
+    raise RuntimeError('No bundled AMD engine supports '+str(arch))
+
+
+def configured_engine(config, system=None):
+    if config.get('backend') == 'hip':
+        cards = (system or {}).get('amd') or upstream.amd_gpus()
+        index = config.get('gpu', 0)
+        if isinstance(index, list): index = index[0] if index else 0
+        card = next((g for g in cards if g.get('index') == index), cards[0] if cards else {})
+        return bundled_hip_engine(card)
+    return ROOT/('engine-cuda12' if upstream.config_toolkit(config) == 12 else 'engine')
 
 
 def data_path(requested=None):
@@ -153,7 +176,9 @@ def data_path(requested=None):
 
 
 def model_api_id(model):
-    name = model.get('model_name', f"{upstream.FAMILIES[model['family']]['name']}-{model['model'].lower()}")
+    name = model.get('model_name')
+    if 'model_name' not in model:
+        name = f"{upstream.FAMILIES[model['family']]['name']}-{model['model'].lower()}"
     if (not isinstance(name, str) or not name.strip() or name != name.strip() or len(name) > 200
             or any(ord(c) < 32 or ord(c) == 127 for c in name)):
         raise RuntimeError('Invalid portable-model.json: expected a nonempty model_name of at most 200 characters')
@@ -161,6 +186,9 @@ def model_api_id(model):
 
 
 def model_delivery(data):
+    if (data/'ds4.txt').is_file():
+        from portable_deepseek import inspect_pack
+        return inspect_pack(data)
     path = data/'portable-model.json'
     if not path.is_file():
         raise RuntimeError('Model delivery missing. Place the separately supplied Strata-data folder beside START-HERE.bat, or use IMPORT-MODEL.bat with its path. See README-PORTABLE.zh-CN.md.')
@@ -250,10 +278,19 @@ def refresh_updated_config(cfg_path, state, current, *, enable_vision=False, vis
 
 def _refresh_updated_config(cfg_path, state, current, *, enable_vision=False, vision_tokens=None):
     config = read_config(cfg_path)
-    engine = ROOT/('engine-hip' if config.get('backend') == 'hip' else 'engine')
+    if config.get('arch') == 'deepseek41':
+        engine = ROOT/'engine-dsv41'
+        config.update(exe=str(engine/'strata-dsv41.exe'),cwd=str(ROOT),lib_dirs=[str(engine)])
+        config.setdefault('fit_max_tokens',False)
+        save_json(cfg_path,config)
+        state['portable_fingerprint'] = current
+        save_json(STATE,state)
+        return
+    engine = configured_engine(config, current)
     config['exe'] = str(engine/'strata.exe')
     config['cwd'] = str(ROOT)
-    config['lib_dirs'] = [str(p) for p in (upstream.hip_lib_dirs(engine) if config.get('backend') == 'hip' else upstream.cuda_lib_dirs())]
+    config['lib_dirs'] = [str(p) for p in (upstream.hip_lib_dirs(engine) if config.get('backend') == 'hip' else [engine, *upstream.cuda_lib_dirs(upstream.config_toolkit(config))])]
+    config.setdefault('fit_max_tokens', False)
     if config.get('vision') and config['vision'].get('bundled'):
         from portable_version import metadata
         if metadata(ROOT).get('edition') == 'Portable-NoModels':
@@ -261,7 +298,7 @@ def _refresh_updated_config(cfg_path, state, current, *, enable_vision=False, vi
             config['args'] = [arg for arg in config.get('args', []) if arg not in ('--vision', '--native-video')]
             print('NoModels edition: bundled vision is disabled. Run INSTALL-VISION.bat to restore it.', flush=True)
         else:
-            config['vision']['exe'] = str(ROOT/'engine/strata-vision.exe')
+            config['vision']['exe'] = str(engine/'strata-vision.exe')
             config['vision']['mmproj'] = str(ROOT/'vision/weights'/read_json(ROOT/'vision/catalog.json')['file'])
     # Apply upstream compatibility migrations, retaining server settings and custom engine arguments.
     config = upstream.upgrade_config(cfg_path, config)
@@ -295,7 +332,7 @@ def attach_vision(config, model, mode='gpu', tokens=None):
     if model['family'] != catalog(ROOT)['family'] or config.get('backend') == 'hip':
         raise RuntimeError('This VisionReady encoder supports the Qwen NVIDIA profile. Windows AMD vision is not verified.')
     weight = verify(ROOT)
-    helper = ROOT/'engine/strata-vision.exe'
+    helper = configured_engine(config)/'strata-vision.exe'
     if not helper.is_file():
         raise RuntimeError('Bundled vision helper missing')
     args = config['args']
@@ -321,7 +358,7 @@ def set_native_video(config, enabled):
     if enabled:
         if config.get('backend') == 'hip' or not isinstance(config.get('vision'), dict):
             raise RuntimeError('Native video requires the NVIDIA engine and an enabled vision encoder')
-        build = read_json(ROOT/'engine/BUILD.json')
+        build = read_json(configured_engine(config)/'BUILD.json')
         if (build.get('capabilities') or {}).get('native_video') is not True:
             raise RuntimeError('This package does not contain the T8 native-video engine; update the package first')
     if isinstance(config.get('vision'), dict):
@@ -331,8 +368,13 @@ def set_native_video(config, enabled):
     return config
 
 
-def configure(data, context=None, backend=None, vision=None, vision_tokens=None, port=None, native_video=None):
+def configure(data, context=None, backend=None, vision=None, vision_tokens=None, port=None, native_video=None, speed=None):
     model = model_delivery(data)
+    if model['family'] == 'deepseek41':
+        from portable_deepseek import configure as configure_deepseek
+        return configure_deepseek(sys.modules[__name__],data,context,backend,vision,port,native_video,speed)
+    if speed is not None:
+        raise RuntimeError('Full/Faster is a DeepSeek setting; it does not apply to Qwen')
     tag = upstream.FAMILIES[model['family']]['tag'] + model['model']
     cfg_path = ROOT/f'strata-{tag.lower()}.json'
     script = ROOT/f'run-{tag.lower()}{".bat" if upstream.WIN else ".sh"}'
@@ -387,6 +429,7 @@ def configure(data, context=None, backend=None, vision=None, vision_tokens=None,
                 raise RuntimeError('Setup did not apply the requested configuration settings')
         if cfg_path.is_file():
             generated = validate_config(read_config(cfg_path), require_args=True)
+            generated.setdefault('fit_max_tokens', False)
             if 'model_name' in model:
                 generated['model_name'] = model_api_id(model)
             for key in ('host', 'api_key', 'port'):
@@ -429,6 +472,7 @@ def main():
     ap.add_argument('action', nargs='?', default='start', choices=['start', 'configure', 'import', 'check', 'settings'])
     ap.add_argument('--data-dir')
     ap.add_argument('--context', type=int)
+    ap.add_argument('--speed', choices=['full', 'faster'], help='DeepSeek only: six experts (full) or five (faster)')
     ap.add_argument('--backend', choices=['cuda', 'hip'])
     ap.add_argument('--port', type=int)
     ap.add_argument('--vision', choices=['no', 'gpu', 'cpu'], help='use the bundled vision encoder (offline)')
@@ -470,11 +514,14 @@ def main():
     cfg = config_path(state)
     current = fingerprint(data)
     previous = state.get('portable_fingerprint')
-    if args.action in ('configure', 'import') or not cfg.is_file() or not same_machine(previous, current) or args.context or args.backend:
+    if args.action in ('configure', 'import') or not cfg.is_file() or not same_machine(previous, current) or args.context or args.backend or args.speed:
         vision = args.vision
         if vision is None and (ROOT/'vision/catalog.json').is_file() and (ROOT/'vision/weights'/read_json(ROOT/'vision/catalog.json')['file']).is_file():
             vision = 'auto'
-        if args.native_video is None:
+        if args.speed is not None:
+            result, cfg = configure(data, args.context, args.backend, vision, args.vision_tokens, args.port,
+                                    native_video=args.native_video, speed=args.speed)
+        elif args.native_video is None:
             result, cfg = configure(data, args.context, args.backend, vision, args.vision_tokens, args.port)
         else:
             result, cfg = configure(data, args.context, args.backend, vision, args.vision_tokens, args.port,

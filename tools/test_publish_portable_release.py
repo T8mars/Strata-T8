@@ -248,7 +248,7 @@ class DraftCommitBinding(GitFixture):
         draft = self.draft()
         draft['assets'] = [{'name':'old-version-models.zip'}]
         boundary = GithubBoundary(self, draft)
-        with self.assertRaisesRegex(ValueError, 'outside the four'):
+        with self.assertRaisesRegex(ValueError, 'outside the audited'):
             self.invoke(boundary)
         self.assertFalse(any(args[1]=='release' for args in boundary.calls))
 
@@ -296,7 +296,7 @@ class DraftCommitBinding(GitFixture):
         boundary = GithubBoundary(self, self.draft())
         old = self.root/'dist/old-release.zip'
         old.write_bytes(b'old version')
-        with mock.patch.object(publish.subprocess,'run',side_effect=boundary), self.assertRaisesRegex(ValueError, 'exactly the four'):
+        with mock.patch.object(publish.subprocess,'run',side_effect=boundary), self.assertRaisesRegex(ValueError, 'exactly the audited'):
             publish._publish_verified_assets(self.root,self.meta,self.head,self.assets+[old])
         self.assertEqual(boundary.calls, [])
 

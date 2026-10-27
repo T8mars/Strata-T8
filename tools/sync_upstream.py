@@ -10,7 +10,7 @@ import sys
 import uuid
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from portable_version import ROOT, source_version, upstream_version_key, upstream_release_key, validate_source_release
+from portable_version import ROOT, source_version, product_version, upstream_version_key, upstream_release_key, validate_source_release
 from check_private_paths import is_private_path, private_paths
 
 
@@ -138,6 +138,9 @@ def history_merge_target(root, commit, meta):
 
 def release_asset_pins(assets):
     required = {'strata-windows-x64.zip', 'strata-windows-x64-hip.zip'}
+    if not any(isinstance(item, dict) and item.get('name') in required for item in assets):
+        from portable_upstream_components import component_assets
+        return {item['name']: item['sha256'] for item in component_assets(assets).values()}
     pins = {}
     for item in assets:
         if not isinstance(item, dict) or item.get('name') not in required:
@@ -204,10 +207,12 @@ def sync_fetched(root, commit, ref, *, release_assets=None):
     try:
         original = git(root, 'show', commit+':README.md').stdout
         (root/'README-UPSTREAM.md').write_text(original, encoding='utf-8')
-        version = source_version(root)
+        native_version = source_version(root)
+        version = product_version(root)
         parsed_version = upstream_version_key(version)
         if release_tag:
-            validate_source_release(version, release_tag)
+            validate_source_release(native_version, release_tag,
+                                    product_version=version if (root/'strata_cli/__init__.py').exists() else None)
         if parsed_version < upstream_version_key(meta['upstream_version']):
             raise ValueError('Upstream source version would downgrade the distribution')
         family = parsed_version[:3]
@@ -216,7 +221,14 @@ def sync_fetched(root, commit, ref, *, release_assets=None):
         meta['upstream_version'] = version
         meta['version'] = '.'.join(map(str, family)) + f'-t8.{meta["revision"]}'
         meta['upstream_commit'] = commit
-        meta['engine_version'] = version
+        meta['engine_version'] = native_version
+        if (root/'strata_cli/__init__.py').exists():
+            meta['component_schema'] = 2
+            meta['source_version'] = native_version
+            if release_assets is None:
+                raise ValueError('Split-component preview requires release asset pins; use a stable release candidate')
+            from portable_upstream_components import component_assets
+            meta['engine_components'] = component_assets(release_assets)
         meta['upstream_ref'] = ref
         if release_tag:
             meta['upstream_release_tag'] = release_tag

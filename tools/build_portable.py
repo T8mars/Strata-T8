@@ -11,7 +11,7 @@ import sys
 import zipfile
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from portable_version import metadata, source_version, archive_name
-from portable_build_provenance import build_identity, validate_engine_build
+from portable_build_provenance import build_identity, validate_engine_build, engine_assets
 from portable_weights import weight_declaration, MODEL_SUFFIXES, allowed_weight, allowed_runtime_data
 from windows_utf8_manifest import patch_engine
 
@@ -51,6 +51,11 @@ DOCS = (
     'QUANTS.md',
     'PREFILL_HEAD_ALIAS.md',
 )
+# Upstream split its installation guides in 0.2; include their tracked Markdown
+# companions so links in the operational documentation stay usable offline.
+DOCS = tuple(sorted(set(DOCS) | {Path(name).name for name in
+    subprocess.check_output(['git', 'ls-files', '-z', '--', 'docs/*.md'], cwd=ROOT).decode('utf-8').split('\0')
+    if name and Path(name).parent == Path('docs') and Path(name).name.casefold() != 'roadmap.md'}))
 
 
 def private_plan(path):
@@ -112,7 +117,9 @@ def main():
     global NAME, TARGET
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--edition', choices=['Portable-NoModels', 'VisionReady-NoMainModel'], default='VisionReady-NoMainModel')
-    edition = parser.parse_args().edition
+    parser.add_argument('--folder-only', action='store_true', help='Build the complete offline folder; publish via bounded component assets')
+    options = parser.parse_args()
+    edition = options.edition
     NAME = archive_name(META['version'], edition).removesuffix('.zip')
     TARGET = OUT/NAME
     weights = weight_declaration(edition)
@@ -124,7 +131,8 @@ def main():
     if features.get('video_sampling_cpu'):
         from prepare_video_runtime import verify as verify_video_runtime
         verify_video_runtime(ROOT)
-    for backend in ['engine', 'engine-hip']:
+    backends = list(engine_assets(META))
+    for backend in backends:
         validate_engine_build(json.loads((ROOT/backend/'BUILD.json').read_text(encoding='utf-8')),
                               backend, META, identity['engine_version'], allow_vendor=False, root=ROOT)
     if TARGET.resolve().parent != OUT.resolve() or TARGET.name != NAME or TARGET.is_symlink():
@@ -132,9 +140,9 @@ def main():
     if TARGET.exists():
         shutil.rmtree(TARGET)
     TARGET.mkdir(parents=True)
-    for name in ['runtime', 'engine', 'engine-hip']:
+    for name in ['runtime', *backends]:
         copy_tree(name, runtime_ignore)
-    for name in ['serve', 'tools', 'ref']:
+    for name in ['serve', 'tools', 'ref', 'strata_control', 'strata_cli', 'bench/prompts']:
         copy_source(name)
     copy_source('licenses')
     if features.get('video_sampling_cpu'):
@@ -143,18 +151,23 @@ def main():
         from stage_asr_runtime import verify
         verify(TARGET/'runtime/asr','cpu')
     # Patch staged copies too: locally cached vendor engines may predate bootstrap.
-    for backend in ['engine', 'engine-hip']:
+    for backend in backends:
         patch_engine(TARGET/backend)
     # This Windows edition contains CUDA/HIP only. The Intel-only routing
     # profile is unnecessary here and older Windows updaters do not allow it.
-    copy_source('data', ('experimental-speed-projection', 'expert-profile-sycl.bin'))
+    copy_source('data', ('experimental-speed-projection', 'expert-profile-sycl.bin', 'dsv41'))
+    # Routing statistics are small metadata, not model tensors. Use a distinct
+    # suffix so existing update clients retain their strict .bin weight policy.
+    for name in ('profile-2.00', 'profile-2.25'):
+        (TARGET/'data/dsv41').mkdir(parents=True, exist_ok=True)
+        shutil.copy2(ROOT/f'data/dsv41/{name}.bin', TARGET/f'data/dsv41/{name}.profile')
     copy_source('vision', ('weights',))
     if weights['vision']:
         from prepare_portable_vision import verify
         weight = verify(ROOT)
         (TARGET/'vision/weights').mkdir()
         shutil.copy2(weight, TARGET/'vision/weights'/weight.name)
-    for file in ['portable.py', 'setup.py', 'requirements.txt', 'requirements-portable.txt', 'requirements-asr.txt', 'CMakeLists.txt', 'LICENSE', 'README.md', 'README-PORTABLE.zh-CN.md', 'meta.json', 'features.json', 'model-sources.json', 'START-PORTABLE.bat', 'CHECK-ENV.bat', 'IMPORT-MODEL.bat', 'PREPARE-MODEL.bat', 'UPDATE-PORTABLE.bat', 'INSTALL-VISION.bat', 'VERIFY-PACKAGE.bat']:
+    for file in ['portable.py', 'setup.py', 'strata.py', 'requirements.txt', 'requirements-build.txt', 'requirements-monitor.txt', 'requirements-portable.txt', 'requirements-asr.txt', 'CMakeLists.txt', 'LICENSE', 'README.md', 'README-PORTABLE.zh-CN.md', 'meta.json', 'features.json', 'model-sources.json', 'START-PORTABLE.bat', 'CHECK-ENV.bat', 'IMPORT-MODEL.bat', 'PREPARE-MODEL.bat', 'UPDATE-PORTABLE.bat', 'INSTALL-VISION.bat', 'VERIFY-PACKAGE.bat']:
         shutil.copy2(ROOT/file, TARGET/file)
     (TARGET/'meta.json').write_text(json.dumps({**META, 'edition': edition, 'weights': weights, 'models_included': weights['vision']}, indent=2), encoding='utf-8')
     features['bundled_vision_weights'] = weights['vision']
@@ -178,7 +191,7 @@ def main():
     save = {'version': META['version'], **identity, 'source_commit': subprocess.check_output(['git','rev-parse','HEAD'], cwd=ROOT, text=True).strip(),
             'python': sys.version, 'edition': edition, 'weights': weights, 'models_included': weights['vision'], 'dependencies': versions,
             'gguf_source': json.loads((TARGET/'third_party/llama.cpp/UPSTREAM.json').read_text(encoding='utf-8')),
-            'engines': {backend: json.loads((TARGET/f'{backend}/BUILD.json').read_text()) for backend in ['engine', 'engine-hip']},
+            'engines': {backend: json.loads((TARGET/f'{backend}/BUILD.json').read_text()) for backend in backends},
             'files': []}
     for file in package_files():
         rel = file.relative_to(TARGET).as_posix()
@@ -193,6 +206,9 @@ def main():
     (TARGET/'PACKAGE-MANIFEST.json').write_text(json.dumps(save, indent=2, ensure_ascii=False), encoding='utf-8')
     from portable_update import validate_manifest
     validate_manifest(TARGET, save, verify=False)
+    if options.folder_only:
+        print(json.dumps({'folder':str(TARGET),'files':len(save['files']),'weights':weights}), flush=True)
+        return
     archive = OUT/(NAME+'.zip')
     print(json.dumps({'writing_archive': str(archive), 'files': len(save['files'])}), flush=True)
     # Keep complete offline environments below the per-asset limit without
@@ -202,13 +218,16 @@ def main():
             z.write(file, NAME+'/'+file.relative_to(TARGET).as_posix())
     with archive.open('rb') as stream:
         digest = hashlib.file_digest(stream, 'sha256').hexdigest()
-    if archive.stat().st_size >= 2*1024**3:
-        raise SystemExit('Release asset exceeds GitHub 2 GiB limit; split this edition by backend before publishing')
     archive.with_name(archive.name+'.sha256').write_text(f'{digest}  {archive.name}\n', encoding='ascii')
     with zipfile.ZipFile(archive) as z:
         bad = z.testzip()
         if bad:
             raise SystemExit(f'Archive CRC check failed: {bad}')
+    if archive.stat().st_size >= 2*1024**3:
+        from portable_release_parts import split, validate
+        split(archive)
+        assets, _ = validate(archive, digest)
+        print(json.dumps({'release_parts':[p.name for p in assets]}), flush=True)
     print(json.dumps({'archive': str(archive), 'size': archive.stat().st_size, 'sha256': digest, 'files': len(save['files']), 'weights': weights}), flush=True)
 
 

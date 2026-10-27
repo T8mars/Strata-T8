@@ -1,0 +1,3 @@
+# Test runners and real SDK compatibility; never installed into the release runtime.
+pytest==9.1.1
+anthropic==2.3.0

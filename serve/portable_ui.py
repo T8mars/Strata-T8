@@ -111,7 +111,7 @@ def model_summary(data, portable):
     try:
         model = portable.model_delivery(path)
     except (OSError, ValueError, RuntimeError, RecursionError) as error:
-        if not (path/'portable-model.json').is_file():
+        if not (path/'portable-model.json').is_file() and not (path/'ds4.txt').is_file():
             raise SetupError('未找到完整模型。请选择收到的 Strata-data 模型根目录，而不是内部 GGUF 子目录。') from error
         raise SetupError(f'模型文件不完整或不兼容：{error}') from error
     label = model.get('model_name')
@@ -121,7 +121,8 @@ def model_summary(data, portable):
         label = f"{model['family'].upper()} · {model['model']}"
     return {'path': str(path), 'family': model['family'], 'quantization': model['model'],
             'label': label, 'api_model_id': portable.model_api_id(model),
-            'bytes': sum(e['size'] for e in model.get('files', [])), 'complete': True}
+            'bytes': sum(e['size'] for e in model.get('files', [])), 'complete': True,
+            'text_only': model.get('text_only', False)}
 
 
 def discover_models(root, portable):
@@ -145,7 +146,7 @@ def discover_models(root, portable):
         if key in seen:
             continue
         seen.add(key)
-        if (path/'portable-model.json').is_file():
+        if (path/'portable-model.json').is_file() or (path/'ds4.txt').is_file():
             try:
                 results.append(model_summary(path, portable))
             except (OSError, ValueError, RuntimeError):
@@ -199,7 +200,7 @@ class ModelSetup:
             self.job = {'state': state, 'message': message, 'error': error}
 
     def _options(self, data):
-        allowed = {'path', 'port', 'context', 'vision', 'native_video', 'backend'}
+        allowed = {'path', 'port', 'context', 'vision', 'native_video', 'backend', 'speed'}
         if not isinstance(data, dict) or set(data)-allowed:
             raise SetupError('无效的模型设置。')
         path = data.get('path')
@@ -217,6 +218,8 @@ class ModelSetup:
         if vision not in ('auto', 'no', 'gpu', 'cpu') or backend not in ('auto', 'cuda', 'hip') or type(native) is not bool:
             raise SetupError('无效的运行设置。')
         summary = model_summary(path.strip().strip('"'), self.portable)
+        if 'speed' in data and (summary['family'] != 'deepseek41' or data['speed'] not in ('full', 'faster')):
+            raise SetupError('完整质量 / 更快模式只适用于 DeepSeek。')
         if native and vision == 'no':
             raise SetupError('原生视频需要先启用视觉。')
         if vision not in ('no', 'auto') and (summary['family'] != 'qwen' or backend == 'hip'):
@@ -256,8 +259,14 @@ class ModelSetup:
         if vision is None:
             vision = ('gpu' if cfg['vision'].get('gpu', True) else 'cpu') if cfg.get('vision') else ('auto' if self.vision_available() else 'no')
         native_arg = getattr(self.options, 'native_video', None)
+        speed = 'full'
+        for index, arg in enumerate(args):
+            if arg == '--experts' and index + 1 < len(args):
+                speed = 'faster' if args[index + 1] == '5' else 'full'
+            elif arg.startswith('--experts='):
+                speed = 'faster' if arg.partition('=')[2] == '5' else 'full'
         return {'path': self.requested or (self.model or {}).get('path', ''), 'port': port,
-                'context': context, 'vision': vision, 'native_video': bool((cfg.get('vision') or {}).get('native_video')),
+                'context': context, 'vision': vision, 'speed': speed, 'native_video': bool((cfg.get('vision') or {}).get('native_video')),
                 'backend': getattr(self.options, 'backend', None) or cfg.get('backend', 'auto'),
                 **({'native_video': native_arg} if native_arg is not None else {})}
 
@@ -381,6 +390,8 @@ class ModelSetup:
                     command += ['--vision', data['vision']]
                 if data['backend'] != 'auto':
                     command += ['--backend', data['backend']]
+                if data.get('speed'):
+                    command += ['--speed', data['speed']]
                 tokens = getattr(self.options, 'vision_tokens', None)
                 if tokens is not None:
                     command += ['--vision-tokens', str(tokens)]

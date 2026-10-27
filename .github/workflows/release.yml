@@ -43,10 +43,17 @@ jobs:
       ref: ${{ needs.source.outputs.commit }}
     permissions:
       contents: read
+  terminal-checks:
+    needs: source
+    uses: ./.github/workflows/t8-terminal-checks.yml
+    with:
+      ref: ${{ needs.source.outputs.commit }}
+    permissions:
+      contents: read
   release:
-    needs: [source, hip-compile, sycl-compile]
+    needs: [source, hip-compile, sycl-compile, terminal-checks]
     runs-on: windows-2022
-    timeout-minutes: 180
+    timeout-minutes: 360
     env:
       GH_TOKEN: ${{ github.token }}
     steps:
@@ -80,7 +87,7 @@ jobs:
           method: network
           sub-packages: '["nvcc", "crt", "nvvm", "nvptxcompiler", "thrust", "cudart", "cublas", "cublas_dev", "cuobjdump", "nvrtc", "nvrtc_dev"]'
       - name: Build independent runtime with matching engines
-        run: python tools/bootstrap_portable.py
+        run: python tools/bootstrap_portable.py --native-jobs 1
       - name: Build isolated CPU speech runtime (no model weights)
         run: |
           ./tools/build_asr_runtime.ps1 -Device cpu
@@ -95,7 +102,9 @@ jobs:
         run: runtime/python/python.exe -X utf8 tools/prepare_portable_vision.py
       - name: Validate runtime and application
         run: |
-          runtime/python/python.exe -X utf8 tools/run_release_checks.py --group application --strict
+          python -m pip install -r requirements-test.txt --target .portable-build/test-deps
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          runtime/python/python.exe -X utf8 tools/run_release_checks.py --group application --strict --test-deps .portable-build/test-deps
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           runtime/python/python.exe -X utf8 tools/run_release_checks.py --group setup --strict
           if ($LASTEXITCODE) { exit $LASTEXITCODE }

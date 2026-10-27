@@ -299,7 +299,8 @@ class NativeBuildDelivery(TemporaryInstallation):
 
     def package_fixture(self):
         meta = native_fixture(self.root)
-        names = ['portable.py', 'requirements.txt', 'requirements-portable.txt', 'requirements-asr.txt', 'LICENSE', 'README.md',
+        names = ['portable.py', 'strata.py', 'requirements-build.txt', 'requirements-monitor.txt', 'requirements.txt', 'requirements-portable.txt', 'requirements-asr.txt', 'LICENSE', 'README.md',
+                 'data/dsv41/profile-2.00.bin', 'data/dsv41/profile-2.25.bin',
                  'README-PORTABLE.zh-CN.md', 'model-sources.json', 'START-PORTABLE.bat', 'CHECK-ENV.bat',
                  'IMPORT-MODEL.bat', 'PREPARE-MODEL.bat', 'UPDATE-PORTABLE.bat', 'INSTALL-VISION.bat',
                  'VERIFY-PACKAGE.bat', 'README-UPSTREAM.md', 'runtime/python/marker.txt',

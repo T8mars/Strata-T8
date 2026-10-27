@@ -7,6 +7,10 @@ on:
 permissions:
   contents: read
 jobs:
+  terminal-checks:
+    uses: ./.github/workflows/t8-terminal-checks.yml
+    with:
+      ref: ${{ github.sha }}
   native-sycl:
     uses: ./.github/workflows/native-sycl.yml
     with:
@@ -22,7 +26,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - run: python -m pip install -r requirements.txt -r requirements-portable.txt
+      - run: python -m pip install -r requirements.txt -r requirements-portable.txt -r requirements-test.txt
       - run: python tools/run_release_checks.py --group posix --strict
   test:
     runs-on: windows-latest
@@ -42,7 +46,7 @@ jobs:
           node-version: '22'
       - name: Browser video and model-switch logic
         run: node --test tools/test_web_video.cjs
-      - run: python -m pip install -r requirements.txt -r requirements-portable.txt
+      - run: python -m pip install -r requirements.txt -r requirements-portable.txt -r requirements-test.txt
       - name: Prepare pinned GGUF source dependency (no model download)
         run: python tools/bootstrap_portable.py --gguf-only
       - name: Server, security, update and synchronization tests

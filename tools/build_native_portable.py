@@ -184,7 +184,7 @@ def validate_native_build(native, root, engine_directory=None, check_source=True
 
 def developer_environment(vsdevcmd=None, temp_directory=None):
     env = os.environ.copy()
-    if not vsdevcmd and shutil.which('cl', path=env.get('PATH')):
+    if not vsdevcmd and env.get('LIB') and env.get('INCLUDE') and shutil.which('cl', path=env.get('PATH')):
         return env
     if not vsdevcmd:
         vswhere = Path(os.environ.get('ProgramFiles(x86)', r'C:\Program Files (x86)'))/'Microsoft Visual Studio/Installer/vswhere.exe'
@@ -342,7 +342,8 @@ def install_build(root, destination, artifacts, native, build_root):
             raise ValueError('Native build compiler has no CUDA toolkit series')
         # These fields describe the installed executables. The original vendor
         # release remains fully identified in the untouched upstream_asset.
-        build.update(source='t8_native_build', archs=list(map(int, ARCHITECTURES)),
+        from portable_version import source_version
+        build.update(version=source_version(root), source='t8_native_build', archs=list(map(int, ARCHITECTURES)),
                      cuda=cuda_series[1], portable=True, vision='gpu')
         build['t8_native_build'] = native
         (incoming/'BUILD.json').write_text(json.dumps(build, ensure_ascii=False, indent=2)+'\n', encoding='utf-8')

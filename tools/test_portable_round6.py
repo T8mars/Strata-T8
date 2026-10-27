@@ -168,6 +168,10 @@ class ToolRequests(unittest.TestCase):
                 for stream in (False, True):
                     with self.subTest(path=path, stream=stream):
                         request = {'input':'hi','stream':stream} if path.endswith('responses') else self.body(stream=stream,max_tokens=128)
+                        # Current upstream only interprets calls to declared tools.
+                        request['tools'] = ([{'name':'f','input_schema':{'type':'object'}}] if path.endswith('messages')
+                                            else [{'type':'function','name':'f','parameters':{'type':'object'}}] if path.endswith('responses')
+                                            else [{'type':'function','function':{'name':'f','parameters':{'type':'object'}}}])
                         status, data = self.post(request,path)
                         self.assertEqual(status, 200 if stream else 502, data)
                         self.assertIn(b'duplicate parameter', data)

@@ -26,10 +26,10 @@
           <div id="check-result" class="check-result" hidden role="status"></div>
           <details class="advanced"><summary>运行设置</summary><div class="fields">
             <div><label for="port">服务端口</label><input id="port" type="number" min="1" max="65535" required><p class="field-help">默认选择空闲端口。</p></div>
-            <div><label for="context">上下文长度</label><input id="context" type="number" min="512" max="131072" value="32768" required><p class="field-help">默认 32768；更长上下文需要更多内存。</p></div>
+            <div><label for="context">上下文长度</label><input id="context" type="number" min="512" max="131072" value="32768" required><p class="field-help">Qwen 默认 32768；DeepSeek 当前最高 8192。更长上下文需要更多内存。</p></div>
             <div><label for="backend">显卡</label><select id="backend"><option value="auto">自动选择</option><option value="cuda">NVIDIA</option><option value="hip">AMD（文本）</option></select></div>
             <div><label for="vision">视觉模式</label><select id="vision"><option value="auto">自动选择</option><option value="no">仅文本</option><option value="gpu">NVIDIA GPU 视觉</option><option value="cpu">CPU 视觉</option></select></div>
-          </div><label class="checkbox"><input id="native-video" type="checkbox">启用 NVIDIA 原生双帧视频分析</label><p class="field-help">需要兼容的 Qwen 模型和视觉权重；默认关闭。</p></details>
+          </div><div id="deepseek-options" hidden><label for="deepseek-speed">DeepSeek 质量模式</label><select id="deepseek-speed"><option value="full">完整质量 · Full · 6 个专家（默认）</option><option value="faster">更快 · Faster · 5 个专家</option></select><p class="field-help">Faster 少使用一个专家，可能改变回答质量，速度取决于硬件。当前本地 DeepSeek 包仅支持文本；图片和视频请切换 Qwen。</p></div><label class="checkbox"><input id="native-video" type="checkbox">启用 NVIDIA 原生双帧视频分析</label><p class="field-help">需要兼容的 Qwen 模型和视觉权重；默认关闭。</p></details>
           <div class="form-footer"><button type="submit" id="save" class="button primary">保存并进入</button><span class="footer-note">只使用本机文件</span></div>
         </form>
       </section>

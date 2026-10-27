@@ -21,6 +21,8 @@
 
 端口被占用时自动选择空闲端口，以页面显示的地址为准。尚无模型可在设置页主动下载并准备官方 IQ3_S；需要勾选约 89GB 的流量和磁盘说明，普通启动不会下载模型。[模型设置说明](docs/MODEL-SETUP.zh-CN.md)
 
+大于单个附件限制的完整包会分为 `.zip.001` 等分卷。下载同版本同类型的全部分卷、`.parts.json`、`ASSEMBLE.ps1` 和 `ASSEMBLE.bat`，放在同一目录，双击 `ASSEMBLE.bat` 校验并合成 ZIP，再解压。已安装用户继续使用一键组件更新。
+
 Release 附 SHA256，VERIFY-PACKAGE.bat 检查解压文件。请下载发行资产，Source code ZIP 不含运行环境。[整合包说明](README-PORTABLE.zh-CN.md)
 
 ## 可选视频对白分析
@@ -61,15 +63,19 @@ Release 附 SHA256，VERIFY-PACKAGE.bat 检查解压文件。请下载发行资�
 
 Strata-data 可位于运行包内、旁边或导入的其他路径；仅下载主模型 GGUF 后需运行 PREPARE-MODEL.bat 完成准备。
 
+## DeepSeek 本地文本模型
+
+支持独立的 DeepSeek-V4.1-Flash-1017 pack 目录，默认 Full 完整质量，可选择 Faster。上下文最高 8192；当前适配的 native 文件仅支持文本，视频和语音融合请使用 Qwen。[文件要求、模型来源与导入](docs/DEEPSEEK-T8.zh-CN.md)。
+
 ## 环境与更新
 
 Windows 10 1903+/11 x64、AVX2 CPU、SSD。NVIDIA RTX 20/30/40/50 系列建议 12GB 以上显存、驱动 580+；IQ3_S 建议 96GB 以上 RAM。RTX 4060 Ti 16GB / 128GB RAM 的验证范围见[本版验收](docs/VALIDATION-UPSTREAM-0142-T8.md)。AMD 文本兼容以[上游列表](docs/AMD_HIP.md)为准，尚无 AMD 实机验收，Windows AMD 视觉暂不支持。
 
 启动时后台自动检查版本；模型设置页提供 **检查更新 / 一键更新**，聊天页 About 也可进入。点击更新后停止本启动器的服务，打开进度窗口，自动下载、校验及安装，完成后重新打开模型设置页；模型与配置保留，失败回滚。命令行仍可在退出服务后运行 **UPDATE-PORTABLE.bat**。旧 NoModels 用户先更新，再用 **INSTALL-VISION.bat** 切换；节点通过自己的 Manager/仓库更新后重启 ComfyUI。
 
-仓库每日检查上游正式版本，合并及测试通过后自动打包发布；可在 [Actions](https://github.com/T8mars/Strata-T8/actions) 手动同步 main。冲突、测试失败或缺少匹配引擎时停止发布。[更新机制](docs/UPDATING-T8.md)
+仓库每日检查上游正式版本并生成升级候选；完成合并审查和回归验收后，再手动触发发布。用户整合包仍自动检查 T8 正式版，并支持一键更新。[更新机制](docs/UPDATING-T8.md)
 
-当前源码基于上游 [v0.1.45](https://github.com/Niko1221/Strata/releases/tag/v0.1.45)，配套节点 **1.3.0** 和 ComfyUI Protocol 1。同步模型兼容、API、提示缓存、安装诊断及后端修复。T8 的 EXE 启动器、局域网 API、自动更新、视频进度恢复、自适应采样、语音转录与音画联合分析继续保留。现有主模型和视觉权重可沿用；已发布整合包的版本以 [Release](https://github.com/T8mars/Strata-T8/releases/latest) 为准。[同步策略与验证范围](docs/VALIDATION-UPSTREAM-0145-T8.md)
+当前候选源码基于上游 [v0.2.6](https://github.com/Niko1221/Strata/releases/tag/v0.2.6)，应用版本 **0.2.6-t8.1**，配套节点 **1.3.1** 和 ComfyUI Protocol 1。同步模型兼容、API、提示缓存、安装诊断及后端修复。T8 的 EXE 启动器、局域网 API、自动更新、视频进度恢复、自适应采样、语音转录与音画联合分析继续保留。现有主模型和视觉权重可沿用；已发布整合包的版本以 [Release](https://github.com/T8mars/Strata-T8/releases/latest) 为准。[同步策略](docs/UPDATING-T8.md)
 
 上游在适用 NVIDIA 配置中默认启用专家尾部跳过和实测 PCIe 分配，回答可能略有变化。需要恢复此前行为，可在运行配置的 `env` 对象设置 `"STRATA_ROUTE_TAIL_SKIP":"0"` 和 `"STRATA_PCIE_FRAC_DEFAULT":"old"`，然后重启；已有显式 `--pcie-frac` 参数继续优先。上游性能数字取决于硬件与模型，不代表本机速度。
 

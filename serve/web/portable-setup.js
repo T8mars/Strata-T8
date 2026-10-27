@@ -3,6 +3,7 @@ const $ = id => document.getElementById(id);
 const token = document.querySelector('meta[name="strata-setup-token"]').content;
 let initialized = false, redirect = new URLSearchParams(location.search).get("enter") === "1", state = null, polling = false, choosing = false, preparedPath = null;
 let updateStartedAt = 0;
+let selectedFamily = null, qwenSettings = null;
 async function api(path, body) {
   const options = {headers: {"X-Strata-Setup-Token": token}, cache: "no-store"};
   if (body !== undefined) { options.method = "POST"; options.headers["Content-Type"] = "application/json"; options.body = JSON.stringify(body); }
@@ -95,6 +96,8 @@ function render(current) {
     const d = current.defaults;
     $("model-path").value = d.path || ""; $("port").value = d.port; $("context").value = String(d.context);
     $("backend").value = d.backend; $("vision").value = d.vision; $("native-video").checked = d.native_video;
+    $('deepseek-speed').value = d.speed || 'full';
+    if (current.model) applyModelCapabilities(current.model);
     $("browse").hidden = !current.folder_picker;
     $("download-path").value = d.path || "";
     $('api-scope').value = current.network?.scope || 'local';
@@ -106,7 +109,7 @@ function render(current) {
   for (const id of ['api-scope','network-key','generate-network-key','copy-network-key','clear-network-key','save-network']) $(id).disabled = blocked;
   $('clear-network-key').disabled = blocked || $('api-scope').value === 'lan';
   $('network-key-status').textContent = current.network?.api_key_configured ? '已有密钥；页面不回显。留空保留，填写新值则替换。' : '尚未设置密钥。局域网模式必须先设置。';
-  for (const id of ["model-path", "browse", "check", "scan", "port", "context", "backend", "vision", "native-video", "save"]) $(id).disabled = blocked;
+  for (const id of ["model-path", "browse", "check", "scan", "port", "context", "backend", "vision", "native-video", "deepseek-speed", "save"]) $(id).disabled = blocked;
   for (const id of ["download-path", "download-consent", "prepare"]) $(id).disabled = blocked || current.running;
   for (const button of $("candidates").querySelectorAll(".candidate-select")) button.disabled = blocked;
   $("running-notice").hidden = !current.running;
@@ -191,7 +194,7 @@ async function scan() {
       button.disabled = choosing || !!(state && ['preparing', 'configuring', 'starting', 'stopping', 'updating'].includes(state.job.state));
       button.onclick = async () => {
         if (choosing || (state && ["preparing", "configuring", "starting", "stopping"].includes(state.job.state))) return;
-        $("model-path").value = model.path; markSelectedModel();
+        $("model-path").value = model.path; applyModelCapabilities(model); markSelectedModel();
         if (state?.running && state.model?.path?.toLowerCase() === model.path.toLowerCase()) return;
         await importSelectedModel();
       };
@@ -204,8 +207,23 @@ async function scan() {
 async function check() {
   clearError();
   const requested = $("model-path").value.trim();
-  try { const result = await api("/api/check", {path: requested}); if ($("model-path").value.trim() !== requested) return; $("model-path").value = result.model.path; markSelectedModel(); $("check-result").textContent = "检查通过 · " + result.model.label + " · 模型与辅助文件完整"; $("check-result").hidden = false; }
+  try { const result = await api("/api/check", {path: requested}); if ($("model-path").value.trim() !== requested) return; $("model-path").value = result.model.path; applyModelCapabilities(result.model); markSelectedModel(); $("check-result").textContent = "检查通过 · " + result.model.label + (result.model.text_only ? " · 当前模型包支持文本；图片和视频请选择 Qwen" : " · 模型与辅助文件完整"); $("check-result").hidden = false; }
   catch (e) { if ($("model-path").value.trim() !== requested) return; $("check-result").hidden = true; fail(e); }
+}
+function applyModelCapabilities(model) {
+  $('deepseek-options').hidden = model.family !== 'deepseek41';
+  if (model.family === 'deepseek41') {
+    if (selectedFamily && selectedFamily !== 'deepseek41') {
+      qwenSettings = {context:$('context').value, vision:$('vision').value, native:$('native-video').checked, backend:$('backend').value};
+    }
+    $('context').value = String(Math.min(Number($('context').value) || 8192, 8192));
+    $('vision').value = 'no'; $('native-video').checked = false; $('backend').value = 'cuda';
+  } else if (selectedFamily === 'deepseek41') {
+    const saved = qwenSettings || {context:'32768', vision:state?.vision_available ? 'auto' : 'no', native:false, backend:'auto'};
+    $('context').value = saved.context; $('vision').value = saved.vision;
+    $('native-video').checked = saved.native; $('backend').value = saved.backend;
+  }
+  selectedFamily = model.family || 'qwen'; // Older launchers omit the family for Qwen cards.
 }
 $("model-path").oninput = () => { $("check-result").hidden = true; markSelectedModel(); clearError(); };
 $("scan").onclick = scan; $("check").onclick = check;
@@ -220,9 +238,12 @@ $("backend").onchange = () => { if ($("backend").value === "hip") { $("vision").
 $("vision").onchange = () => { if ($("vision").value === "no") $("native-video").checked = false; };
 async function importSelectedModel() {
   if (choosing || !$("model-form").reportValidity()) return;
-  const payload = {path: $("model-path").value.trim(), port: Number($("port").value), context: Number($("context").value), vision: $("vision").value, backend: $("backend").value, native_video: $("native-video").checked};
   clearError(); redirect = true; choosing = true; if (state) render(state);
   try {
+    const checked = await api('/api/check', {path:$('model-path').value.trim()});
+    applyModelCapabilities(checked.model);
+    const payload = {path: checked.model.path, port: Number($("port").value), context: Number($("context").value), vision: $("vision").value, backend: $("backend").value, native_video: $("native-video").checked};
+    if (checked.model.family === 'deepseek41') payload.speed = $('deepseek-speed').value;
     try { await api("/api/import", payload); }
     catch (error) {
       // Older local launchers validate the model, then require a separate stop.

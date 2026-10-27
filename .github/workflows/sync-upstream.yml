@@ -5,7 +5,7 @@ on:
   workflow_dispatch:
     inputs:
       source:
-        description: Upstream branch to merge (main does not publish automatically)
+        description: Upstream source for a tested review candidate
         type: choice
         options: [release, main]
         default: release
@@ -31,9 +31,8 @@ jobs:
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-      - name: Create preview branch for upstream main
-        if: inputs.source == 'main'
-        run: git switch -c codex/upstream-main-${{ github.run_id }}
+      - name: Create isolated review candidate
+        run: git switch -c codex/upstream-review-${{ github.run_id }}
       - name: Merge upstream
         id: sync
         env:
@@ -45,11 +44,11 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: T8mars/Comfyui-Strata-T8
-          ref: ff734f98d013bdf0f7cd728017a2d8bb6008fccf # Node 1.3.0, video progress and protocol 1
+          ref: 8d8dc1ff9d3b97be2083b5300a2c204c51ed42ca # Node 1.3.1, protocol 1
           path: .portable-build/node-regression
       - name: Install test dependencies
         if: steps.sync.outputs.changed == 'true'
-        run: python -m pip install -r requirements.txt -r requirements-portable.txt
+        run: python -m pip install -r requirements.txt -r requirements-portable.txt -r requirements-test.txt
       - uses: actions/setup-node@v4
         if: steps.sync.outputs.changed == 'true'
         with:
@@ -71,15 +70,14 @@ jobs:
       - name: Setup regression tests
         if: steps.sync.outputs.changed == 'true'
         run: python tools/run_release_checks.py --group setup
-      - name: Push tested merge
+      - name: Push tested review candidate
         if: steps.sync.outputs.changed == 'true'
         env:
           SYNC_SOURCE: ${{ inputs.source || 'release' }}
         run: |
           python tools/check_private_paths.py --ref HEAD
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
-          if ($env:SYNC_SOURCE -eq 'main') { git push origin HEAD }
-          else { git push origin HEAD:main }
+          git push origin HEAD
       - name: Preserve conflict branch
         if: failure()
         shell: pwsh
@@ -96,10 +94,3 @@ jobs:
           name: upstream-sync-diagnostics
           path: .portable-build/upstream-conflict.json
           if-no-files-found: ignore
-  release:
-    needs: sync
-    if: needs.sync.outputs.changed == 'true' && (github.event_name == 'schedule' || inputs.source == 'release')
-    uses: ./.github/workflows/release.yml
-    with:
-      ref: ${{ needs.sync.outputs.commit }}
-    secrets: inherit

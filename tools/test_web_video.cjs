@@ -195,7 +195,7 @@ test('a failed video upload blocks sending an ordinary text request against old 
   assert.equal(ui.calls.length,0);assert.equal(ui.run('messages.length'),0);
 });
 
-function setupPage(legacy=false, invalid=false) {
+function setupPage(legacy=false, invalid=false, family='qwen') {
   const nodes={}, calls=[], navigations=[], current={configured:true,running:true,chat_url:'http://127.0.0.1:8080/',model:{path:'E:\\old'},job:{state:'ready',message:'ready'},
     defaults:{path:'E:\\old',port:8080,context:32768,backend:'cuda',vision:'gpu',native_video:true},vision_available:true,folder_picker:true};
   const get=id=>nodes[id] || (nodes[id]=element());
@@ -206,6 +206,7 @@ function setupPage(legacy=false, invalid=false) {
     fetch:async (url,options)=>{
       const body=options.body ? JSON.parse(options.body):null; calls.push({url,body});
       if(url==='/api/models') return {ok:true,json:async()=>({models:[{path:'E:\\old',label:'Old',api_model_id:'configured-old-id'},{path:'E:\\new',label:'New',api_model_id:'configured-new-id'}]})};
+      if(url==='/api/check') return {ok:!invalid,json:async()=>invalid ? {error:'模型目录不完整'} : {model:{path:body.path,family}}};
       if(url==='/api/import') {
         if(invalid)return {ok:false,json:async()=>({error:'模型目录不完整'})};
         if(legacy&&current.running)return {ok:false,json:async()=>({error:'请先停止当前服务，再更换模型。'})};
@@ -218,6 +219,28 @@ function setupPage(legacy=false, invalid=false) {
   vm.runInContext(script,context); vm.runInContext('render('+JSON.stringify(current)+')',context);
   return {nodes,calls,navigations,context,run:code=>vm.runInContext(code,context)};
 }
+test('manually entered DeepSeek pack applies text-only limits before import and restores Qwen choices',async()=>{
+  const ui=setupPage(false,false,'deepseek41');
+  ui.nodes['model-path'].value='D:/existing native pack';
+  ui.nodes['deepseek-speed'].value='full';
+  await ui.run('importSelectedModel()');
+  const sent=ui.calls.find(c=>c.url==='/api/import').body;
+  assert.equal(sent.path,'D:/existing native pack');assert.equal(sent.context,8192);
+  assert.equal(sent.vision,'no');assert.equal(sent.native_video,false);assert.equal(sent.speed,'full');
+  assert.equal(ui.nodes['deepseek-options'].hidden,false);
+  ui.run("applyModelCapabilities({family:'qwen'})");
+  assert.equal(ui.nodes.context.value,'32768');assert.equal(ui.nodes.vision.value,'gpu');
+  assert.equal(ui.nodes['native-video'].checked,true);assert.equal(ui.nodes['deepseek-options'].hidden,true);
+});
+
+test('DeepSeek Faster is explicit and first entering Qwen restores visual defaults',async()=>{
+  const ui=setupPage(false,false,'deepseek41');ui.nodes['deepseek-speed'].value='faster';
+  await ui.run('importSelectedModel()');
+  assert.equal(ui.calls.find(c=>c.url==='/api/import').body.speed,'faster');
+  ui.run("qwenSettings=null;applyModelCapabilities({family:'qwen'})");
+  assert.equal(ui.nodes.vision.value,'auto');assert.equal(ui.nodes.context.value,'32768');
+});
+
 test('LAN base URLs require ready authenticated service and private IPv4 matching the actual API port',async()=>{
   const ui=setupPage();
   ui.run("render({...state,api_connection:{model_id:'live-id',base_url:'http://127.0.0.1:8080/v1',api_key_required:true,lan_base_urls:['http://8.8.8.8:8080/v1','http://192.168.0.5:9999/v1','http://192.168.0.5:8080/v1?key=secret','http://192.168.0.5:8080/v1']}})");

@@ -12,7 +12,7 @@ import zipfile
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from portable_version import ROOT, archive_name, source_version, version_key, upstream_version_key
-from portable_build_provenance import ENGINE_ASSETS, build_identity, validate_engine_build
+from portable_build_provenance import ENGINE_ASSETS, engine_assets, build_identity, validate_engine_build
 from portable_update import update_json, validate_manifest, validate_metadata, safe_path
 from portable_weights import weight_declaration
 from check_private_paths import is_private_path, private_paths
@@ -42,7 +42,7 @@ def checkout_identity(root):
         raise ValueError('Invalid release repository metadata')
     key = version_key(meta['version'])
     identity = build_identity(meta, source_version(root))
-    if key[:3] != upstream_version_key(identity['engine_version'])[:3]:
+    if key[:3] != upstream_version_key(identity['upstream_version'])[:3]:
         raise ValueError('Package version differs from its source engine version')
     if identity['upstream_commit'] is None or meta.get('upstream_release_tag') != identity['upstream_release_tag']:
         raise ValueError('Publishing requires a frozen stable upstream release and asset pins')
@@ -70,7 +70,8 @@ def audit_archive(archive, checksum, meta, head, edition, *, root=ROOT):
     for path in (archive, checksum):
         if not path.is_file() or path.is_symlink() or getattr(path, 'is_junction', lambda: False)():
             raise ValueError('Release asset is missing or linked')
-    if archive.stat().st_size >= 2*1024**3 or checksum.stat().st_size > 512:
+    limit = 16*1024**3 if meta.get('component_schema') == 2 else 2*1024**3
+    if archive.stat().st_size >= limit or checksum.stat().st_size > 512:
         raise ValueError('Release asset exceeds its size limit')
     checksum_bytes = checksum.read_bytes()
     stamp = checksum_bytes.decode('ascii')
@@ -103,13 +104,13 @@ def audit_archive(archive, checksum, meta, head, edition, *, root=ROOT):
                 raise ValueError('Duplicate release ZIP member')
             seen.add(key)
             expanded += entry.file_size
-            if expanded > 8*1024**3:
-                raise ValueError('Release ZIP expands beyond 8 GiB')
+            if expanded > (16 if meta.get('component_schema') == 2 else 8)*1024**3:
+                raise ValueError('Release ZIP expands beyond its bounded size limit')
             if not entry.is_dir():
                 files[relative] = entry
         manifest = _zip_json(package, prefix+'/PACKAGE-MANIFEST.json')
         validate_manifest(virtual, manifest, verify=False)
-        expected_identity = build_identity(meta, meta['upstream_version'])
+        expected_identity = build_identity(meta, meta.get('source_version', meta['upstream_version']))
         if (manifest.get('version') != meta['version'] or manifest.get('source_commit') != head
                 or manifest.get('edition') != edition or any(manifest.get(k) != v for k, v in expected_identity.items())):
             raise ValueError('Package manifest differs from tested source, upstream release or edition')
@@ -131,13 +132,13 @@ def audit_archive(archive, checksum, meta, head, edition, *, root=ROOT):
         if application != expected_application:
             raise ValueError('Packaged metadata differs from tested checkout')
         engines = manifest.get('engines')
-        if not isinstance(engines, dict) or set(engines) != set(ENGINE_ASSETS):
+        if not isinstance(engines, dict) or set(engines) != set(engine_assets(meta)):
             raise ValueError('Package requires both native engine provenance records')
-        for directory in ENGINE_ASSETS:
+        for directory in engine_assets(meta):
             build = _zip_json(package, prefix+f'/{directory}/BUILD.json', 8*1024**2)
             # Source verification belongs to the publisher's checkout; binary
             # verification below uses the ZIP members already hashed above.
-            validate_engine_build(build, directory, meta, meta['upstream_version'],
+            validate_engine_build(build, directory, meta, meta.get('source_version', meta['upstream_version']),
                                   root=root, verify_artifacts=False, require_native_source=True)
             if engines[directory] != build:
                 raise ValueError('Engine manifest differs from its packaged BUILD.json')
@@ -173,8 +174,14 @@ def audit_assets(root, meta, head, *, with_digests=False):
         archive = dist/archive_name(meta['version'], edition)
         checksum = archive.with_name(archive.name+'.sha256')
         report = audit_archive(archive, checksum, meta, head, edition, root=root)
-        assets.extend((archive, checksum))
-        digests[archive.name] = report['sha256']
+        if archive.stat().st_size >= 2*1024**3:
+            from portable_release_parts import validate
+            parts, part_digests = validate(archive, report['sha256'])
+            assets.extend(parts); digests.update(part_digests)
+            assets.append(checksum)
+        else:
+            assets.extend((archive, checksum))
+            digests[archive.name] = report['sha256']
         digests[checksum.name] = report['checksum_sha256']
     return (assets, digests) if with_digests else assets
 
@@ -287,11 +294,19 @@ def release_api(root, repository, tag):
 
 def _publish_verified_assets(root, meta, head, assets, digests=None, *, component_assets=()):
     repository, tag = meta['repository'], 'v'+meta['version']
-    expected_paths = [Path(root)/'dist'/name for edition in EDITIONS for name in
-                      (archive_name(meta['version'], edition), archive_name(meta['version'], edition)+'.sha256')]
+    expected_paths = []
+    for edition in EDITIONS:
+        archive = Path(root)/'dist'/archive_name(meta['version'], edition)
+        checksum = archive.with_name(archive.name+'.sha256')
+        if archive.stat().st_size >= 2*1024**3:
+            from portable_release_parts import validate, digest
+            parts, _ = validate(archive, digest(archive))
+            expected_paths.extend(parts); expected_paths.append(checksum)
+        else:
+            expected_paths.extend((archive, checksum))
     expected_paths.extend(component_assets)
     if list(map(lambda path: Path(path).resolve(), assets)) != [path.resolve() for path in expected_paths]:
-        raise ValueError('Publishing accepts exactly the four current edition assets')
+        raise ValueError('Publishing accepts exactly the audited current edition assets')
     if digests is None:  # Internal state-machine tests supply already-audited fixture files.
         digests = {}
         for path in assets:
@@ -315,7 +330,7 @@ def _publish_verified_assets(root, meta, head, assets, digests=None, *, componen
                 raise ValueError('Invalid or duplicate draft release assets')
             name = asset['name']
             if name not in digests:
-                raise ValueError('Draft contains assets outside the four current edition files')
+                raise ValueError('Draft contains assets outside the audited current edition files')
             names.add(name)
             if complete:
                 path = next(Path(path) for path in assets if Path(path).name == name)
@@ -323,7 +338,7 @@ def _publish_verified_assets(root, meta, head, assets, digests=None, *, componen
                         or asset['size'] != path.stat().st_size or asset.get('state') != 'uploaded'):
                     raise ValueError('Uploaded release asset did not confirm its audited size and SHA256')
         if complete and names != set(digests):
-            raise ValueError('Release upload did not confirm all four edition assets')
+            raise ValueError('Release upload did not confirm all audited edition assets')
     def check_checkout():
         current_meta, current_head = checkout_identity(root)
         if current_meta != meta or current_head != head:

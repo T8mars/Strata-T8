@@ -15,7 +15,7 @@ import zipfile
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from portable_version import ROOT, metadata, source_version
-from portable_build_provenance import ENGINE_ASSETS, build_identity, validate_engine_build
+from portable_build_provenance import ENGINE_ASSETS, engine_assets, build_identity, validate_engine_build
 from windows_utf8_manifest import patch_engine
 sys.path.insert(0, str(ROOT))
 import setup
@@ -107,7 +107,7 @@ def bootstrap_engines(meta, version, cache, destination):
             raise ValueError('Duplicate upstream asset name')
         assets[asset['name']] = asset
     builds = {}
-    for directory, name in ENGINE_ASSETS.items():
+    for directory, name in engine_assets(meta).items():
         asset = assets[name]
         digest = asset.get('digest', '')
         if not isinstance(digest, str) or not re.fullmatch('sha256:[0-9a-f]{64}', digest):
@@ -134,10 +134,15 @@ def bootstrap_engines(meta, version, cache, destination):
         keep_backup = False
         try:
             staged = temporary/directory
-            extract(archive, staged)
+            component = meta.get('engine_components', {}).get(directory)
+            if component:
+                from portable_upstream_components import extract_verified_component
+                extract_verified_component(archive, staged, component)
+            else:
+                extract(archive, staged)
             path = staged/'BUILD.json'
             build = json.loads(path.read_text(encoding='utf-8'))
-            if build.get('version') != identity['engine_version']:
+            if build.get('version') != (component['version'] if component else identity['engine_version']):
                 raise ValueError(f'Mismatched upstream engine: {directory}')
             build['upstream_asset'] = {'repository': repository, 'release_tag': tag, 'name': name,
                                        'sha256': sha, 'upstream_commit': identity['upstream_commit']}
@@ -229,6 +234,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--gguf-only', action='store_true',
                         help='Prepare pinned gguf-py source for CPU checks only; no Python, engine or model downloads')
+    parser.add_argument('--native-jobs', type=int, choices=range(1, 33), default=4,
+                        help='Parallel native compiler jobs; use 1 on memory-limited build runners')
     args = parser.parse_args()
     if args.gguf_only:
         bootstrap_gguf(ROOT/'.portable-build')
@@ -260,7 +267,8 @@ def main():
     bootstrap_engines(meta, version, cache, ROOT)
     bootstrap_gguf(cache)
     if features.get('native_video_cuda'):
-        subprocess.run([str(python), '-X', 'utf8', str(ROOT/'tools/build_native_portable.py')], check=True)
+        subprocess.run([str(python), '-X', 'utf8', str(ROOT/'tools/build_native_portable.py'),
+                        '--jobs', str(args.native_jobs)], check=True)
     if features.get('portable_exe_launcher'):
         subprocess.run([str(python), '-X', 'utf8', str(ROOT/'tools/build_windows_launcher.py')], check=True)
     print(f'Runtime ready for Strata {version}', flush=True)

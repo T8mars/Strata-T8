@@ -21,7 +21,7 @@
 
 ## 上游同步
 
-`Sync upstream` 每日检查 Niko1221/Strata 最新正式 Release，保留 Git 历史进行合并，运行服务器、安全、更新和安装测试，通过后推送 main，并调用自动打包工作流。
+`Sync upstream` 每日检查 Niko1221/Strata 最新正式 Release，在独立的 `codex/upstream-review-*` 分支保留 Git 历史合并，运行服务器、安全、网页、节点与安装测试，通过后推送候选分支。维护者审查、完成原生编译和实机验收后再合入稳定版；同步工作流不会直接改动 main 或发布整合包。
 
 在 Actions 手动运行，选择 `main` 将上游最新源码合入 `codex/upstream-main-*` 验证分支，测试通过后推送该分支；稳定 main 分支仍跟随正式版，此模式不自动发布整合包。README.md 是 T8 入口，合并时保留；上游 README 更新到 README-UPSTREAM.md。其他源码冲突时终止合并，保留指向上游提交的 `codex/upstream-*` 分支及冲突诊断 artifact，不覆盖 T8 修改。
 
@@ -32,7 +32,9 @@ python tools/sync_upstream.py --source release
 python tools/sync_upstream.py --source main
 ```
 
-上游 Release、源码和引擎支持三段或四段版本。`v0.1.40.1` 使用 `0.1.40` 引擎，`v0.1.40.2` 的源码和引擎均为 `0.1.40.2`。T8 发行版本保持三段基础版本加递增修订，例如 `0.1.40-t8.2`，供既有更新器和节点比较。meta.json 分别记录准确的 `upstream_release_tag`、`upstream_commit`、`engine_version` 和官方资产 SHA256；四段源码必须精确匹配 Release，三段源码允许同基础版本的热修复标签，下载的 BUILD.json 必须精确匹配记录的引擎版本。正式版自动刷新资产摘要，没有源码变化时也核对摘要。main 验证分支不沿用旧资产摘要，同时保留 `upstream_stable_release_tag` 作为正式版下限；旧版本或旧于当前 main 的正式提交不能重新标记为新版。
+上游应用、源码和引擎分别编号。v0.2.6 的应用版本为 0.2.6，源码与 Control 为 0.1.51，官方 Qwen 引擎为 0.1.50、DeepSeek 引擎为 0.1.51。`meta.json` 的 `component_schema: 2` 分别绑定发布标签、源码提交及六个 Windows 引擎资产的版本、后端、变体和 SHA256；不要求应用和每个引擎版本相等。T8 版本仍为三段版本加修订，例如 `0.2.6-t8.1`，供现有更新器比较。旧格式元数据仍使用原有校验。
+
+官方组件先核对固定资产 SHA256、签名清单及文件清单。T8 自编译的 CUDA 原生视频引擎另记录源码输入摘要、工具链、架构与构建结果。给官方二进制补 UTF-8 manifest 后，保留原始签名来源回执并记录修改后的摘要；不将 T8 修改后的二进制宣称为官方签名原件。当前没有另建 T8 签名服务。
 
 上游重写历史时，仅在已导入的上游提交仍属于本仓历史，且新历史包含完全相同的文件树时建立历史连接。找不到此锚点则停止并保留诊断，交由人工审查；不会清空或强制重置 T8 历史。v0.1.40.1 同步已连接新旧相同的 v0.1.39 基准。
 
@@ -40,18 +42,20 @@ Git 克隆副本使用上游 START-HERE.bat / UPDATE.bat 安装更新；整合�
 
 ## 自动打包与发布
 
-`Build portable release` 可由同步工作流调用，也可手动对指定提交运行。同步工作流传入通过测试的完整提交 SHA。Windows x64 runner 读取 meta.json 和 CMakeLists.txt，下载固定 SHA256 的嵌入式 Python，安装锁定依赖与 CUDA wheels，从记录的上游 Release 标签获取 CUDA/HIP 引擎，核对资产 SHA256、来源提交与 BUILD.json。为未签名的 strata.exe 与 strata-vision.exe 添加应用 UTF-8 manifest，保留其他资源及权限；记录原始/分发二进制 SHA256，并在打包清单中记录实际修改后的引擎。已签名资产需要由上游构建支持后再发行。
+`Build portable release` 由维护者对审查过的提交运行，先冻结完整提交 SHA。Windows x64 runner 读取元数据，下载固定 SHA256 的嵌入式 Python，安装锁定依赖与 CUDA wheels，取得固定版本的 CUDA 12/13、AMD RDNA2/RDNA3/RX9070 和 DeepSeek 引擎，并构建 T8 原生视频引擎。每个引擎分别核对来源；不能拿 Qwen 的版本要求验证 DeepSeek，也不能用不含 T8 视频能力的官方二进制替换自编译版本。
 
 缺少匹配引擎、依赖不兼容或测试失败均停止发布。打包采用明确文件列表，只允许固定视觉权重，禁止主模型、MTP、用户模型目录和本地规划文件。清单记录 T8 源码 SHA、上游标签/提交、引擎版本、依赖来源及每个文件的摘要。
 
 发布器再次逐文件校验两版完整 ZIP、SHA256、清单和引擎来源；有组件索引时，将其与相应完整 ZIP 逐项绑定并校验全部组件。只上传本版本明确审计的资产，共享组件按内容摘要去重。发布前确认远端标签指向实际测试 SHA；无标签的草稿须绑定此 SHA，已有标签则以其实际提交为准。上传后核对完整资产集的名称、大小和 GitHub 摘要，再公开 Release。网络或鉴权失败不能当作“Release 不存在”；同标签的已发布资产保持不变，标签指向其他提交时拒绝发布。
 
+完整 ZIP 超过 GitHub 单资产限制时，初次安装使用 `.zip.001` 等分卷、`.zip.parts.json` 和同名 `ASSEMBLE.bat` / `ASSEMBLE.ps1`。放到同一目录，双击 BAT 后先校验各卷，再合成并校验完整 ZIP；解压后运行 `Strata-T8.exe`。分卷不是可单独解压的组件。自动更新继续使用 Components 索引，不要求用户手动合并。每个上传资产小于 2 GiB，完整 ZIP 和两种环境文件夹留作本地审计及离线分发。
+
 GitHub runner 没有目标 GPU，自动检查不代表所有 GPU 的推理验收。AMD 验证状态记录在 features.json。升级 Python 大版本时需同步路径配置并重新验收。
 
-Windows 正式发布要求适用于 Windows 的全部应用、安装器及节点测试实际执行，无失败、错误或跳过。上游 Docker 入口依赖 POSIX shell 和符号链接，单独由 Linux CI 的 `posix --strict` 门槛执行，Windows 不将这三项标记为已通过。
+Windows 正式发布要求适用于 Windows 的应用、安装器及节点测试实际执行，无失败、错误或跳过。Docker、POSIX 信号及 Linux 父进程退出行为在 Linux 的 `posix --strict` 门槛执行；需要 PyTorch 的模型打包等价性在独立 `model-packs --strict` 门槛执行，不把 PyTorch 加进用户运行环境。Terminal 单独运行 Windows 回归；各平台不适用的案例在测试报告中列出。模型 tokenizer 和 GPU 推理依赖本地模型，另行实机验收，不把缺模型跳过写成通过。
 
 ## 发行类型迁移
 
-每版发布 VisionReady-NoMainModel 和 Portable-NoModels，分别附 SHA256。旧 t8.4 更新器仍能获取新 NoModels 包；升级后 INSTALL-VISION.bat 可在相同版本切换类型。后续 UPDATE-PORTABLE 默认沿用当前类型，更新器仍拒绝降级版本。
+每版提供 VisionReady-NoMainModel 和 Portable-NoModels，分别附 SHA256。0.1.45-t8.1 已支持组件更新；跨版本保留原六个组件类别及契约 1，新增 DeepSeek/RDNA2/RDNA3 文件由应用组件承载，避免旧更新器拒绝未知类别。实际升级验收见本版验证记录。更早的仅支持完整 ZIP 的更新器不能直接下载分卷；应解压完整新版到新目录，再选择原模型目录。不要覆盖解压到旧程序中。`INSTALL-VISION.bat` 可在相同版本切换类型；后续更新默认沿用当前类型，拒绝降级版本。
 
-视觉配置在启动时迁移到新运行目录，保留 GPU/CPU 编码方式及 token 设置。切换 VisionReady 不下载主模型或 MTP。节点在 [独立仓库](https://github.com/T8mars/Comfyui-Strata-T8) 使用语义版本，通过 ComfyUI-Manager/Registry 或 Git 更新并重启；本机档案在节点目录外保存。整合包自动同步 Strata 上游；节点版本由其 pyproject.toml 管理，通过官方发布 Action 分别发布 GitHub Release 与 Registry。
+视觉配置在启动时迁移到新运行目录，保留 GPU/CPU 编码方式及 token 设置。切换 VisionReady 不下载主模型或 MTP。节点在 [独立仓库](https://github.com/T8mars/Comfyui-Strata-T8) 使用语义版本，按该仓库的发布状态通过 ComfyUI-Manager 或 Git 更新并重启；本机档案在节点目录外保存。整合包与节点分别发布，协议兼容不要求节点跟随整合包改版本。
