@@ -59,7 +59,11 @@ jobs:
                           '--report', str(report)], check=True)
           print(report.read_text())
           PY
-      - name: Run full server suite without terminal packages
+      - name: Install T8 multimedia dependencies for the full server suite
+        shell: bash
+        run: |
+          "$RUNNER_TEMP/strata-runtime-venv/bin/python" -m pip install -r requirements-portable.txt
+      - name: Run full T8 server suite
         shell: bash
         run: |
           "$RUNNER_TEMP/strata-runtime-venv/bin/python" -m unittest discover -s serve -p 'test_*.py'

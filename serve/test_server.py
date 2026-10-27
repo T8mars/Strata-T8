@@ -317,9 +317,13 @@ class T8VisionTempFiles(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "exceeds the context"):
                 svc.prepare(self.MSGS, None, {}, CTX)
             self.assertEqual(self.leftovers(d), [])
+            self.assertIsNone(svc.embeddings.path)
             svc.prepare(self.MSGS, None, {}, 16)                     # one that fits has it
-            self.assertEqual(len(self.leftovers(d)), 1)
+            # Linux can place the combined file in /dev/shm instead of vision.dir.
+            combined = Path(svc.embeddings.path)
+            self.assertTrue(combined.is_file())
             svc.drop_embeddings()                                    # ... until the request is done
+            self.assertFalse(combined.exists())
             self.assertEqual(self.leftovers(d), [])
 
     def test_over_http(self):

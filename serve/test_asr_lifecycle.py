@@ -84,7 +84,8 @@ class Boundaries(unittest.TestCase):
     def test_vad_is_external_and_asr_configuration_is_never_shipped(self):
         from tools.portable_update import safe_path
         with tempfile.TemporaryDirectory() as root:
-            self.assertEqual(config.vad_path(root,{**config.DEFAULTS,'model_dir':'D:/speech'}),Path('D:/speech/FireRedVAD-ONNX'))
+            speech = Path(root).resolve()/'external-speech'
+            self.assertEqual(config.vad_path(root,{**config.DEFAULTS,'model_dir':str(speech)}),speech/'FireRedVAD-ONNX')
             for name in ('asr-settings.json','.asr-cache/transcript.json'):
                 with self.assertRaises(ValueError):safe_path(Path(root),name)
 
