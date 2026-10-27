@@ -106,7 +106,7 @@ class ReleaseCheckGate(unittest.TestCase):
         path = self.tests/'test_policy_fixture.py'
         path.write_text('import unittest\n',encoding='utf-8')
         result, summary = self.invoke(strict=True,args=['--group','nodes','--node-tests',str(path)])
-        self.assertEqual(result.returncode,2)
+        self.assertEqual(result.returncode,2,result.stderr)
         self.assertIsNone(summary)
 
     def test_discovery_import_error_is_not_a_passing_nonempty_suite(self):

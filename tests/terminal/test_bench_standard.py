@@ -504,6 +504,16 @@ class RunTests(StandardBase):
         self.assertEqual(doc["run"]["status"], "complete")
         self.assertLess(time.monotonic() - started, 30)
 
+    def test_socket_timeout_is_reported_even_before_timer_runs(self):
+        connection = mock.Mock()
+        connection.request.side_effect = TimeoutError("timed out")
+        with mock.patch.object(self.target, "connection", return_value=connection), \
+                mock.patch.object(bs.threading, "Timer"):
+            raw = bs.stream_chat(self.target, self.server.specs["warmup"], "mock", timeout_s=1)
+        self.assertTrue(raw["timed_out"])
+        self.assertEqual(raw["error"]["kind"], "timeout")
+        connection.close.assert_called_once()
+
     def test_a_stream_without_done_or_finish_reason_is_a_failure(self):
         self.server.script["performance-short-r1"] = {"no_done": True}
         self.server.script["performance-short-r2"] = {"finish": None}
@@ -689,11 +699,14 @@ class RunTests(StandardBase):
 
     def test_a_round_total_is_null_when_a_counted_request_has_no_token_count(self):
         self.server.script["concurrency-r2-c3"] = {"usage": False}
-        doc, _ = self.run_standard(optional_concurrency=True)
+        # Fast loopback responses can fit inside one Windows GetTickCount64 tick.
+        with mock.patch.object(bs.time, "monotonic_ns", return_value=0):
+            doc, _ = self.run_standard(optional_concurrency=True)
         second = doc["concurrency_rounds"][1]
         self.assertIsNone(second["output_tokens"])
         self.assertIsNone(second["aggregate_tps"])
-        self.assertIsNotNone(doc["concurrency_rounds"][0]["aggregate_tps"])
+        self.assertIsNotNone(doc["concurrency_rounds"][0]["aggregate_tps"],
+                             json.dumps([r for r in doc["requests"] if r["id"].startswith("concurrency-r1-")]))
         self.assertEqual(bs.validate(doc), [])
 
     def test_the_plain_summary(self):

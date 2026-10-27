@@ -41,6 +41,8 @@ class HardwarePreflight(unittest.TestCase):
                 ram_gb=mock.Mock(return_value=128)))
         ds.check_hardware(machine, {'args':['--gpu','1']})
         ds.check_hardware(machine, {'args':['--gpu=1']})
+        ds.check_hardware(machine, {'args':['--gpus','1']})
+        ds.check_hardware(machine, {'args':['--gpus=1']})
         with self.assertRaisesRegex(RuntimeError, 'selected NVIDIA'):
             ds.check_hardware(machine, {'args':[]})
         for field, value, message in [('arch',75,'compatible CUDA'), ('vram_gb',8,'12 GB')]:

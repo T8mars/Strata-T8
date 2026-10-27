@@ -213,7 +213,7 @@ def _event_result(event: dict, first_ns: int | None,
     if isinstance(choices, list) and choices and isinstance(choices[0], dict):
         delta = choices[0].get("delta")
         if isinstance(delta, dict) and any(delta.get(key) for key in ("content", "reasoning_content", "tool_calls")):
-            first_ns = first_ns or time.monotonic_ns()
+            first_ns = first_ns or time.perf_counter_ns()
     usage = event.get("usage")
     if isinstance(usage, dict) and type(usage.get("completion_tokens")) is int:
         completion_tokens = usage["completion_tokens"]
@@ -234,7 +234,7 @@ def _request(root: str, credential: str | None, prompt: str, max_tokens: int,
                                      data=json.dumps(payload).encode("utf-8"), headers=headers, method="POST")
     if start_gate is not None:
         start_gate.wait()
-    start_ns = time.monotonic_ns()
+    start_ns = time.perf_counter_ns()
     first_ns = None
     tokens = None
     received = 0
@@ -291,7 +291,7 @@ def _request(root: str, credential: str | None, prompt: str, max_tokens: int,
     if operator is not None and operator.event.is_set():
         error = "operator_cancelled"
         done = False
-    end_ns = time.monotonic_ns()
+    end_ns = time.perf_counter_ns()
     result = {"label": label, "prompt_sha256": hashlib.sha256(prompt.encode("utf-8")).hexdigest(),
             "prompt_characters": len(prompt), "max_tokens": max_tokens,
             "status": status, "ok": status == 200 and done and error is None,
@@ -316,7 +316,7 @@ def _cancellable_request(root: str, credential: str | None, prompt: str, timeout
         headers["Authorization"] = "Bearer " + credential
     request = urllib.request.Request(root + "/v1/chat/completions",
                                      data=json.dumps(payload).encode("utf-8"), headers=headers, method="POST")
-    started = time.monotonic_ns()
+    started = time.perf_counter_ns()
     result.update({"label": "cancel_target", "prompt_sha256": hashlib.sha256(prompt.encode()).hexdigest(),
                    "prompt_characters": len(prompt), "max_tokens": 512, "status": None,
                    "client_closed": False, "first_content_seen": False, "error_code": None})
@@ -374,7 +374,7 @@ def _cancellable_request(root: str, credential: str | None, prompt: str, timeout
             result["error_code"] = "operator_cancelled"
         opened.set()
         ready_to_close.set()
-        result["latency_s"] = round((time.monotonic_ns() - started) / 1e9, 4)
+        result["latency_s"] = round((time.perf_counter_ns() - started) / 1e9, 4)
 
 
 def _cancel_phase(endpoint: Endpoint, telemetry: Endpoint, *, kind: str,

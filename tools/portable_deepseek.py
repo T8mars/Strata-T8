@@ -69,8 +69,8 @@ def check_hardware(portable, cfg):
     args = cfg.get('args', [])
     index = 0
     for i, arg in enumerate(args):
-        if arg == '--gpu' and i + 1 < len(args): index = int(args[i + 1])
-        elif arg.startswith('--gpu='): index = int(arg.split('=', 1)[1])
+        if arg in ('--gpu', '--gpus') and i + 1 < len(args): index = int(args[i + 1].split(',')[0])
+        elif arg.startswith(('--gpu=', '--gpus=')): index = int(arg.split('=', 1)[1].split(',')[0])
     card = next((g for g in portable.upstream.gpus() if g['index'] == index), None)
     if card is None:
         raise RuntimeError('DeepSeek needs an NVIDIA GPU; no selected NVIDIA card was detected')

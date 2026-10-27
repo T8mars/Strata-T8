@@ -48,7 +48,7 @@ Git 克隆副本使用上游 START-HERE.bat / UPDATE.bat 安装更新；整合�
 
 发布器再次逐文件校验两版完整 ZIP、SHA256、清单和引擎来源；有组件索引时，将其与相应完整 ZIP 逐项绑定并校验全部组件。只上传本版本明确审计的资产，共享组件按内容摘要去重。发布前确认远端标签指向实际测试 SHA；无标签的草稿须绑定此 SHA，已有标签则以其实际提交为准。上传后核对完整资产集的名称、大小和 GitHub 摘要，再公开 Release。网络或鉴权失败不能当作“Release 不存在”；同标签的已发布资产保持不变，标签指向其他提交时拒绝发布。
 
-完整 ZIP 超过 GitHub 单资产限制时，初次安装使用 `.zip.001` 等分卷、`.zip.parts.json` 和同名 `ASSEMBLE.bat` / `ASSEMBLE.ps1`。放到同一目录，双击 BAT 后先校验各卷，再合成并校验完整 ZIP；解压后运行 `Strata-T8.exe`。分卷不是可单独解压的组件。自动更新继续使用 Components 索引，不要求用户手动合并。每个上传资产小于 2 GiB，完整 ZIP 和两种环境文件夹留作本地审计及离线分发。
+完整 ZIP 超过 GitHub 单资产限制时，初次安装使用 `.zip.001` 等分卷、`.zip.parts.json` 和同名 `*-ASSEMBLE.bat` / `*-ASSEMBLE.ps1`。放到同一目录，双击 BAT 后先校验各卷，再合成并校验完整 ZIP；解压后运行 `Strata-T8.exe`。分卷不是可单独解压的组件。自动更新继续使用 Components 索引，不要求用户手动合并。每个上传资产小于 2 GiB，完整 ZIP 和两种环境文件夹留作本地审计及离线分发。
 
 GitHub runner 没有目标 GPU，自动检查不代表所有 GPU 的推理验收。AMD 验证状态记录在 features.json。升级 Python 大版本时需同步路径配置并重新验收。
 

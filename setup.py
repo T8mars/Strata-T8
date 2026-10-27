@@ -2870,7 +2870,8 @@ def download(url, dst: Path, what=None):
     for attempt in range(5):
         try:
             req = urllib.request.Request(url, method="HEAD", headers={"User-Agent": "strata-setup"})
-            total = int(_urlopen(req, timeout=60).headers.get("Content-Length", 0))
+            with _urlopen(req, timeout=60) as response:
+                total = int(response.headers.get("Content-Length", 0))
             break
         except urllib.error.HTTPError as e:
             if e.code == 404 and hf_unpinned(url) != url:  # the pinned revision is gone from the repository

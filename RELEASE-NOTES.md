@@ -6,7 +6,7 @@
 
 完整环境包含 Python 3.12.10、锁定依赖、CUDA 12/13 和 AMD 分型引擎、DeepSeek 引擎及 CPU 语音环境；VisionReady 另含视觉权重。主模型、MTP 与语音权重独立安装。超过单资产限额的完整 ZIP 使用带校验的分卷，自动更新仍走原组件协议。上游定时同步只生成审查分支，验收后由维护者发布。[更新说明](https://github.com/T8mars/Strata-T8/blob/v0.2.6-t8.1/docs/UPDATING-T8.md)
 
-修复工具调用结束时的参数保留、误把普通文本识别为调用、关闭服务时的子进程清理、Windows 配置替换、HEAD 重定向意外下载正文，以及终端小窗口长路径遮挡保存选项。验证范围和硬件限制记录在 [本版验收](https://github.com/T8mars/Strata-T8/blob/v0.2.6-t8.1/docs/VALIDATION-UPSTREAM-026-T8.md)。
+修复工具调用结束时的参数保留、误把普通文本识别为调用、关闭服务时的子进程清理、Windows 配置替换、HEAD 重定向意外下载正文、短请求测速计时与超时分类，以及终端小窗口长路径遮挡保存选项。验证范围和硬件限制记录在 [本版验收](https://github.com/T8mars/Strata-T8/blob/v0.2.6-t8.1/docs/VALIDATION-UPSTREAM-026-T8.md)。
 
 ## Strata-T8 0.1.45-t8.1
 

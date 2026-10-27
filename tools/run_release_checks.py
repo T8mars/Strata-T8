@@ -66,13 +66,13 @@ def main():
         sys.path.append(str(args.test_deps.resolve()))
     if args.node_tests is not None and args.group != 'nodes':
         parser.error('--node-tests requires --group nodes')
+    if args.group == 'nodes' and (args.node_tests is None or not args.node_tests.is_dir()):
+        parser.error('nodes checks require --node-tests pointing to an existing test directory')
     from check_private_paths import private_paths
     forbidden = private_paths(ROOT)
     if forbidden:
         parser.error('Private planning files in Git index: '+', '.join(forbidden))
     if args.group == 'nodes':
-        if args.node_tests is None or not args.node_tests.is_dir():
-            parser.error('nodes checks require --node-tests pointing to an existing test directory')
         directory = args.node_tests.resolve()
         print(json.dumps({'group': args.group, 'node_tests': str(directory), 'strict': args.strict}), flush=True)
         suite = unittest.defaultTestLoader.discover(str(directory))

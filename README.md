@@ -13,7 +13,7 @@
 | 资产 | 用途 |
 | --- | --- |
 | VisionReady-NoMainModel.zip | 推荐，包含视觉编码器 |
-| Portable-NoModels.zip | 不含任何权重，兼容旧版更新器 |
+| Portable-NoModels.zip | 不含模型权重，需另行安装视觉权重才能分析图片和视频 |
 
 1. 解压运行包，双击 **Strata-T8.exe**，直接打开本地模型设置页；没有主模型也可以进入。`START-HERE.bat` 保留兼容。
 2. 选择收到的完整 **Strata-data** 模型目录，点击 **保存并进入**。模型可放在其他磁盘，页面会检查文件、保存配置并启动服务。
@@ -21,7 +21,7 @@
 
 端口被占用时自动选择空闲端口，以页面显示的地址为准。尚无模型可在设置页主动下载并准备官方 IQ3_S；需要勾选约 89GB 的流量和磁盘说明，普通启动不会下载模型。[模型设置说明](docs/MODEL-SETUP.zh-CN.md)
 
-大于单个附件限制的完整包会分为 `.zip.001` 等分卷。下载同版本同类型的全部分卷、`.parts.json`、`ASSEMBLE.ps1` 和 `ASSEMBLE.bat`，放在同一目录，双击 `ASSEMBLE.bat` 校验并合成 ZIP，再解压。已安装用户继续使用一键组件更新。
+大于单个附件限制的完整包会分为 `.zip.001` 等分卷。下载同版本同类型的全部分卷、`.parts.json`、`*-ASSEMBLE.ps1` 和 `*-ASSEMBLE.bat`，放在同一目录，双击 `*-ASSEMBLE.bat` 校验并合成 ZIP，再解压。已安装用户继续使用一键组件更新。
 
 Release 附 SHA256，VERIFY-PACKAGE.bat 检查解压文件。请下载发行资产，Source code ZIP 不含运行环境。[整合包说明](README-PORTABLE.zh-CN.md)
 
@@ -69,7 +69,7 @@ Strata-data 可位于运行包内、旁边或导入的其他路径；仅下载�
 
 ## 环境与更新
 
-Windows 10 1903+/11 x64、AVX2 CPU、SSD。NVIDIA RTX 20/30/40/50 系列建议 12GB 以上显存、驱动 580+；IQ3_S 建议 96GB 以上 RAM。RTX 4060 Ti 16GB / 128GB RAM 的验证范围见[本版验收](docs/VALIDATION-UPSTREAM-0142-T8.md)。AMD 文本兼容以[上游列表](docs/AMD_HIP.md)为准，尚无 AMD 实机验收，Windows AMD 视觉暂不支持。
+Windows 10 1903+/11 x64、AVX2 CPU、SSD。NVIDIA RTX 20/30/40/50 系列建议 12GB 以上显存、驱动 580+；IQ3_S 建议 96GB 以上 RAM。RTX 4060 Ti 16GB / 128GB RAM 的验证范围见[本版验收](docs/VALIDATION-UPSTREAM-026-T8.md)。AMD 文本兼容以[上游列表](docs/AMD_HIP.md)为准，尚无 AMD 实机验收，Windows AMD 视觉暂不支持。
 
 启动时后台自动检查版本；模型设置页提供 **检查更新 / 一键更新**，聊天页 About 也可进入。点击更新后停止本启动器的服务，打开进度窗口，自动下载、校验及安装，完成后重新打开模型设置页；模型与配置保留，失败回滚。命令行仍可在退出服务后运行 **UPDATE-PORTABLE.bat**。旧 NoModels 用户先更新，再用 **INSTALL-VISION.bat** 切换；节点通过自己的 Manager/仓库更新后重启 ComfyUI。
 

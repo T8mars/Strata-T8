@@ -4,7 +4,7 @@
 
 内置独立 Python、锁定 Python 依赖、NVIDIA CUDA / AMD HIP 引擎及运行库。无需安装 Python、Git、编译器或 CUDA Toolkit；显卡驱动由电脑提供。VisionReady 包含视觉权重与配置模板，主模型和 MTP 独立分发。
 
-完整运行包较大时，Release 提供分卷。将同版本的全部 `.zip.001` 等分卷、`.parts.json` 和 `ASSEMBLE` 两个文件放在一起，双击 `ASSEMBLE.bat` 校验并合成 ZIP。自动更新使用组件，无需手动合并。
+完整运行包较大时，Release 提供分卷。将同版本的全部 `.zip.001` 等分卷、`.parts.json` 和 `ASSEMBLE` 两个文件放在一起，双击 `*-ASSEMBLE.bat` 校验并合成 ZIP。自动更新使用组件，无需手动合并。
 
 DeepSeek 使用独立引擎和模型目录，默认完整质量；当前本地 native 包仅支持文本。[DeepSeek 安装与路径](docs/DEEPSEEK-T8.zh-CN.md)。
 

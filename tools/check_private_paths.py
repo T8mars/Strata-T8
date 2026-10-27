@@ -9,7 +9,10 @@ def is_private_path(name):
 
 
 def private_paths(root, ref=None):
-    args = ['git', 'ls-tree', '-r', '--name-only', '-z', ref] if ref else ['git', 'ls-files', '-z']
+    # Read the large upstream index without spawning index-loader threads or
+    # taking optional locks while independent build/test processes are running.
+    git = ['git', '--no-optional-locks', '-c', 'index.threads=1']
+    args = git + (['ls-tree', '-r', '--name-only', '-z', ref] if ref else ['ls-files', '-z'])
     names = subprocess.check_output(args, cwd=root).decode('utf-8').split('\0')
     return [name for name in names if name and is_private_path(name)]
 
