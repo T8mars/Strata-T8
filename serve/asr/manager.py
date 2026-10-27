@@ -46,7 +46,7 @@ def resource_lease(identity='cpu'):
 
 class AsrManager:
     def __init__(self, root):
-        self.root = Path(root)
+        self.root = Path(root).resolve()
         self.lock = threading.Lock()
         self.state_lock = threading.Lock()
         self.state = {'phase':'idle'}
@@ -78,6 +78,7 @@ class AsrManager:
             settings = config.load(self.root)
             options = dict(options or {})
             settings = config.validate({**settings, **{key:options[key] for key in ('audio_track','channel','language','context','offset_ms') if key in options}})
+            settings = config.resolve_paths(self.root, settings)
             self.update(phase='extracting',error=None,status=None,cached=False,completed_samples=0,total_samples=0,segments=0)
             from serve.media_jobs import extract_audio
             extracted = extract_audio(source,start_s=options.get('start_s',0),end_s=options.get('end_s'),
@@ -197,6 +198,7 @@ class AsrManager:
         return digest.hexdigest()
 
     def _signature(self, settings, cancel=None):
+        settings = config.resolve_paths(self.root, settings)
         signatures = {}
         for name,size,digest in (config.MODELS[settings['quantization']],config.PROJECTOR):
             path = (Path(settings['model_dir'])/name).resolve(strict=True)

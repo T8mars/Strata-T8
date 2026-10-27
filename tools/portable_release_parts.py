@@ -26,6 +26,7 @@ def scripts(archive):
     manifest, psname, batname = names(archive)
     # The expected filename is fixed by the audited script, never a shell argument.
     ps = r'''$ErrorActionPreference = 'Stop'
+$ownedTemporary = $false
 function FileDigest([string]$path) {
   $stream = [IO.File]::OpenRead($path)
   $hash = [Security.Cryptography.SHA256]::Create()
@@ -50,8 +51,9 @@ try {
   if ($total -ne $m.archive.size -or $total -gt 17179869184 -or $m.archive.sha256 -cnotmatch '^[0-9a-f]{64}$') { throw 'Invalid complete ZIP size or checksum' }
   $target = Join-Path $base $expected
   if (Test-Path -LiteralPath $target) { throw 'The complete ZIP already exists; it has not been replaced.' }
-  $temporary = $target + '.assembling'
+  $temporary = $target + '.assembling-' + [Guid]::NewGuid().ToString('N')
   $output = [IO.File]::Open($temporary, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write)
+  $ownedTemporary = $true
   try {
     foreach ($part in $m.parts) {
       Write-Host ('Combining ' + $part.file)
@@ -61,9 +63,17 @@ try {
   } finally { $output.Dispose() }
   if ((FileDigest $temporary) -cne $m.archive.sha256) { throw 'Complete ZIP checksum failed' }
   [IO.File]::Move($temporary, $target)
+  $ownedTemporary = $false
   Write-Host ('Verified ZIP: ' + $target)
   Write-Host 'Extract this ZIP, then open Strata-T8.exe inside its folder.'
-} catch { Write-Error $_ -ErrorAction Continue; exit 1 }
+} catch {
+  $failure = $_
+  if ($ownedTemporary) {
+    try { Remove-Item -LiteralPath $temporary -Force -ErrorAction Stop }
+    catch { Write-Warning ('Could not remove incomplete ZIP: ' + $temporary) }
+  }
+  Write-Error $failure -ErrorAction Continue; exit 1
+}
 '''.replace('__ARCHIVE__', Path(archive).name).replace('__MANIFEST__', manifest)
     bat = '@echo off\r\npowershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0' + psname + '"\r\npause\r\n'
     return {psname: ps.encode('utf-8'), batname: bat.encode('ascii')}

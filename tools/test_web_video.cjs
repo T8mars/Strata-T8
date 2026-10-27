@@ -219,6 +219,19 @@ function setupPage(legacy=false, invalid=false, family='qwen') {
   vm.runInContext(script,context); vm.runInContext('render('+JSON.stringify(current)+')',context);
   return {nodes,calls,navigations,context,run:code=>vm.runInContext(code,context)};
 }
+test('setup form follows the actual switched API port and the next model uses it', async () => {
+  const ui=setupPage();
+  ui.run("render({...state, defaults:{...state.defaults,port:8081},chat_url:'http://127.0.0.1:8081/'})");
+  assert.equal(Number(ui.nodes.port.value),8081);
+  await ui.run('importSelectedModel()');
+  const call=ui.calls.find(c=>c.url==='/api/import');
+  assert.equal(call.body.port,8081);
+});
+test('setup polling preserves an unsaved user port edit', () => {
+  const ui=setupPage();ui.nodes.port.value='9123';
+  ui.run("render({...state, defaults:{...state.defaults,port:8081},chat_url:'http://127.0.0.1:8081/'})");
+  assert.equal(ui.nodes.port.value,'9123');
+});
 test('manually entered DeepSeek pack applies text-only limits before import and restores Qwen choices',async()=>{
   const ui=setupPage(false,false,'deepseek41');
   ui.nodes['model-path'].value='D:/existing native pack';

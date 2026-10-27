@@ -57,6 +57,7 @@ def list_backups(root):
         if not re.fullmatch('[0-9a-f]{32}',path.stem) or path.is_symlink() or path.stat().st_size>65536:continue
         try:
             value=update_json(path.read_bytes())
+            if not isinstance(value,dict):continue
             if value.get('id')!=path.stem or value.get('root')!=str(root):continue
             available=value.get('installed_manifest_sha256')==current and backup_destination(root,path.stem).is_dir()
             result.append({'id':path.stem,'from_version':value['from_version'],'to_version':value['to_version'],'available':available})

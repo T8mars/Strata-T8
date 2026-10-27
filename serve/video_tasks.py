@@ -26,11 +26,14 @@ _OWNER = re.compile(r'[0-9a-f]{64}\Z')
 
 def runtime_context(svc, root):
     """Fingerprint immutable software/configuration, excluding load/busy state."""
-    root = Path(root)
+    root = Path(root).resolve()
     files = {}
-    for name in ('meta.json', 'serve/video.py', 'serve/server.py', 'serve/media_jobs.py', 'serve/media_worker.py',
-                 'serve/web/app.js', 'serve/web/video-analysis.js', 'tools/strata_video.py',
-                 'asr-settings.json','serve/asr/manager.py','serve/asr/contract.py','serve/asr/media.py'):
+    names = {'meta.json', 'serve/video.py', 'serve/video_tasks.py', 'serve/server.py',
+             'serve/media_jobs.py', 'serve/media_worker.py', 'serve/web/app.js',
+             'serve/web/video-analysis.js', 'serve/web/speech-analysis.js',
+             'tools/strata_video.py', 'asr-settings.json'}
+    names.update(path.relative_to(root).as_posix() for path in (root / 'serve/asr').rglob('*.py'))
+    for name in sorted(names):
         path = root / name
         if path.is_file():
             files[name] = hashlib.sha256(path.read_bytes()).hexdigest()
@@ -40,6 +43,38 @@ def runtime_context(svc, root):
     engine = svc.engine
     spawn = getattr(engine, 'spawn', ())
     signatures = {}
+    # A restored task already contains speech, so it bypasses AsrManager's
+    # normal cache validation. Include the selected external assets and native
+    # component here as cheap file signatures, without reading large weights.
+    from serve.asr import config as asr_config
+    try:
+        settings = asr_config.load(root)
+    except (ValueError, TypeError):
+        # An invalid optional ASR profile must not disable visual-only tasks.
+        # Its bytes are already fingerprinted above, so fixing it invalidates
+        # any checkpoint made while it was unusable.
+        settings = dict(asr_config.DEFAULTS)
+    settings = asr_config.resolve_paths(root, settings)
+    python, build = asr_config.runtime_paths(root, settings['device'])
+    assets = [python]
+    assets.extend(path for path in build.rglob('*') if path.suffix.lower() in ('.dll', '.pyd'))
+    if settings['model_dir']:
+        assets.extend(Path(settings['model_dir']) / item[0]
+                      for item in (asr_config.MODELS[settings['quantization']], asr_config.PROJECTOR))
+    assets.extend(asr_config.vad_path(root, settings) / name
+                  for name in ('fireredvad_stream_vad_with_cache.onnx', 'cmvn.ark'))
+    signatures['asr_assets'] = []
+    for path in sorted(set(assets)):
+        if not path.is_absolute():
+            path = root / path
+        try:
+            if path.is_file():
+                stat = path.stat()
+                signatures['asr_assets'].append([str(path.resolve()), stat.st_size, stat.st_mtime_ns])
+        except OSError as error:
+            # ASR is optional: an unavailable speech drive must not prevent
+            # video-only capability checks. Its return still changes identity.
+            signatures['asr_assets'].append([str(path), 'unavailable', type(error).__name__])
     for name, value in (('engine', spawn[0] if spawn else None), ('model', getattr(engine, 'model_path', None))):
         if value:
             path = Path(value)
@@ -186,6 +221,14 @@ class VideoStore:
             raise ValueError('Video handle has expired or belongs to another browser')
         return record
 
+    def _record_space(self, records):
+        """Called under the store lock before replacing any of these records."""
+        total = sum(p.stat().st_size for p in self.root.iterdir()
+                    if p not in records and p.is_file() and not p.is_symlink())
+        total += sum(len(_json_bytes(value)) for value in records.values())
+        if total > self.quota:
+            raise ValueError('Local video storage is full; clear saved tasks first')
+
     def cleanup(self):
         with self.lock:
             for path in self._directory().glob('*.json'):
@@ -239,10 +282,14 @@ class VideoStore:
                     os.fsync(stream.fileno())
                 if not size:
                     raise ValueError('Video source is empty')
+                if cancel is not None and cancel.is_set():
+                    raise InterruptedError('Video upload cancelled')
                 expires = self.clock() + (TTL if persistent else 3600)
                 record = {'id': identity, 'owner': owner_hash, 'bytes': size, 'sha256': hasher.hexdigest(),
                           'expires': expires, 'name': name, 'persistent': persistent}
-                _atomic(self._path(identity, '.source.json'), record)
+                record_path = self._path(identity, '.source.json')
+                self._record_space({record_path:record})
+                _atomic(record_path, record)
                 return {k:v for k,v in record.items() if k != 'owner'}
             except BaseException:
                 path.unlink(missing_ok=True)
@@ -286,6 +333,8 @@ class VideoStore:
                     'state':{'notes':[], 'times':[], 'empty_segments':0, 'phase':'observe'},
                     'expires':self.clock()+TTL}
             record.update(persistent=True, expires=task['expires'])
+            self._record_space({self._path(source, '.source.json'):record,
+                                self._path(identity, '.task.json'):task})
             _atomic(self._path(source, '.source.json'), record)
             _atomic(self._path(identity, '.task.json'), task)
             return self._public(task)
@@ -315,10 +364,15 @@ class VideoStore:
             if len(state.get('notes', [])) < len(old) or state.get('notes', [])[:len(old)] != old:
                 raise ValueError('Committed video windows cannot be rewritten')
             task.update(state=state, revision=revision+1, expires=self.clock()+TTL, owner=self._owner(owner), context=context)
-            _atomic(self._path(identity, '.task.json'), task)
             source = self._record(task['source_id'], owner, '.source.json')
             source['expires'] = task['expires']
+            self._record_space({self._path(identity, '.task.json'):task,
+                                self._path(task['source_id'], '.source.json'):source})
             _atomic(self._path(task['source_id'], '.source.json'), source)
+            # Renew the dependency before publishing its checkpoint revision.
+            # If renewal fails the caller can retry the same revision; if the
+            # task write fails only the source's harmless retention is extended.
+            _atomic(self._path(identity, '.task.json'), task)
             return self._public(task)
 
     def list(self, owner):

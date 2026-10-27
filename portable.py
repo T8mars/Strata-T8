@@ -539,7 +539,11 @@ def main():
     if args.vision is not None or args.vision_tokens is not None:
         if args.vision == 'no':
             config.pop('vision', None)
-            config['args'] = [arg for arg in config['args'] if arg not in ('--vision', '--native-video')]
+            if config.get('arch') == 'deepseek41':
+                from portable_deepseek import set_option
+                config['args'] = set_option(config['args'], '--vision', 'off')
+            else:
+                config['args'] = [arg for arg in config['args'] if arg not in ('--vision', '--native-video')]
         else:
             mode = args.vision or ('gpu' if (config.get('vision') or {}).get('gpu') else 'cpu')
             config = attach_vision(config, model_delivery(data), mode, args.vision_tokens)

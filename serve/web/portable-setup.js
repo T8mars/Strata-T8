@@ -4,6 +4,7 @@ const token = document.querySelector('meta[name="strata-setup-token"]').content;
 let initialized = false, redirect = new URLSearchParams(location.search).get("enter") === "1", state = null, polling = false, choosing = false, preparedPath = null;
 let updateStartedAt = 0;
 let selectedFamily = null, qwenSettings = null;
+let confirmedPort = null;
 async function api(path, body) {
   const options = {headers: {"X-Strata-Setup-Token": token}, cache: "no-store"};
   if (body !== undefined) { options.method = "POST"; options.headers["Content-Type"] = "application/json"; options.body = JSON.stringify(body); }
@@ -95,6 +96,7 @@ function render(current) {
   if (first) {
     const d = current.defaults;
     $("model-path").value = d.path || ""; $("port").value = d.port; $("context").value = String(d.context);
+    confirmedPort = d.port;
     $("backend").value = d.backend; $("vision").value = d.vision; $("native-video").checked = d.native_video;
     $('deepseek-speed').value = d.speed || 'full';
     if (current.model) applyModelCapabilities(current.model);
@@ -103,6 +105,14 @@ function render(current) {
     $('api-scope').value = current.network?.scope || 'local';
     for (const option of $("vision").options) if (["gpu", "cpu"].includes(option.value)) option.disabled = !current.vision_available;
     initialized = true;
+  }
+  if (current.running && current.job.state === 'ready') {
+    const actualPort = current.defaults?.port;
+    if (Number.isInteger(actualPort) && actualPort >= 1 && actualPort <= 65535) {
+      // Follow a completed restart's port fallback, preserving unsaved edits.
+      if (Number($("port").value) === confirmedPort) $("port").value = String(actualPort);
+      confirmedPort = actualPort;
+    }
   }
   const busy = ["preparing", "configuring", "starting", "stopping", "updating"].includes(current.job.state);
   const blocked = busy || choosing;
@@ -261,6 +271,7 @@ async function importSelectedModel() {
       if (!stopped) throw new Error('停止当前模型超时，请查看服务状态后重试。');
       await api('/api/import', payload);
     }
+    confirmedPort = payload.port;
     render(await api('/api/status'));
   } catch (error) { redirect = false; fail(error); }
   finally { choosing = false; if (state) render(state); }

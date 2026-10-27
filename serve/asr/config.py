@@ -50,14 +50,26 @@ def runtime_paths(root, device='cpu'):
     return python, base/('native-'+device)
 
 
+def resolve_paths(root, settings):
+    """Use the application as the base without rewriting the saved profile."""
+    resolved = dict(settings)
+    root = Path(root).absolute()
+    for name in ('model_dir', 'vad_dir'):
+        if resolved[name]:
+            path = Path(resolved[name]).expanduser()
+            resolved[name] = str(path if path.is_absolute() else root/path)
+    return resolved
+
+
 def vad_path(root, settings):
+    settings = resolve_paths(root, settings)
     if settings['vad_dir']:
         return Path(settings['vad_dir'])
     return Path(settings['model_dir'])/'FireRedVAD-ONNX' if settings['model_dir'] else Path(root)/'models/FireRedVAD-ONNX'
 
 
 def availability(root, settings=None):
-    settings = settings or load(root)
+    settings = resolve_paths(root, settings or load(root))
     python, build = runtime_paths(root, settings['device'])
     directory = Path(settings['model_dir']) if settings['model_dir'] else None
     vad = vad_path(root, settings)

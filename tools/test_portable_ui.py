@@ -132,6 +132,8 @@ class H(BaseHTTPRequestHandler):
   body=json.dumps({'service':'strata','model':sys.argv[3],'portable_launcher_instance':os.environ['STRATA_PORTABLE_UI_ID']}).encode()
   self.send_response(200); self.send_header('Content-Length',str(len(body))); self.end_headers(); self.wfile.write(body)
  def log_message(self,*args): pass
+# Match serve.server.Server: Windows does not allow address reuse.
+HTTPServer.allow_reuse_address = os.name != 'nt'
 HTTPServer(('127.0.0.1',int(sys.argv[1])),H).serve_forever()
 '''
                 port = args[args.index('--port')+1]
@@ -436,6 +438,31 @@ HTTPServer(('127.0.0.1',int(sys.argv[1])),H).serve_forever()
             self.assertIs(self.app.process,old)
             self.assertIsNone(old.poll())
             self.assertEqual(self.app.job['state'],'ready')
+
+    def test_switch_reports_actual_api_port_when_windows_retains_old_port(self):
+        payload = self.payload()
+        spawn, _ = self.fake_popen()
+        with mock.patch.object(ui.subprocess, 'Popen', side_effect=spawn):
+            self.assertEqual(self.request('/api/import', payload)[0], 202)
+            self.assertEqual(self.wait_job(), 'ready')
+            old = self.app.process
+            old_port = self.app.backend_port
+            choose = ui.free_port
+            def retained(preferred=8080, *, strict=False, exclude=()):
+                if preferred == old_port:
+                    self.assertFalse(strict, 'owned-port restart should permit a safe alternative')
+                    return choose(preferred, exclude=[*exclude, old_port])
+                return choose(preferred, strict=strict, exclude=exclude)
+            with mock.patch.object(ui, 'free_port', side_effect=retained):
+                self.assertEqual(self.request('/api/import', {**payload, 'port':old_port})[0], 202)
+                self.assertEqual(self.wait_job(), 'ready', self.app.job)
+            self.assertIsNotNone(old.poll())
+            port = self.app.backend_port
+            self.assertNotEqual(port, old_port)
+            self.assertEqual(portable.read_config(self.app.current_config)['port'], port)
+            self.assertEqual(self.app.snapshot()['api_connection']['base_url'], f'http://127.0.0.1:{port}/v1')
+            self.assertIn(str(old_port), self.app.job['message'])
+            self.assertIn(str(port), self.app.job['message'])
 
     def test_known_sc117_delivery_has_a_clear_uncensored_label(self):
         data = self.model()

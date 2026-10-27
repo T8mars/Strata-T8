@@ -84,17 +84,28 @@ def check_hardware(portable, cfg):
         raise RuntimeError('DeepSeek requires at least 12 GB VRAM and 46 GB system RAM; this native pack also needs fast SSD storage')
 
 
+def set_option(args, flag, value):
+    """Replace a valued DeepSeek flag without discarding a following option."""
+    kept = []
+    skip = False
+    for arg in args:
+        if skip:
+            skip = False
+            if not arg.startswith('--'):
+                continue
+        if arg == flag:
+            skip = True
+        elif not arg.startswith(flag+'='):
+            kept.append(arg)
+    return kept+[flag, str(value)]
+
+
 def configure(portable, directory, context=None, backend=None, vision=None, port=None, native_video=None, speed=None):
     model = inspect_pack(directory)
     if backend not in (None, 'auto', 'cuda'):
         raise RuntimeError('DeepSeek currently requires the NVIDIA CUDA engine in this portable edition')
     if vision not in (None, 'no', 'auto') or native_video:
         raise RuntimeError('This DeepSeek pack is text-only; select Qwen for images and video')
-    # The existing settings form defaults to Qwen's 32K. DeepSeek's public limit is 8K.
-    context = 8192 if context is None else context
-    if type(context) is not int or context < 512:
-        raise RuntimeError('DeepSeek context must be between 512 and 8192')
-    context = min(context, 8192)
     if speed not in (None, 'full', 'faster'):
         raise RuntimeError('DeepSeek speed must be full or faster')
     identity = hashlib.sha256(os.path.normcase(str(Path(directory).resolve())).encode('utf-8')).hexdigest()[:12]
@@ -108,20 +119,32 @@ def configure(portable, directory, context=None, backend=None, vision=None, port
     cfg = portable.read_config(cfg_path) if cfg_path.exists() else {}
     check_hardware(portable, cfg)
     args = list(cfg.get('args', []))
+    if context is None:
+        context = 8192
+        for i, arg in enumerate(args):
+            if arg == '--max-context':
+                try:
+                    context = int(args[i+1])
+                except (ValueError, IndexError) as error:
+                    raise RuntimeError('Invalid saved DeepSeek context; set --context explicitly') from error
+            elif arg.startswith('--max-context='):
+                try:
+                    context = int(arg.partition('=')[2])
+                except ValueError as error:
+                    raise RuntimeError('Invalid saved DeepSeek context; set --context explicitly') from error
+    # A first selection may inherit Qwen's 32K form value. Keep saved DS choices otherwise.
+    if type(context) is not int or context < 512:
+        raise RuntimeError('DeepSeek context must be between 512 and 8192')
+    context = min(context, 8192)
     def option(flag, value, only_missing=False):
         nonlocal args
         if only_missing and any(a==flag or a.startswith(flag+'=') for a in args):
             return
-        kept=[]; skip=False
-        for arg in args:
-            if skip: skip=False; continue
-            if arg==flag: skip=True; continue
-            if arg.startswith(flag+'='): continue
-            kept.append(arg)
-        args = kept+[flag,str(value)]
+        args = set_option(args, flag, value)
     option('--pack', model['pack_dir']); option('--max-context', context)
-    for flag,value in (('--eos',1),('--experts',6),('--dspark','none'),('--vision','off')):
+    for flag,value in (('--eos',1),('--experts',6),('--dspark','none')):
         option(flag,value,only_missing=True)
+    option('--vision','off')
     if speed is not None:
         option('--experts', 5 if speed == 'faster' else 6)
     cfg.update(exe=str(engine),args=args,cwd=str(portable.ROOT),tokenizer=str(Path(model['pack_dir'])/'tokenizer'),

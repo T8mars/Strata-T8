@@ -174,6 +174,7 @@ class ModelSetup:
         self.backend_port = None
         self.backend_config = None
         self.backend_model_id = None
+        self.backend_api_key_required = None
         self.log = None
         self.job = {'state': 'idle', 'message': '选择模型目录后即可开始。', 'error': None}
         self.update = {'state': 'unchecked', 'current': self.version, 'latest': None, 'available': False,
@@ -218,6 +219,10 @@ class ModelSetup:
         if vision not in ('auto', 'no', 'gpu', 'cpu') or backend not in ('auto', 'cuda', 'hip') or type(native) is not bool:
             raise SetupError('无效的运行设置。')
         summary = model_summary(path.strip().strip('"'), self.portable)
+        if summary['family'] == 'deepseek41' and backend == 'hip':
+            raise SetupError('此整合包的 DeepSeek 需要 NVIDIA CUDA 后端。')
+        if native and (summary['family'] != 'qwen' or backend == 'hip'):
+            raise SetupError('原生视频需要 Qwen NVIDIA 配置；DeepSeek 请使用文本模式。')
         if 'speed' in data and (summary['family'] != 'deepseek41' or data['speed'] not in ('full', 'faster')):
             raise SetupError('完整质量 / 更快模式只适用于 DeepSeek。')
         if native and vision == 'no':
@@ -250,24 +255,45 @@ class ModelSetup:
             port = preferred
         context = getattr(self.options, 'context', None) or 32768
         args = cfg.get('args', [])
-        if '--max-context' in args and not getattr(self.options, 'context', None):
-            try:
-                context = int(args[args.index('--max-context')+1])
-            except (ValueError, IndexError):
-                pass
+        if not getattr(self.options, 'context', None):
+            for index, arg in enumerate(args):
+                value = (args[index+1] if arg == '--max-context' and index+1 < len(args) else
+                         arg.partition('=')[2] if arg.startswith('--max-context=') else None)
+                if value is not None:
+                    try:
+                        context = int(value)
+                    except ValueError:
+                        pass
         vision = getattr(self.options, 'vision', None)
         if vision is None:
             vision = ('gpu' if cfg['vision'].get('gpu', True) else 'cpu') if cfg.get('vision') else ('auto' if self.vision_available() else 'no')
         native_arg = getattr(self.options, 'native_video', None)
+        native = bool((cfg.get('vision') or {}).get('native_video'))
+        backend = getattr(self.options, 'backend', None) or cfg.get('backend', 'auto')
+        if (self.model or {}).get('family') == 'deepseek41':
+            # A newly selected pack can still have the previous Qwen config.
+            # Adapt inherited defaults; explicit incompatible choices must fail.
+            if getattr(self.options, 'vision', None) is None:
+                vision = 'no'
+            if native_arg is None:
+                native = False
+            if getattr(self.options, 'backend', None) is None:
+                backend = 'cuda'
+            if getattr(self.options, 'context', None) is None:
+                context = min(context, 8192)
         speed = 'full'
         for index, arg in enumerate(args):
             if arg == '--experts' and index + 1 < len(args):
                 speed = 'faster' if args[index + 1] == '5' else 'full'
             elif arg.startswith('--experts='):
                 speed = 'faster' if arg.partition('=')[2] == '5' else 'full'
+        if getattr(self.options, 'speed', None) in ('full', 'faster'):
+            speed = self.options.speed
         return {'path': self.requested or (self.model or {}).get('path', ''), 'port': port,
-                'context': context, 'vision': vision, 'speed': speed, 'native_video': bool((cfg.get('vision') or {}).get('native_video')),
-                'backend': getattr(self.options, 'backend', None) or cfg.get('backend', 'auto'),
+                'context': context, 'vision': vision, 'native_video': native,
+                **({'speed':speed} if (self.model or {}).get('family') == 'deepseek41'
+                   or getattr(self.options, 'speed', None) is not None else {}),
+                'backend': backend,
                 **({'native_video': native_arg} if native_arg is not None else {})}
 
     def snapshot(self):
@@ -280,7 +306,8 @@ class ModelSetup:
             if running and self.job['state'] == 'ready' and self.backend_port and self.backend_model_id:
                 base = f'http://127.0.0.1:{self.backend_port}/v1'
                 connection = {'model_id': self.backend_model_id, 'base_url': base, 'models_url': base+'/models',
-                              'api_key_required': bool((self.backend_config or {}).get('api_key')),
+                              'api_key_required': (bool((self.backend_config or {}).get('api_key'))
+                                                   if self.backend_api_key_required is None else self.backend_api_key_required),
                               'lan_base_urls': [f'http://{ip}:{self.backend_port}/v1' for ip in api_access.ipv4_addresses()]
                                   if network['scope'] == 'lan' and (self.backend_config or {}).get('host') == '0.0.0.0' else []}
             return {'version': self.version, 'app_root': str(self.root), 'instance_id': self.instance_id,
@@ -381,10 +408,16 @@ class ModelSetup:
             if data is not None:
                 # Saving settings is the explicit switch action. Validate first,
                 # then stop only the child owned by this launcher.
+                owned_port = (self.process is not None and self.process.poll() is None
+                              and data['port'] == self.backend_port
+                              and getattr(self.options, 'port', None) is None)
                 self.stop_backend()
-                free_port(data['port'], strict=True, exclude=[self.http.server_port])
+                # Windows can retain closed connections on the old port. Keep
+                # switching usable without enabling unsafe address reuse or
+                # terminating an unrelated listener. Status reports the new port.
+                port = free_port(data['port'], strict=not owned_port, exclude=[self.http.server_port])
                 command = [sys.executable, '-X', 'utf8', '-u', str(self.root/'portable.py'), 'import',
-                           '--data-dir', data['path'], '--port', str(data['port']), '--context', str(data['context']),
+                           '--data-dir', data['path'], '--port', str(port), '--context', str(data['context']),
                            '--native-video' if data['native_video'] else '--no-native-video']
                 if data['vision'] != 'auto':
                     command += ['--vision', data['vision']]
@@ -414,6 +447,10 @@ class ModelSetup:
             if self.closed.is_set():
                 return
             self._start_backend()
+            if data is not None and self.backend_port != data['port']:
+                with self.lock:
+                    if self.job['state'] == 'ready':
+                        self.set_job('ready', f"服务已就绪。原端口 {data['port']} 暂不可用，已切换到 {self.backend_port}；外部客户端请使用下方最新 API 地址。")
         except (OSError, ValueError, RuntimeError, KeyError) as error:
             self.stop_backend()
             self.set_job('error', '请修正设置后重试。', str(error))
@@ -513,6 +550,7 @@ class ModelSetup:
         if host != '127.0.0.1' and not config.get('api_key'):
             raise SetupError('局域网服务必须设置 API Key。')
         self.backend_config = config
+        self.backend_api_key_required = None
         self.backend_model_id = None
         self.backend_id = secrets.token_hex(16)
         self.set_job('starting', '正在启动本地服务，模型将在首次请求时加载…')
@@ -542,6 +580,8 @@ class ModelSetup:
             try:
                 status = json_reply(self.backend_port, '/health')
                 if status.get('service') == 'strata' and status.get('portable_launcher_instance') == self.backend_id:
+                    if type(status.get('api_key')) is bool:
+                        self.backend_api_key_required = status['api_key']
                     name = status.get('model', config.get('model_name', 'qwen3.8-flash-next'))
                     if isinstance(name, str) and name.strip() and len(name) <= 200 and not any(ord(c) < 32 or ord(c) == 127 for c in name):
                         self.backend_model_id = name
@@ -889,17 +929,22 @@ def create_server(app, port=0):
 def run(options):
     app = ModelSetup(options=options)
     requested = getattr(options, 'ui_port', None)
+    explicit = any(getattr(options, name, None) is not None for name in
+                   ('data_dir', 'context', 'backend', 'vision', 'vision_tokens', 'native_video', 'speed'))
     http = None
     for port in ([requested] if requested else UI_PORTS):
         try:
             existing = json_reply(port, '/api/identity', timeout=.15)
-            if existing.get('service') == 'strata-portable-ui' and existing.get('app_root') == str(app.root) and existing.get('version') == app.version:
-                if not options.no_browser:
-                    webbrowser.open(f'http://127.0.0.1:{port}/'+('?enter=1' if options.action == 'start' else ''))
-                print(f'模型设置已运行：http://127.0.0.1:{port}/', flush=True)
-                return 0
         except (OSError, ValueError, RuntimeError):
-            pass
+            existing = None
+        if (isinstance(existing, dict) and existing.get('service') == 'strata-portable-ui'
+                and existing.get('app_root') == str(app.root) and existing.get('version') == app.version):
+            if explicit or getattr(options, 'port', None) is not None:
+                raise SetupError(f'模型设置已运行：http://127.0.0.1:{port}/。本次命令参数未应用。请在该页面修改设置，或关闭已有启动器后重试。')
+            if not options.no_browser:
+                webbrowser.open(f'http://127.0.0.1:{port}/'+('?enter=1' if options.action == 'start' else ''))
+            print(f'模型设置已运行：http://127.0.0.1:{port}/', flush=True)
+            return 0
         try:
             http = create_server(app, port)
             break
@@ -916,8 +961,6 @@ def run(options):
         webbrowser.open(app.url+('?enter=1' if options.action == 'start' else ''))
     if options.action == 'start' and app.current_config is not None:
         try:
-            explicit = any(getattr(options, name, None) is not None for name in
-                           ('data_dir', 'context', 'backend', 'vision', 'vision_tokens', 'native_video'))
             if explicit:
                 app.begin(app.defaults())
             else:
