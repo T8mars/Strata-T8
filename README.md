@@ -75,7 +75,7 @@ Windows 10 1903+/11 x64、AVX2 CPU、SSD。NVIDIA RTX 20/30/40/50 系列建议 1
 
 仓库每日检查上游正式版本并生成升级候选；完成合并审查和回归验收后，再手动触发发布。用户整合包仍自动检查 T8 正式版，并支持一键更新。[更新机制](docs/UPDATING-T8.md)
 
-本版本基于上游 [v0.2.6](https://github.com/Niko1221/Strata/releases/tag/v0.2.6)，应用版本 **0.2.6-t8.2**，配套节点 **1.3.3** 和 ComfyUI Protocol 1。本版集中修复托管引擎选择、模型设置、更新回退、视频记录清理、语音输入校验及取消处理。T8 的 EXE 启动器、局域网 API、自动更新、视频进度恢复、自适应采样、语音转录与音画联合分析继续保留。现有主模型和视觉权重可沿用；可下载版本以 [Release](https://github.com/T8mars/Strata-T8/releases/latest) 为准。[修复与验证范围](docs/AUDIT-026-POSTRELEASE-T8.md) · [同步策略](docs/UPDATING-T8.md)
+本版本基于上游 [v0.2.6](https://github.com/Niko1221/Strata/releases/tag/v0.2.6)，应用版本 **0.2.6-t8.3**，配套节点 **1.3.3** 和 ComfyUI Protocol 1。本版修复 Terminal 停止失败的返回状态、坏档案影响 API Key 查找、运行状态串用配置及源码 Git 更新误判。T8 的 EXE 启动器、局域网 API、自动更新、视频进度恢复、自适应采样、语音转录与音画联合分析继续保留。现有主模型和视觉权重可沿用；可下载版本以 [Release](https://github.com/T8mars/Strata-T8/releases/latest) 为准。[本版修复](docs/MAINTENANCE-026-T8-3.md) · [此前联合审查](docs/AUDIT-026-POSTRELEASE-T8.md) · [同步策略](docs/UPDATING-T8.md)
 
 上游在适用 NVIDIA 配置中默认启用专家尾部跳过和实测 PCIe 分配，回答可能略有变化。需要恢复此前行为，可在运行配置的 `env` 对象设置 `"STRATA_ROUTE_TAIL_SKIP":"0"` 和 `"STRATA_PCIE_FRAC_DEFAULT":"old"`，然后重启；已有显式 `--pcie-frac` 参数继续优先。上游性能数字取决于硬件与模型，不代表本机速度。
 

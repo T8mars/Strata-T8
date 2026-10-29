@@ -1,3 +1,14 @@
+## Strata-T8 0.2.6-t8.3
+
+修复上游 PR 审查中确认的四类问题，保留现有原生引擎、T8 功能与 ComfyUI **1.3.3 / 协议 1**。本版仍基于上游 **v0.2.6**，没有整体合入 v0.2.7。[修复来源与验证范围](https://github.com/T8mars/Strata-T8/blob/v0.2.6-t8.3/docs/MAINTENANCE-026-T8-3.md)
+
+- `strata launch --stop` 任一停止失败时返回非零状态，不再同时提示没有服务运行；全部成功和没有运行项的路径保持正常。
+- 查找已有 API Key 时跳过不可读档案，继续查找其他有效配置，避免坏记录使旧 Key 查找失效。
+- 运行状态列表读取档案失败时清空对应配置，不再崩溃或串用上一份档案的配置路径。
+- 源码 `UPDATE.bat` / `update.sh` 先确认 `origin/main` 存在，再判断是否历史重写；普通分歧保留本地历史，真正旧历史仍保留备份后迁移。
+
+两版完整环境继续包含 **EXE、Python 3.12.10、依赖、CPU 语音环境及显卡引擎**；VisionReady 另含视觉权重与配置。主模型、MTP 和语音权重独立安装。新安装下载全部同名分卷及合并脚本；现有用户在设置页或 `UPDATE-PORTABLE.bat` 使用组件更新。
+
 ## Strata-T8 0.2.6-t8.2
 
 集中修复发布后六批审查发现的启动、更新与音视频问题。配套独立 ComfyUI 节点 **1.3.3**，保留上游 v0.2.6、现有引擎和协议 1。[修复与验证范围](https://github.com/T8mars/Strata-T8/blob/v0.2.6-t8.2/docs/AUDIT-026-POSTRELEASE-T8.md)
