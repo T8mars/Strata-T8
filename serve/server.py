@@ -2707,6 +2707,9 @@ class Vision:
         # fall back on when it does not start; _start switches to it by itself
         cpu = vision_reader.cpu_fallback(cfg)
         self.fallback = (self.reader_args(cpu), log, env) if cpu else None
+        # Video checkpoints describe configured readers, not which one happens
+        # to be loaded. Automatic GPU -> CPU fallback must keep that identity.
+        self.recovery_readers = tuple(tuple(item[0]) for item in (self.spawn, self.fallback) if item)
         self.proc = None
         self.stopped = True
         self.starting = False

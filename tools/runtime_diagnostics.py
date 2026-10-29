@@ -154,8 +154,12 @@ def diagnose(root):
                             'detail': (child.stderr or child.stdout)[-12000:]})
         except (OSError, subprocess.TimeoutExpired) as error:
             results.append({'module': name, 'returncode': None, 'detail': str(error)})
+    try:
+        video = video_dependencies(root)
+    except (OSError, ValueError, TypeError, KeyError, AttributeError, RecursionError) as error:
+        video = {'error':'Video dependency inventory could not be inspected: '+str(error)}
     result = {'app_root': str(root), 'windows': platform.platform(), 'machine': platform.machine(),
-            'modules': results, 'video_dependencies': video_dependencies(root), 'resources':machine_resources()}
+            'modules': results, 'video_dependencies': video, 'resources':machine_resources()}
     try:
         result['installation'] = selected_configuration(root)
     except (OSError,ValueError,TypeError,AttributeError) as error:
@@ -175,7 +179,10 @@ def main():
         print(f"{item['module']}: {'OK' if item['returncode'] == 0 else item['detail'].strip()}", flush=True)
     print(json.dumps(result['video_dependencies'], ensure_ascii=False, indent=2), flush=True)
     print(f'Diagnostics saved: {report}', flush=True)
-    return 0 if all(item['returncode'] == 0 for item in result['modules']) else 1
+    video = result['video_dependencies']
+    healthy = all(item['returncode'] == 0 for item in result['modules']) and not any(
+        video.get(key) for key in ('error', 'missing_package_files', 'unavailable_system_libraries'))
+    return 0 if healthy else 1
 
 
 if __name__ == '__main__':

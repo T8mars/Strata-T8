@@ -43,13 +43,38 @@ def runtime_context(svc, root):
     engine = svc.engine
     spawn = getattr(engine, 'spawn', ())
     signatures = {}
+    # A projector/reader can be replaced without changing its configured path.
+    # Resume must not mix visual evidence made by two different readers. Keep
+    # loading/capability state out of the identity and never hash large weights.
+    vision = getattr(svc, 'vision', None)
+    vision_spawn = getattr(vision, 'spawn', ())
+    readers = getattr(vision, 'recovery_readers', (vision_spawn[0],) if vision_spawn else ())
+    if readers:
+        signatures['vision_args'] = [list(args) for args in readers]
+        candidates = []
+        for args in readers:
+            if args:
+                candidates.append(args[0])
+                candidates.extend(args[index+1] for index, arg in enumerate(args[:-1])
+                                  if arg in ('--mmproj', '--model'))
+        signatures['vision_assets'] = []
+        for value in sorted(set(candidates)):
+            path = Path(value)
+            if not path.is_absolute():
+                path = Path(getattr(vision, 'dir', root)) / path
+            try:
+                if path.is_file():
+                    stat = path.stat()
+                    signatures['vision_assets'].append([str(path.resolve()), stat.st_size, stat.st_mtime_ns])
+            except OSError as error:
+                signatures['vision_assets'].append([str(path), 'unavailable', type(error).__name__])
     # A restored task already contains speech, so it bypasses AsrManager's
     # normal cache validation. Include the selected external assets and native
     # component here as cheap file signatures, without reading large weights.
     from serve.asr import config as asr_config
     try:
         settings = asr_config.load(root)
-    except (ValueError, TypeError):
+    except (ValueError, TypeError, RecursionError):
         # An invalid optional ASR profile must not disable visual-only tasks.
         # Its bytes are already fingerprinted above, so fixing it invalidates
         # any checkpoint made while it was unusable.
@@ -127,22 +152,31 @@ def _read(path):
         raise ValueError('Video record is unavailable') from None
 
 
+def _finite_number(value):
+    if type(value) not in (int, float):
+        return False
+    try:
+        return math.isfinite(value)
+    except OverflowError:
+        return False
+
+
 def validate_plan(plan):
     if not isinstance(plan, dict) or not isinstance(plan.get('segments'), list) or not 1 <= len(plan['segments']) <= 512:
         raise ValueError('Invalid video task plan')
-    if any(type(plan.get(k)) not in (int,float) or not math.isfinite(plan[k]) for k in ('start_s','end_s')):
+    if any(not _finite_number(plan.get(k)) for k in ('start_s','end_s')):
         raise ValueError('Invalid task window bounds')
     end = plan.get('start_s')
     for index, segment in enumerate(plan['segments']):
         if not isinstance(segment, dict) or type(segment.get('index')) is not int or segment['index'] != index or segment.get('start_s') != end:
             raise ValueError('Video task windows must be consecutive')
         start, end = segment.get('start_s'), segment.get('end_s')
-        if any(type(n) not in (int, float) or not math.isfinite(n) for n in (start, end)) or start < 0 or end <= start:
+        if any(not _finite_number(n) for n in (start, end)) or start < 0 or end <= start:
             raise ValueError('Invalid video task time range')
         if type(segment.get('max_frames')) is not int or not 2 <= segment['max_frames'] <= 64:
             raise ValueError('Invalid video task frame budget')
         rate=segment.get('sampling_fps')
-        if type(rate) not in (int,float) or not math.isfinite(rate) or not 0<rate<=120:
+        if not _finite_number(rate) or not 0<rate<=120:
             raise ValueError('Invalid video task sampling rate')
     if end != plan.get('end_s') or end - plan['start_s'] > 3600:
         raise ValueError('Invalid video task duration')
@@ -165,7 +199,7 @@ def validate_state(state, plan):
     if state.get('empty_segments', 0) != empty:
         raise ValueError('Invalid empty video window count')
     last = plan['segments'][len(notes)-1]['end_s'] if notes else plan['start_s']
-    if any(type(t) not in (int, float) or not math.isfinite(t) or not plan['start_s'] <= t < last + 1e-6 for t in times):
+    if any(not _finite_number(t) or not plan['start_s'] <= t < last + 1e-6 for t in times):
         raise ValueError('Invalid checkpoint frame times')
     if len(times) != sum(n['frames'] for n in notes):
         raise ValueError('Checkpoint frame count differs from committed windows')
@@ -215,8 +249,38 @@ class VideoStore:
             raise ValueError('Invalid video handle')
         return self._directory() / (identity + suffix)
 
+    def _stored(self, path, suffix):
+        """Validate the envelope before a persisted record can drive an operation.
+
+        Progress/context compatibility remains the responsibility of get(); a
+        valid older task must still be listable and deletable after an update.
+        """
+        try:
+            record = _read(path)
+            identity = path.name.removesuffix(suffix)
+            valid = (suffix in ('.source.json', '.task.json') and _ID.fullmatch(identity)
+                     and record.get('id') == identity
+                     and isinstance(record.get('owner'), str) and _OWNER.fullmatch(record['owner'])
+                     and type(record.get('expires')) in (int, float) and math.isfinite(record['expires']))
+            if suffix == '.source.json':
+                valid = (valid and type(record.get('bytes')) is int and 0 < record['bytes'] <= MAX_SOURCE
+                         and isinstance(record.get('sha256'), str) and _OWNER.fullmatch(record['sha256']))
+            else:
+                valid = (valid and isinstance(record.get('source_id'), str) and _ID.fullmatch(record['source_id'])
+                         and isinstance(record.get('source_sha256'), str) and _OWNER.fullmatch(record['source_sha256'])
+                         and type(record.get('revision')) is int and record['revision'] >= 0
+                         and isinstance(record.get('config'), dict) and isinstance(record.get('state'), dict)
+                         and isinstance(record['state'].get('notes', []), list) and 'context' in record)
+                if valid:
+                    validate_plan(record['config'].get('plan'))
+            if not valid:
+                raise ValueError('Video record is unavailable')
+        except (KeyError, TypeError, OverflowError, RecursionError):
+            raise ValueError('Video record is unavailable') from None
+        return record
+
     def _record(self, identity, owner, suffix):
-        record = _read(self._path(identity, suffix))
+        record = self._stored(self._path(identity, suffix), suffix)
         if record.get('owner') != self._owner(owner) or record.get('expires', 0) <= self.clock():
             raise ValueError('Video handle has expired or belongs to another browser')
         return record
@@ -229,28 +293,38 @@ class VideoStore:
         if total > self.quota:
             raise ValueError('Local video storage is full; clear saved tasks first')
 
+    def _remove_source_files(self, identity):
+        # Keep retention metadata until the potentially locked payload is gone.
+        # A later retry/TTL pass can then finish either deletion safely.
+        self._path(identity, '.media').unlink(missing_ok=True)
+        self._path(identity, '.source.json').unlink(missing_ok=True)
+
     def cleanup(self):
         with self.lock:
             for path in self._directory().glob('*.json'):
-                if not _ID.fullmatch(path.name.split('.')[0]) or path.is_symlink():
+                suffix = next((s for s in ('.source.json', '.task.json') if path.name.endswith(s)), None)
+                if suffix is None or path.is_symlink():
                     continue
                 try:
-                    record = _read(path)
-                except ValueError:
+                    record = self._stored(path, suffix)
+                except (ValueError, OSError):
                     continue
                 if record.get('expires', 0) <= self.clock() and path.name.split('.')[0] not in self.active:
-                    path.unlink(missing_ok=True)
-                    if path.name.endswith('.source.json'):
-                        self._path(path.name.split('.')[0], '.media').unlink(missing_ok=True)
+                    try:
+                        if path.name.endswith('.source.json'):
+                            self._remove_source_files(path.name.split('.')[0])
+                        else:
+                            path.unlink(missing_ok=True)
+                    except OSError:
+                        continue
 
     def delete_source(self,owner,identity):
         with self.lock:
             self._record(identity,owner,'.source.json')
             if identity in self.active:raise ValueError('Video source is in use')
             for path in self.root.glob('*.task.json'):
-                if _read(path).get('source_id')==identity:raise ValueError('Clear the saved task before deleting its source')
-            self._path(identity,'.source.json').unlink()
-            self._path(identity,'.media').unlink(missing_ok=True)
+                if self._stored(path, '.task.json')['source_id']==identity:raise ValueError('Clear the saved task before deleting its source')
+            self._remove_source_files(identity)
             return {'deleted':True}
 
     def upload(self, owner, encoded, *, persistent=False, name='video', cancel=None):
@@ -382,8 +456,8 @@ class VideoStore:
             result = []
             for path in self.root.glob('*.task.json'):
                 try:
-                    task = _read(path)
-                except ValueError:
+                    task = self._stored(path, '.task.json')
+                except (ValueError, OSError):
                     continue
                 if task.get('owner') == hashed:
                     result.append({'id':task['id'], 'config':task['config'], 'revision':task['revision'],
@@ -397,9 +471,29 @@ class VideoStore:
             source = task['source_id']
             if source in self.active:
                 raise ValueError('Video source is in use; stop the current request first')
-            self._path(identity, '.task.json').unlink()
-            siblings = [_read(p) for p in self.root.glob('*.task.json') if not p.is_symlink()]
+            marker = self._path(source, '.source.json')
+            source_record = self._stored(marker, '.source.json') if marker.exists() or marker.is_symlink() else None
+            if source_record is not None and (source_record['owner'] != task['owner']
+                                               or source_record['sha256'] != task['source_sha256']):
+                raise ValueError('Saved video source has changed')
+            selected = self._path(identity, '.task.json')
+            # Check dependencies before committing deletion. An unreadable
+            # sibling must not consume the caller's still-retryable task.
+            siblings = [self._stored(p, '.task.json') for p in self.root.glob('*.task.json') if p != selected and not p.is_symlink()]
+            selected.unlink()
+            result = {'deleted':True}
             if not any(s.get('source_id') == source for s in siblings):
-                self._path(source, '.source.json').unlink(missing_ok=True)
-                self._path(source, '.media').unlink(missing_ok=True)
-            return {'deleted':True}
+                if source_record is None:
+                    # The task is authorized, but its reference alone cannot
+                    # authorize deleting a payload with missing ownership data.
+                    media = self._path(source, '.media')
+                    if media.exists() or media.is_symlink():
+                        result['cleanup_pending'] = True
+                else:
+                    try:
+                        self._remove_source_files(source)
+                    except OSError:
+                        # Task deletion is committed. Payload cleanup can be
+                        # retried using its retained metadata after a lock clears.
+                        result['cleanup_pending'] = True
+            return result

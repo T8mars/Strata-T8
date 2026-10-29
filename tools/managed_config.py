@@ -59,8 +59,9 @@ def protected_output(output, data):
         return False
     relative = output.relative_to(root)
     name = relative.parts[0].lower()
-    if len(relative.parts) > 1 and name in ('engine', 'engine-hip', 'runtime', 'serve', 'tools', 'vision',
-                                           'data', 'third_party', 'src', 'include', 'docs', 'tests', 'bench', '.github', '.git'):
+    if len(relative.parts) > 1 and (name.startswith('engine-') or name in (
+            'engine', 'runtime', 'serve', 'tools', 'vision', 'data', 'third_party',
+            'src', 'include', 'docs', 'tests', 'bench', '.github', '.git')):
         return True
     if len(relative.parts) == 1 and (name.startswith('strata-') or name in
             ('meta.json', 'features.json', 'model-sources.json', 'portable-settings.json', 'package-manifest.json')
@@ -94,27 +95,41 @@ def main():
     portable.environment_check()
     portable.isolate_setup()
     model = portable.model_delivery(data)
-    tag = portable.upstream.FAMILIES[model['family']]['tag'] + model['model']
-    base = portable.ROOT/f'strata-{tag.lower()}.json'
-    state = portable.read_state()
-    fp = portable.fingerprint(data)
-    if not base.is_file() or not portable.same_machine(state.get('portable_fingerprint'), fp):
-        config = fresh_config(data, model, args.context, args.output)
+    deepseek = model['family'] == 'deepseek41'
+    context = min(args.context, 8192) if deepseek else args.context
+    if deepseek:
+        from tools.portable_deepseek import build_config
+        _, config = build_config(portable, data, context=context, vision=args.vision)
+        engine = portable.ROOT/'engine-dsv41'
+        libraries = [engine]
     else:
-        config = portable.read_config(base)
-    backend = config.get('backend', 'cuda')
-    config.update(exe=str(portable.ROOT/('engine-hip' if backend == 'hip' else 'engine')/'strata.exe'),
-                  cwd=str(portable.ROOT), lazy_load=True, host='127.0.0.1', parallel=1,
+        tag = portable.upstream.FAMILIES[model['family']]['tag'] + model['model']
+        base = portable.ROOT/f'strata-{tag.lower()}.json'
+        state = portable.read_state()
+        fp = portable.fingerprint(data)
+        if not base.is_file() or not portable.same_machine(state.get('portable_fingerprint'), fp):
+            config = fresh_config(data, model, context, args.output)
+        else:
+            config = portable.read_config(base)
+        backend = config.get('backend', 'cuda')
+        engine = portable.configured_engine(config, fp)
+        config['exe'] = str(engine/'strata.exe')
+        libraries = (portable.upstream.hip_lib_dirs(engine) if backend == 'hip' else
+                     [engine, *portable.upstream.cuda_lib_dirs(portable.upstream.config_toolkit(config))])
+    config.update(cwd=str(portable.ROOT), lazy_load=True, host='127.0.0.1', parallel=1,
                   before_load=None, min_free_vram_mib=0, idle_unload_s=0,
                   log=str(args.output.with_suffix('.engine.log')), api_monitor=False)
     config.pop('api_key', None)
-    config['lib_dirs'] = [str(p) for p in (portable.upstream.hip_lib_dirs(Path(config['exe']).parent) if backend == 'hip' else portable.upstream.cuda_lib_dirs())]
-    config['args'] = single_request_args(config['args'], args.context)
+    if 'model_name' in model:
+        config['model_name'] = portable.model_api_id(model)
+    config['lib_dirs'] = [str(p) for p in libraries]
+    config['args'] = single_request_args(config['args'], context)
     if args.vision != 'no':
         portable.attach_vision(config, model, args.vision)
     else:
         config.pop('vision', None)
-        config['args'] = [value for value in config['args'] if value != '--vision']
+        if not deepseek:
+            config['args'] = [value for value in config['args'] if value != '--vision']
     args.output.parent.mkdir(parents=True, exist_ok=True)
     portable.save_json(args.output, config)
     print(f'Managed profile ready: {args.output}', flush=True)

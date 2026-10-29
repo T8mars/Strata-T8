@@ -319,23 +319,27 @@ def check_installation_topology(root, new_entries, old_entries):
 def publish_control_pair(root, plan_dir, plan):
     """Keep a previous verified plan paired with its executor on publication failure."""
     executor = plan_dir/'apply.ps1'
-    previous = executor.read_bytes() if executor.exists() else None
+    descriptor_path = plan_dir/'plan.json'
+    previous = {path:path.read_bytes() if path.exists() else None for path in (descriptor_path, executor)}
     descriptor, temporary = tempfile.mkstemp(prefix='.apply-', suffix='.ps1', dir=plan_dir)
     os.close(descriptor)
     temporary = Path(temporary)
-    replaced = False
     try:
         shutil.copy2(root/'tools/apply_portable_update.ps1', temporary)
         os.replace(temporary, executor)
-        replaced = True
-        atomic_json(plan_dir/'plan.json', plan)
-    except Exception:
-        if replaced:
-            if previous is None:
-                executor.unlink(missing_ok=True)
+        atomic_json(descriptor_path, plan)
+    except BaseException:
+        # Ctrl+C can arrive either before or just after the atomic descriptor
+        # replacement. Restore both documents, including first publication.
+        for path, content in previous.items():
+            current = path.read_bytes() if path.exists() else None
+            if current == content:
+                continue
+            if content is None:
+                path.unlink(missing_ok=True)
             else:
-                temporary.write_bytes(previous)
-                os.replace(temporary, executor)
+                temporary.write_bytes(content)
+                os.replace(temporary, path)
         raise
     finally:
         temporary.unlink(missing_ok=True)
@@ -388,6 +392,7 @@ def prepare(root=ROOT, release=None, edition=None):
             raise ValueError('Invalid release checksum metadata')
     stage = Path(tempfile.mkdtemp(prefix='Strata-T8-update-'))
     owned_stage = stage.resolve()
+    published = False
     try:
         archive = stage/name
         incoming = stage/'incoming'
@@ -430,10 +435,11 @@ def prepare(root=ROOT, release=None, edition=None):
                 'manifest_sha256': hashlib.sha256((incoming/'PACKAGE-MANIFEST.json').read_bytes()).hexdigest()}
         archive.unlink(missing_ok=True)
         publish_control_pair(root, plan_dir, plan)
+        published = True
         discard_owned_pending_stage(root, previous)
-    except Exception:
+    except BaseException:
         # Delete only the fresh directory created by this invocation, never a redirected path.
-        if stage.resolve() == owned_stage and not stage.is_symlink() and not getattr(stage, 'is_junction', lambda: False)():
+        if not published and stage.resolve() == owned_stage and not stage.is_symlink() and not getattr(stage, 'is_junction', lambda: False)():
             try:
                 shutil.rmtree(owned_stage)
             except OSError as error:

@@ -16,8 +16,8 @@
     "strata-engine-0.1.50-windows-x86_64-hip-rdna3.tar.gz": "2b6d191b3e3a0b3c8895a88be6663249d19adbf9085c90db2750c4093a1f1779",
     "strata-engine-0.1.50-windows-x86_64-hip-rx9070.tar.gz": "75f83ea81e6f151d5ebd39365bb4a93463246b9baeeaf98a51bc2b8ced4905e1"
   },
-  "revision": 1,
-  "version": "0.2.6-t8.1",
+  "revision": 2,
+  "version": "0.2.6-t8.2",
   "python_version": "3.12.10",
   "python_zip_sha256": "4acbed6dd1c744b0376e3b1cf57ce906f9dc9e95e68824584c8099a63025a3c3",
   "model_family": "qwen",

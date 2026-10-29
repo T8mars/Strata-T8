@@ -54,6 +54,7 @@ def download(url: str, target: Path, size: int, sha256: str, workers=8, chunk_mi
         with partial.open('wb') as f:
             f.truncate(size)
     lock = threading.Lock()
+    aborted = threading.Event()
     def save():
         info['complete'] = sorted(complete)
         tmp = state.with_name(state.name + '.tmp')
@@ -66,6 +67,8 @@ def download(url: str, target: Path, size: int, sha256: str, workers=8, chunk_mi
         first, last = i*chunk, min(size, (i+1)*chunk)-1
         expected = f'bytes {first}-{last}/{size}'
         for attempt in range(6):
+            if aborted.is_set():
+                return
             try:
                 req = urllib.request.Request(url, headers={'Range': f'bytes={first}-{last}', 'User-Agent': 'Strata-portable/1.0', 'Accept-Encoding': 'identity'})
                 with urllib.request.urlopen(req, timeout=90) as response:
@@ -74,36 +77,53 @@ def download(url: str, target: Path, size: int, sha256: str, workers=8, chunk_mi
                     written = 0
                     with partial.open('r+b') as f:
                         f.seek(first)
-                        while data := response.read(min(4*1024*1024, last-first+1-written)):
+                        while not aborted.is_set() and (data := response.read(min(4*1024*1024, last-first+1-written))):
                             f.write(data)
                             written += len(data)
                         f.flush()
+                    if aborted.is_set():
+                        return
                     if written != last-first+1:
                         raise ValueError(f'Short read: {written}')
                 with lock:
+                    if aborted.is_set():
+                        return
                     complete.add(i)
                     save()
                 return
             except Exception as e:
+                if aborted.is_set():
+                    return
                 print(f'{target.name} range {i}: retry {attempt+1}: {e}', flush=True)
                 if attempt == 5:
+                    aborted.set()
                     raise
-                time.sleep(min(2**attempt, 20))
+                if aborted.wait(min(2**attempt, 20)):
+                    return
     count = (size+chunk-1)//chunk
     with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as pool:
-        jobs = {pool.submit(fetch, i) for i in range(count) if i not in complete}
+        jobs = set()
         last_print = 0
-        while jobs:
-            finished, jobs = concurrent.futures.wait(jobs, timeout=10, return_when=concurrent.futures.FIRST_COMPLETED)
-            for job in finished:
-                job.result()
-            now = time.monotonic()
-            if now-last_print >= 15 or not jobs:
-                with lock:
-                    done = sum(min(chunk, size-i*chunk) for i in complete)
-                rate = (done-initial)/max(now-start_time, 1)/1e6
-                print(f'{target.name}: {done/1e9:.2f}/{size/1e9:.2f} GB ({100*done/size:.1f}%), {rate:.1f} MB/s', flush=True)
-                last_print = now
+        try:
+            for i in range(count):
+                if i not in complete:
+                    jobs.add(pool.submit(fetch, i))
+            while jobs:
+                finished, jobs = concurrent.futures.wait(jobs, timeout=10, return_when=concurrent.futures.FIRST_COMPLETED)
+                for job in finished:
+                    job.result()
+                now = time.monotonic()
+                if now-last_print >= 15 or not jobs:
+                    with lock:
+                        done = sum(min(chunk, size-i*chunk) for i in complete)
+                    rate = (done-initial)/max(now-start_time, 1)/1e6
+                    print(f'{target.name}: {done/1e9:.2f}/{size/1e9:.2f} GB ({100*done/size:.1f}%), {rate:.1f} MB/s', flush=True)
+                    last_print = now
+        except BaseException:
+            aborted.set()
+            for job in jobs:
+                job.cancel()
+            raise
     print(f'Hashing {target.name} ...', flush=True)
     with partial.open('rb') as stream:
         digest = hashlib.file_digest(stream, 'sha256').hexdigest()

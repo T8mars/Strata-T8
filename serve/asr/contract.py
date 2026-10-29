@@ -11,9 +11,15 @@ MAX_CUES = 10000
 
 
 def number(value, name):
-    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise ValueError(f'{name} must be a finite number')
-    return float(value)
+    try:
+        value = float(value)
+    except OverflowError:
+        raise ValueError(f'{name} must be a finite number') from None
+    if not math.isfinite(value):
+        raise ValueError(f'{name} must be a finite number')
+    return value
 
 
 def transcript(value):
@@ -79,7 +85,10 @@ def from_confucius(value, *, origin_s=0, timeline='input'):
         raise ValueError('Invalid Confucius text or segment list')
     duration = value.get('audio_samples_16k', value.get('total_samples'))
     if duration is None:
-        duration = round(number(value.get('audio_seconds', value.get('duration_s')), 'audio duration') * 16000)
+        samples = number(value.get('audio_seconds', value.get('duration_s')), 'audio duration') * 16000
+        if not math.isfinite(samples):
+            raise ValueError('Invalid Confucius audio duration')
+        duration = round(samples)
     if type(duration) is not int or duration < 0 or duration > 3600 * 16000:
         raise ValueError('Invalid Confucius audio duration')
     cues, full, seen = [], [], set()
@@ -126,7 +135,7 @@ def subtitle_text(value, *, offset_s=0, timeline='input'):
             raise ValueError('Subtitle minutes and seconds must be below 60')
         return sum(float(part) * 60**i for i, part in enumerate(reversed(parts)))
     cues = []
-    for block in re.split(r'\n\s*\n', value.replace('\r\n', '\n').lstrip('\ufeff').strip()):
+    for block in re.split(r'\n\s*\n', value.replace('\r\n', '\n').replace('\r', '\n').lstrip('\ufeff').strip()):
         lines = block.splitlines()
         timing = next((i for i,line in enumerate(lines) if '-->' in line), None)
         if timing is None:

@@ -28,7 +28,7 @@ function videoPage() {
     'video-duration':'','video-processing':'single','video-mode':'native',
     'video-asr-enabled':'','video-timed-transcript':''}).map(([k,v]) => [k,element(v)]));
   const calls = [], saved = {}, notices = [];
-  const context = vm.createContext({StrataVideoAnalysis:V, StrataSpeech:S, AbortController, DOMException, console, setTimeout,
+  const context = vm.createContext({StrataVideoAnalysis:V, StrataSpeech:S, AbortController, DOMException, console, setTimeout, clearTimeout,
     health:{images:true}, attachments:[], headers:()=>({}), toast:(...args)=>notices.push(args),
     store:{get:(k,d)=>d, set:(k,v)=>saved[k]=v},
     $:id=>fields[id] || (fields[id]=element()), renderAttachments(){},
@@ -51,6 +51,74 @@ function videoPage() {
   vm.runInContext(source.slice(source.indexOf('let videoFrameLimit ='), source.indexOf('function isTextFile(')), context);
   return {context, fields, calls, saved, notices, run:code=>vm.runInContext(code,context)};
 }
+function reusableVideoPage() {
+  const ui=videoPage(), retained=[];
+  ui.fields['video-source-reuse']=element();ui.fields['video-source-reuse'].checked=true;
+  ui.context.StrataVideoTasks={token:()=> 'a'.repeat(64),call:async(path,value,_headers,signal)=>{
+    retained.push({path,value,signal});return path==='v1/video/sources'?{id:'created-source'}:{deleted:true};
+  }};
+  const original=ui.context.fetch;
+  ui.context.fetch=async(url,options)=>url==='v1/video/capabilities'?
+    {ok:true,json:async()=>({source_handles:true})}:original(url,options);
+  return {...ui,retained};
+}
+test('failed sampling deletes only the newly uploaded reusable source',async()=>{
+  const ui=reusableVideoPage(), original=ui.context.fetch;
+  ui.context.fetch=async(url,options)=>url==='v1/video/sample'?
+    {ok:false,json:async()=>({error:{message:'fixture decode failed'}})}:original(url,options);
+  await ui.run("addVideo({name:'broken.mp4',size:100})");
+  assert.equal(ui.run('attachments.length'),0);
+  assert.match(ui.run('videoUploadError'),/fixture decode failed/);
+  assert.deepEqual(ui.retained.map(c=>c.path),['v1/video/sources','v1/video/sources/delete']);
+  assert.equal(ui.retained[1].value.source_id,'created-source');
+});
+test('cancelled sampling also releases its newly uploaded source',async()=>{
+  const ui=reusableVideoPage(), original=ui.context.fetch;
+  ui.context.fetch=async(url,options)=>{
+    if(url==='v1/video/sample'){
+      ui.run('attachments[0].controller.abort()');
+      throw new DOMException('Cancelled','AbortError');
+    }
+    return original(url,options);
+  };
+  await ui.run("addVideo({name:'clip.mp4',size:100})");
+  assert.equal(ui.run('attachments.length'),0);
+  assert.deepEqual(ui.retained.map(c=>c.path),['v1/video/sources','v1/video/sources/delete']);
+  assert.notEqual(ui.retained[0].signal,ui.retained[1].signal);
+  assert.equal(ui.retained[0].signal.aborted,true);
+  assert.equal(ui.retained[1].signal.aborted,false);
+});
+test('a stalled cleanup is independently cancelled without hiding the sampling error',async()=>{
+  const ui=reusableVideoPage(), original=ui.context.fetch, call=ui.context.StrataVideoTasks.call;
+  ui.context.fetch=async(url,options)=>url==='v1/video/sample'?
+    {ok:false,json:async()=>({error:{message:'original decode failure'}})}:original(url,options);
+  ui.context.setTimeout=callback=>{queueMicrotask(callback);return 1;};
+  ui.context.clearTimeout=()=>{};
+  ui.context.StrataVideoTasks.call=async(path,value,headers,signal)=>{
+    if(path==='v1/video/sources/delete')return new Promise((_resolve,reject)=>
+      signal.addEventListener('abort',()=>reject(new DOMException('Cleanup deadline','AbortError')),{once:true}));
+    return call(path,value,headers,signal);
+  };
+  await ui.run("addVideo({name:'broken.mp4',size:100})");
+  assert.match(ui.run('videoUploadError'),/original decode failure/);
+  assert.equal(ui.run('attachments.length'),0);
+});
+test('failed resampling preserves the previous attachment and its reused source',async()=>{
+  const ui=reusableVideoPage();
+  await ui.run("addVideo({name:'clip.mp4',size:100})");
+  const old=ui.run('attachments[0]');
+  ui.context.fetch=async()=>({ok:false,json:async()=>({error:{message:'fixture retry failed'}})});
+  await ui.run('addVideo(attachments[0].file,attachments[0])');
+  assert.equal(ui.run('attachments[0]'),old);
+  assert.deepEqual(ui.retained.map(c=>c.path),['v1/video/sources']);
+});
+test('changing mode on an empty first segmented window does not dereference its absent part',()=>{
+  const ui=videoPage();
+  ui.context.attachments=[{kind:'video',part:null,plan:{segments:[]}}];
+  ui.fields['video-mode'].addEventListener=(_event,callback)=>callback();
+  assert.doesNotThrow(()=>vm.runInContext(source.slice(source.indexOf("$('video-mode').addEventListener"),
+    source.indexOf('function addFiles(')),ui.context));
+});
 test('12 seconds at 24 fps plans 288 frames across 18 requests, without a 64-frame total cap', () => {
   const p = V.plan({source:{duration_s:12}}, {max_frames:16,sampling_fps:24});
   assert.equal(p.estimated_frames,288); assert.equal(p.segments.length,18);

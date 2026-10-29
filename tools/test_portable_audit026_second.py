@@ -92,7 +92,8 @@ class SetupSettings(unittest.TestCase):
                 options = SimpleNamespace(action='start', no_browser=True, **overrides)
                 self.app.options = options
                 accepted = []
-                def begin(data=None, *, existing=False):
+                def begin(data=None, *, existing=False, launch=False):
+                    self.assertTrue(launch, 'initial CLI options must retain explicit-launch semantics')
                     if existing:
                         accepted.append({'existing':True})
                     else:

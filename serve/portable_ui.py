@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import hmac
+import copy
 import hashlib
 import html
 from http.client import HTTPConnection
@@ -200,6 +201,14 @@ class ModelSetup:
         with self.lock:
             self.job = {'state': state, 'message': message, 'error': error}
 
+    def _start_job(self, target, args=()):
+        try:
+            threading.Thread(target=target, args=args, daemon=True).start()
+        except (OSError, RuntimeError, MemoryError) as error:
+            message = '无法启动后台任务，请释放系统资源后重试。'
+            self.set_job('error', message, str(error))
+            raise SetupError(message) from error
+
     def _options(self, data):
         allowed = {'path', 'port', 'context', 'vision', 'native_video', 'backend', 'speed'}
         if not isinstance(data, dict) or set(data)-allowed:
@@ -372,7 +381,11 @@ class ModelSetup:
                 if running and not self.closed.is_set():self._start_backend()
                 else:self.set_job('idle','API 访问设置已保存，启动模型服务后生效。')
             except Exception as error:
-                if running:self.stop_backend()
+                stop_error = None
+                if running:
+                    try:self.stop_backend()
+                    except (OSError, subprocess.SubprocessError) as failed:
+                        stop_error = str(failed)
                 with self.lock:
                     try:
                         if previous_state is None:state_path.unlink(missing_ok=True)
@@ -380,10 +393,13 @@ class ModelSetup:
                         if path and previous_config is not None:self.portable.atomic_bytes(path,previous_config)
                     except OSError as restore_error:
                         self.set_job('error','API 设置保存失败，请检查配置文件。',f'{error}\n配置恢复失败：{restore_error}');return
-                    self.set_job('error','API 设置未应用，原设置已保留。',str(error))
-        threading.Thread(target=work,daemon=True).start()
+                    if stop_error is not None:
+                        self.set_job('error','原配置已恢复，但未能确认服务停止，请重试停止服务。',f'{error}\n停止服务失败：{stop_error}')
+                    else:
+                        self.set_job('error','API 设置未应用，原设置已保留。',str(error))
+        self._start_job(work)
 
-    def begin(self, data=None, *, existing=False):
+    def begin(self, data=None, *, existing=False, launch=False):
         if existing:
             if self.current_config is None:
                 raise SetupError('请先设置模型目录。')
@@ -401,9 +417,9 @@ class ModelSetup:
             if not existing and not (running and normalized['port'] == self.backend_port):
                 free_port(normalized['port'], strict=True, exclude=[self.http.server_port])
             self.job = {'state': 'starting' if existing else 'configuring', 'message': '正在启动服务…' if existing else ('正在停止当前服务并保存新配置…' if running else '正在检查并保存模型配置…'), 'error': None}
-            threading.Thread(target=self._configure_and_start, args=(normalized, summary), daemon=True).start()
+            self._start_job(self._configure_and_start, (normalized, summary, launch))
 
-    def _configure_and_start(self, data, summary):
+    def _configure_and_start(self, data, summary, launch=False):
         try:
             if data is not None:
                 # Saving settings is the explicit switch action. Validate first,
@@ -444,6 +460,13 @@ class ModelSetup:
                 self.portable.read_config(self.current_config)
                 self.model, self.current_error = summary, None
                 self.requested = None
+                if not launch and self.options is not None:
+                    # A saved web form supersedes initial model/port flags.
+                    # Keep unrelated launcher controls and hidden token budgets.
+                    options = copy.copy(self.options)
+                    for name in ('data_dir', 'port', 'context', 'backend', 'vision', 'native_video', 'speed'):
+                        setattr(options, name, None)
+                    self.options = options
             if self.closed.is_set():
                 return
             self._start_backend()
@@ -451,9 +474,13 @@ class ModelSetup:
                 with self.lock:
                     if self.job['state'] == 'ready':
                         self.set_job('ready', f"服务已就绪。原端口 {data['port']} 暂不可用，已切换到 {self.backend_port}；外部客户端请使用下方最新 API 地址。")
-        except (OSError, ValueError, RuntimeError, KeyError) as error:
-            self.stop_backend()
-            self.set_job('error', '请修正设置后重试。', str(error))
+        except (OSError, ValueError, RuntimeError, KeyError, subprocess.SubprocessError) as error:
+            try:
+                self.stop_backend()
+            except (OSError, subprocess.SubprocessError) as failed:
+                self.set_job('error', '未能确认服务停止，请重试停止服务后再切换模型。', f'{error}\n停止服务失败：{failed}')
+            else:
+                self.set_job('error', '请修正设置后重试。', str(error))
 
     def prepare(self, data):
         if (not isinstance(data, dict) or set(data) != {'path', 'accept_download'}
@@ -466,8 +493,9 @@ class ModelSetup:
         if original.is_symlink() or getattr(original, 'is_junction', lambda: False)():
             raise SetupError('模型准备目录不能通过链接指向其他位置。')
         path = original.resolve()
-        if path == self.root or (path.is_relative_to(self.root) and path.relative_to(self.root).parts[0].lower() in
-                                {'runtime','engine','engine-hip','serve','tools','vision','data','docs','licenses','ref','third_party','.git','.github','.portable-ui'}):
+        component = path.relative_to(self.root).parts[0].lower() if path != self.root and path.is_relative_to(self.root) else ''
+        if path == self.root or component.startswith('engine-') or component in {
+                'runtime','engine','serve','tools','vision','data','docs','licenses','ref','third_party','.git','.github','.portable-ui'}:
             raise SetupError('请为模型选择独立文件夹，例如 Strata-data。')
         catalog_path = self.root/'model-sources.json'
         catalog = json.loads(catalog_path.read_text(encoding='utf-8'))
@@ -500,7 +528,7 @@ class ModelSetup:
             path.mkdir(parents=True, exist_ok=True)
             self.portable.save_json(marker, expected)
             self.job = {'state':'preparing','message':'正在下载缺少的官方模型文件并准备索引，请保持启动窗口开启。','error':None}
-            threading.Thread(target=self._prepare_model,args=(path,),daemon=True).start()
+            self._start_job(self._prepare_model, (path,))
 
     def _prepare_model(self, path):
         try:
@@ -618,7 +646,11 @@ class ModelSetup:
             except (OSError, ValueError, RuntimeError, KeyError, TypeError) as error:
                 with self.lock:
                     self.update.update(state='error', available=False, message='暂时无法检查更新，离线使用不受影响。')
-        threading.Thread(target=work, daemon=True).start()
+        try:
+            threading.Thread(target=work, daemon=True).start()
+        except (OSError, RuntimeError, MemoryError):
+            with self.lock:
+                self.update.update(state='error', available=False, message='暂时无法检查更新，离线使用不受影响。')
 
     def begin_update(self, restore_id=None):
         with self.lock:
@@ -674,7 +706,7 @@ class ModelSetup:
                     except (OSError, subprocess.SubprocessError):
                         pass
                 self.set_job('error', '更新未启动，请重试或运行 UPDATE-PORTABLE.bat。', str(error))
-        threading.Thread(target=work, daemon=True).start()
+        self._start_job(work)
 
     def stop_backend(self):
         with self.lock:
@@ -698,9 +730,13 @@ class ModelSetup:
                 raise SetupError('当前操作尚未完成，请稍候。')
             self.job = {'state': 'stopping', 'message': '正在停止当前服务…', 'error': None}
         def work():
-            self.stop_backend()
-            self.set_job('idle', '服务已停止，可以重新设置模型。')
-        threading.Thread(target=work, daemon=True).start()
+            try:
+                self.stop_backend()
+            except (OSError, subprocess.SubprocessError) as error:
+                self.set_job('error', '服务未能停止，请重试；当前服务记录已保留。', str(error))
+            else:
+                self.set_job('idle', '服务已停止，可以重新设置模型。')
+        self._start_job(work)
 
     def close(self):
         self.closed.set()
@@ -962,7 +998,7 @@ def run(options):
     if options.action == 'start' and app.current_config is not None:
         try:
             if explicit:
-                app.begin(app.defaults())
+                app.begin(app.defaults(), launch=True)
             else:
                 app.begin(existing=True)
         except (OSError, ValueError, RuntimeError) as error:

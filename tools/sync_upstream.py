@@ -190,6 +190,9 @@ def sync_fetched(root, commit, ref, *, release_assets=None):
             merged = git(root, '-c', 'merge.t8-keep.driver=true', 'merge', '--no-ff', '--no-commit', '--no-overwrite-ignore', merge_target, check=False)
         except RuntimeError as error:
             merged = subprocess.CompletedProcess([], 1, '', str(error))
+        except BaseException:
+            abort_sync_merge(root, merge_target)
+            raise
     if merged.returncode:
         conflicts = git(root, 'diff', '--name-only', '--diff-filter=U').stdout.splitlines() + collisions
         # Restore the checkout before producing diagnostics. A disk/write failure
@@ -246,7 +249,12 @@ def sync_fetched(root, commit, ref, *, release_assets=None):
         git(root, 'add', 'README-UPSTREAM.md', 'meta.json')
         git(root, 'commit', '-m', f'Sync upstream {ref} ({commit[:12]})')
         return {'changed': True, 'upstream_commit': commit, 'version': meta['version']}
-    except Exception:
+    except BaseException:
+        # A cancellation can arrive after Git has already committed. Never
+        # restore generated files from the old HEAD over a completed commit
+        # (or over another operation that advanced the user's checkout).
+        if git(root, 'rev-parse', 'HEAD').stdout.strip() != before:
+            raise
         abort_sync_merge(root, merge_target)
         # The merge's only generated files are controlled here.
         git(root, 'restore', '--source='+before, '--staged', '--worktree', 'meta.json')

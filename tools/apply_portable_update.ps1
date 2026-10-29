@@ -45,6 +45,9 @@ $changes = [Collections.Generic.List[object]]::new()
 $installed = [Collections.Generic.List[string]]::new()
 $createdDirectories = [Collections.Generic.List[string]]::new()
 $removedDirectories = [Collections.Generic.List[string]]::new()
+$backupDirectories = [Collections.Generic.List[string]]::new()
+$createdReceiptPath = $null
+$createdReceiptText = $null
 function EnsureDirectory([string]$path) {
     $missing = [Collections.Generic.List[string]]::new()
     $parent = $path
@@ -177,6 +180,68 @@ function InstallFile([string]$source, [string]$target, [long]$size, [string]$dig
         if (Test-Path -LiteralPath $temporary -PathType Leaf) { Remove-Item -LiteralPath $temporary -Force }
     }
 }
+function RemoveCompletedOwnedStage {
+    # Successful-update backups live independently. Reclaim only the verified
+    # temporary input, preserving legacy stages and anything a user added.
+    if ($plan.stage_owner -isnot [string] -or $plan.stage_owner -cnotmatch '^[0-9a-f]{32}$') { return }
+    $temporaryRoot = LongPath ([IO.Path]::GetTempPath())
+    $parent = [IO.Path]::GetDirectoryName($stageRoot)
+    if ([IO.Path]::GetFileName($stageRoot) -cne 'incoming' -or
+        [IO.Path]::GetFileName($parent) -cnotmatch '^Strata-T8-update-' -or
+        !([IO.Path]::GetDirectoryName($parent)).Equals($temporaryRoot, [StringComparison]::OrdinalIgnoreCase) -or
+        (Overlapping $parent $appRoot) -or (Overlapping $parent $backupRoot)) { return }
+    CheckRoot $parent
+    $markerPath = ScopedPath $parent 'stage-owner.json'
+    $owner = ReadJsonObject $markerPath 'Staging owner'
+    if (@($owner.PSObject.Properties.Name).Count -ne 2 -or $owner.token -cne $plan.stage_owner -or
+        $owner.root -isnot [string] -or !$owner.root.Equals($appRoot, [StringComparison]::OrdinalIgnoreCase)) { return }
+    $receiptPath = ScopedPath $appRoot ('.portable-update/history/' + $plan.stage_owner + '.json')
+    $receipt = ReadJsonObject $receiptPath 'Successful update receipt'
+    $result = ReadJsonObject $resultPath 'Successful update result'
+    if ($result.success -isnot [bool] -or !$result.success -or $result.version -cne $plan.version -or
+        $receipt.id -cne $plan.stage_owner -or $receipt.root -cne $appRoot -or $receipt.backup -cne $backupRoot -or
+        $receipt.to_version -cne $plan.version -or $receipt.installed_manifest_sha256 -cne $plan.manifest_sha256 -or
+        (FileDigest (ScopedPath $appRoot 'PACKAGE-MANIFEST.json')) -cne $plan.manifest_sha256 -or
+        (FileDigest (ScopedPath $backupRoot 'PACKAGE-MANIFEST.json')) -cne $receipt.target_manifest_sha256 -or
+        (FileDigest (ScopedPath $stageRoot 'PACKAGE-MANIFEST.json')) -cne $plan.manifest_sha256) { return }
+    $expected = @{'stage-owner.json'=$false; 'incoming'=$true; 'incoming/PACKAGE-MANIFEST.json'=$false}
+    foreach ($entry in $plan.new) {
+        $relative = 'incoming/' + $entry.path
+        $expected[$relative] = $false
+        $directory = [IO.Path]::GetDirectoryName($relative).Replace('\', '/')
+        while ($directory) {
+            $expected[$directory] = $true
+            $directory = [IO.Path]::GetDirectoryName($directory).Replace('\', '/')
+        }
+        $file = ScopedPath $stageRoot $entry.path
+        if ((Get-Item -LiteralPath $file).Length -ne $entry.size -or (FileDigest $file) -cne $entry.sha256) { return }
+    }
+    $items = [Collections.Generic.List[object]]::new()
+    $pending = [Collections.Generic.Stack[string]]::new(); $pending.Push($parent)
+    while ($pending.Count) {
+        foreach ($item in @(Get-ChildItem -LiteralPath $pending.Pop() -Force)) {
+            if ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) { return }
+            $relative = $item.FullName.Substring($parent.Length + 1).Replace('\', '/')
+            if (!$expected.ContainsKey($relative) -or $expected[$relative] -ne $item.PSIsContainer) { return }
+            $items.Add($item)
+            if ($item.PSIsContainer) { $pending.Push($item.FullName) }
+        }
+    }
+    if ($items.Count -ne $expected.Count) { return }
+    # No recursive deletion: a late additional file prevents directory removal.
+    foreach ($item in @($items | Where-Object { !$_.PSIsContainer })) {
+        $target = ScopedPath $parent ($item.FullName.Substring($parent.Length + 1).Replace('\', '/'))
+        CheckRoot $target
+        [IO.File]::Delete($target)
+    }
+    foreach ($item in @($items | Where-Object { $_.PSIsContainer } | Sort-Object { $_.FullName.Length } -Descending)) {
+        $target = ScopedPath $parent ($item.FullName.Substring($parent.Length + 1).Replace('\', '/'))
+        CheckRoot $target
+        [IO.Directory]::Delete($target, $false)
+    }
+    CheckRoot $parent
+    [IO.Directory]::Delete($parent, $false)
+}
 try {
     $plan = ReadJsonObject $PlanPath 'Update plan'
     if ($plan -isnot [pscustomobject]) { throw 'Update plan must be an object' }
@@ -291,7 +356,21 @@ try {
         $change = @{ target=$target; backup=$backup; hadOld=$hadOld; saved=$false }
         $changes.Add($change)
         if ($hadOld) {
-            $null = New-Item -ItemType Directory -Path ([IO.Path]::GetDirectoryName($backup)) -Force
+            $directory = [IO.Path]::GetDirectoryName($backup)
+            $missing = [Collections.Generic.List[string]]::new()
+            while ($directory -and ($directory.Equals($backupRoot, [StringComparison]::OrdinalIgnoreCase) -or
+                   $directory.StartsWith($backupRoot + '\', [StringComparison]::OrdinalIgnoreCase)) -and
+                   !(Test-Path -LiteralPath $directory)) {
+                $missing.Add($directory)
+                $directory = [IO.Path]::GetDirectoryName($directory)
+            }
+            try { $null = New-Item -ItemType Directory -Path ([IO.Path]::GetDirectoryName($backup)) -Force }
+            finally {
+                # Creation can fail after making some parent folders.
+                foreach ($directory in $missing) {
+                    if ([IO.Directory]::Exists($directory)) { $backupDirectories.Add($directory) }
+                }
+            }
             # A file move must name an exact vacant file, never a directory into
             # which Move-Item can silently place it after a concurrent change.
             $null = ScopedPath $backupRoot $relative
@@ -327,12 +406,16 @@ try {
                       installed_manifest_sha256=(FileDigest (ScopedPath $appRoot 'PACKAGE-MANIFEST.json')) }
         $receiptTemp = $receiptPath + '.' + [Guid]::NewGuid().ToString('N') + '.tmp'
         try {
-            [IO.File]::WriteAllText($receiptTemp, ($receipt | ConvertTo-Json), [Text.UTF8Encoding]::new($false))
+            $createdReceiptText = $receipt | ConvertTo-Json
+            [IO.File]::WriteAllText($receiptTemp, $createdReceiptText, [Text.UTF8Encoding]::new($false))
             [IO.File]::Move($receiptTemp,$receiptPath)
+            $createdReceiptPath = $receiptPath
         } finally { if (Test-Path -LiteralPath $receiptTemp) { Remove-Item -LiteralPath $receiptTemp } }
     }
     Remove-Item -LiteralPath $PlanPath
     Write-Host "Updated to $($plan.version). Backup: $backupRoot"
+    try { RemoveCompletedOwnedStage }
+    catch { Write-Warning ('Update completed; temporary files were retained: ' + $_.Exception.Message) }
     exit 0
 } catch {
     $failure = $_.Exception.Message
@@ -360,6 +443,24 @@ try {
     foreach ($directory in $removedDirectories) {
         try { $null = [IO.Directory]::CreateDirectory($directory) }
         catch { $rollbackErrors += $_.Exception.Message }
+    }
+    if (!$rollbackErrors.Count) {
+        # A complete rollback leaves the pending plan reusable. Remove only a
+        # receipt this attempt published and its own now-empty backup folders.
+        try {
+            if ($createdReceiptPath -and (Test-Path -LiteralPath $createdReceiptPath)) {
+                $receiptPath = ScopedPath $appRoot ('.portable-update/history/' + $plan.stage_owner + '.json')
+                if ($receiptPath -cne $createdReceiptPath -or
+                    [IO.File]::ReadAllText($receiptPath, [Text.Encoding]::UTF8) -cne $createdReceiptText) { throw 'Rollback receipt changed before cleanup' }
+                [IO.File]::Delete($receiptPath)
+            }
+            foreach ($directory in @($backupDirectories | Select-Object -Unique | Sort-Object Length -Descending)) {
+                if (!$directory.Equals($backupRoot, [StringComparison]::OrdinalIgnoreCase) -and
+                    !$directory.StartsWith($backupRoot + '\', [StringComparison]::OrdinalIgnoreCase)) { throw 'Rollback backup cleanup leaves its directory' }
+                CheckRoot $directory
+                if ([IO.Directory]::Exists($directory)) { [IO.Directory]::Delete($directory, $false) }
+            }
+        } catch { $rollbackErrors += $_.Exception.Message }
     }
     if ($resultPath) {
         try { WriteResult @{ success=$false; error=$failure; rollback_errors=$rollbackErrors; backup=$backupRoot } }

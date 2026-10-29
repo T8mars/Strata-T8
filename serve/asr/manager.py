@@ -60,12 +60,14 @@ class AsrManager:
             self.state = {**self.state, **values}
 
     def upload(self, request, cancel=None, *, gpu_scope=None, max_bytes=128*1024**2):
-        if not isinstance(request,dict) or set(request)-{'data','start_s','end_s','audio_track','channel','language','context','offset_ms'}:
+        if not isinstance(request,dict) or set(request)-{'data','start_s','end_s','audio_track','channel','language','context','offset_ms','expected_device'}:
             raise ValueError('Invalid ASR video upload settings')
+        check(cancel)
         encoded = request.get('data')
         if not isinstance(encoded,str) or len(encoded) > (max_bytes+2)//3*4:
             raise ValueError(f'ASR upload exceeds {max_bytes//1024**2} MiB')
         data = base64.b64decode(encoded,validate=True)
+        check(cancel)
         if len(data)>max_bytes:
             raise ValueError(f'ASR upload exceeds {max_bytes//1024**2} MiB')
         return self.transcribe(io.BytesIO(data),request,cancel,gpu_scope=gpu_scope)
@@ -78,11 +80,18 @@ class AsrManager:
             settings = config.load(self.root)
             options = dict(options or {})
             settings = config.validate({**settings, **{key:options[key] for key in ('audio_track','channel','language','context','offset_ms') if key in options}})
+            if 'expected_device' in options:
+                expected = options['expected_device']
+                if not isinstance(expected,str) or expected not in ('cpu','cuda'):
+                    raise ValueError('Invalid expected ASR device')
+                if expected != settings['device']:
+                    raise ValueError('ASR device changed after preparation; retry with the current speech settings')
             settings = config.resolve_paths(self.root, settings)
             self.update(phase='extracting',error=None,status=None,cached=False,completed_samples=0,total_samples=0,segments=0)
             from serve.media_jobs import extract_audio
             extracted = extract_audio(source,start_s=options.get('start_s',0),end_s=options.get('end_s'),
                                       audio_track=settings['audio_track'],channel=settings['channel'],cancel=cancel)
+            check(cancel)
             origin = extracted['window_start_s']+settings['offset_ms']/1000
             details = {key:value for key,value in extracted.items() if key!='pcm'}
             if extracted['status'] in ('no_track','silence'):
@@ -105,11 +114,13 @@ class AsrManager:
             if cache.is_file() and cache.stat().st_size <= 2*1024**2:
                 try:
                     result = transcript(json.loads(cache.read_text(encoding='utf-8')))
+                except (ValueError,OSError,RecursionError):
+                    pass
+                else:
                     if result['status'] in ('complete','no_speech') and result.get('cache_key') == key:
+                        check(cancel)
                         self.update(phase='completed',cached=True,status=result['status'])
                         return {**result,'cache_hit':True}
-                except (ValueError,OSError):
-                    pass
             python, build = config.runtime_paths(self.root,settings['device'])
             vad = config.vad_path(self.root, settings)
             self.update(phase='loading',cached=False)

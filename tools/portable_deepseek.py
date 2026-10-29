@@ -100,7 +100,8 @@ def set_option(args, flag, value):
     return kept+[flag, str(value)]
 
 
-def configure(portable, directory, context=None, backend=None, vision=None, port=None, native_video=None, speed=None):
+def build_config(portable, directory, context=None, backend=None, vision=None, port=None, native_video=None, speed=None):
+    """Build a validated profile without changing the web installation's files."""
     model = inspect_pack(directory)
     if backend not in (None, 'auto', 'cuda'):
         raise RuntimeError('DeepSeek currently requires the NVIDIA CUDA engine in this portable edition')
@@ -115,7 +116,6 @@ def configure(portable, directory, context=None, backend=None, vision=None, port
     engine = portable.ROOT/'engine-dsv41/strata-dsv41.exe'
     if not engine.is_file():
         raise RuntimeError('The DeepSeek engine is missing; install the complete portable environment')
-    previous = {p:p.read_bytes() if p.exists() else None for p in (cfg_path, portable.STATE)}
     cfg = portable.read_config(cfg_path) if cfg_path.exists() else {}
     check_hardware(portable, cfg)
     args = list(cfg.get('args', []))
@@ -153,10 +153,16 @@ def configure(portable, directory, context=None, backend=None, vision=None, port
     cfg.setdefault('fit_max_tokens',False)
     cfg['port'] = port if port is not None else cfg.get('port',8080)
     cfg.pop('vision',None)
+    return cfg_path, portable.validate_config(cfg, require_args=True)
+
+
+def configure(portable, directory, context=None, backend=None, vision=None, port=None, native_video=None, speed=None):
+    cfg_path, cfg = build_config(portable, directory, context, backend, vision, port, native_video, speed)
     state = portable.read_state()
+    previous = {p:p.read_bytes() if p.exists() else None for p in (cfg_path, portable.STATE)}
     try:
-        portable.save_json(cfg_path,portable.validate_config(cfg,require_args=True))
-        state.update(portable_data_dir=model['pack_dir'],portable_config=cfg_path.name,
+        portable.save_json(cfg_path,cfg)
+        state.update(portable_data_dir=str(Path(directory).resolve()),portable_config=cfg_path.name,
                      portable_fingerprint=portable.fingerprint(directory))
         portable.save_json(portable.STATE,state)
     except BaseException:

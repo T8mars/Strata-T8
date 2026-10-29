@@ -494,7 +494,10 @@ def main():
     environment_check()
     if args.action == 'start':
         from portable_update import check_update
-        threading.Thread(target=check_update, daemon=True).start()
+        try:
+            threading.Thread(target=check_update, daemon=True).start()
+        except (OSError, RuntimeError, MemoryError) as error:
+            print(f'[Update] Background check unavailable; startup continues: {error}', file=sys.stderr, flush=True)
     # Browser startup must work before a recipient has supplied a model. Import,
     # checks and explicitly headless startup keep their existing offline path.
     if args.action == 'settings' or (args.action == 'start' and not args.no_browser):

@@ -88,4 +88,5 @@ def availability(root, settings=None):
     for name in ('fireredvad_stream_vad_with_cache.onnx','cmvn.ark'):
         if not (vad/name).is_file(): missing.append(name)
     return {'supported':not missing,'missing':missing,'model':MODELS[settings['quantization']][0],
-            'device':settings['device'],'timing_precision':'segment', 'default_enabled':False}
+            'device':settings['device'],'timing_precision':'segment', 'default_enabled':False,
+            'expected_device_guard':True}

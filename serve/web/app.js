@@ -1291,6 +1291,7 @@ async function addVideo(file, replace = null, signal = null) {
   if (replace && attachments.includes(replace)) attachments.splice(attachments.indexOf(replace), 1, pending);
   else attachments.push(pending);
   renderAttachments();
+  let createdSource=null;
   try {
     let source_id=replace?.source_id;
     const encoded = source_id ? null : await new Promise((resolve, reject) => {
@@ -1309,6 +1310,7 @@ async function addVideo(file, replace = null, signal = null) {
       if(!cap.ok || !capability.source_handles)throw new Error('当前服务不支持原片复用，请更新并重启本地服务。');
       const source=await StrataVideoTasks.call('v1/video/sources',{data:encoded,persistent:save_progress,name:file.name},headers,controller.signal);
       source_id=source.id;
+      createdSource=source_id;
     }
     const {segmented,continuity, ...requestSampling} = sampling;
     if (segmented) requestSampling.end_s = Math.min(sampling.end_s ?? Infinity, (sampling.start_s || 0) + sampling.max_frames / sampling.sampling_fps);
@@ -1325,6 +1327,7 @@ async function addVideo(file, replace = null, signal = null) {
     result.selected_mode=mode;
     if (!controller.signal.aborted && attachments.includes(pending)) {
       attachments.splice(attachments.indexOf(pending), 1, {kind: 'video', name: file.name, file, ...result});
+      createdSource=null;
       toast('info', segmented ? '视频已准备好，发送后逐段分析' : '视频采样完成', videoCoverageText(result));
     }
   } catch (error) {
@@ -1332,7 +1335,18 @@ async function addVideo(file, replace = null, signal = null) {
     const index = attachments.indexOf(pending);
     if (index >= 0 && replace && !controller.signal.aborted) attachments.splice(index, 1, replace);
     else attachments = attachments.filter((a) => a !== pending);
-  } finally { signal?.removeEventListener('abort',cancel); }
+  } finally {
+    signal?.removeEventListener('abort',cancel);
+    // Only this upload's uncommitted source is disposable. A reused source may
+    // still belong to the previous attachment or a saved task. Do not pass the
+    // cancelled sampling signal to this independent cleanup request.
+    if(createdSource) {
+      const cleanup=new AbortController(), timer=setTimeout(()=>cleanup.abort(),3000);
+      try { await StrataVideoTasks.call('v1/video/sources/delete',{source_id:createdSource},headers,cleanup.signal); }
+      catch(error) { /* Expiry remains the fallback if the service is unavailable or still using the source. */ }
+      finally { clearTimeout(timer); }
+    }
+  }
   renderAttachments();
 }
 function isTextFile(f) {
@@ -1382,7 +1396,7 @@ if ($('video-task-refresh')) $('video-task-refresh').onclick=async()=>{
 };
 $('video-mode').addEventListener('change', () => {
   for (const attachment of attachments) {
-    if (attachment.kind === 'video') attachment.part.mode = $('video-mode').value;
+    if (attachment.kind === 'video' && attachment.part) attachment.part.mode = $('video-mode').value;
   }
 });
 function addFiles(files) {

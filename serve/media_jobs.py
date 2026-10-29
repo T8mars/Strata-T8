@@ -177,7 +177,9 @@ def _run(operation, source, options, cancel=None, *, timeout_s=150):
             if retries:
                 result={**result,'media_worker_retries':retries}
             if operation=='audio':
-                return _audio_result(result,directory)
+                result=_audio_result(result,directory)
+                _check(cancel)
+                return result
             from serve import video
             if result.get('empty_segment') is True:
                 _validate_empty_video(result,options)
@@ -188,6 +190,7 @@ def _run(operation, source, options, cancel=None, *, timeout_s=150):
                     validate_manifest(result['manifest'],len(result['part']['frames']))
                 except (ValueError,TypeError,KeyError):
                     raise MediaWorkerError('Media worker returned an invalid video contract') from None
+            _check(cancel)
             return result
     finally:
         if acquired:
