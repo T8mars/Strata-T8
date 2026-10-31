@@ -8,14 +8,59 @@ import re
 import subprocess
 import sys
 import uuid
+import hashlib
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from portable_version import ROOT, source_version, product_version, upstream_version_key, upstream_release_key, validate_source_release
 from check_private_paths import is_private_path, private_paths
+from portable_io import atomic_json
 
 
 def git(root, *args, check=True):
-    return subprocess.run(['git', *args], cwd=root, text=True, encoding='utf-8', capture_output=True, check=check)
+    return subprocess.run(['git', '-c', 'index.threads=1', *args], cwd=root, text=True, encoding='utf-8', capture_output=True, check=check, timeout=300)
+
+
+def diagnostic_path(root):
+    report = Path(root)/'.portable-build/upstream-conflict.json'
+    for path in (report.parent, report, report.with_name(report.name+'.tmp')):
+        if path.is_symlink() or getattr(path,'is_junction',lambda:False)():
+            raise RuntimeError('Linked upstream diagnostic path')
+    return report
+
+
+def export_candidate(root, base):
+    """Preserve a tested candidate without granting a token workflow-write access."""
+    root=Path(root).resolve()
+    check_idle_checkout(root)
+    if not re.fullmatch('[0-9a-f]{40}',base) or git(root,'merge-base','--is-ancestor',base,'HEAD',check=False).returncode:
+        raise ValueError('Candidate base must be a full ancestor commit')
+    if git(root,'status','--porcelain').stdout.strip() or private_paths(root,'HEAD'):
+        raise RuntimeError('Candidate requires a clean checkout without private planning files')
+    names=git(root,'log','--format=','--name-only',base+'..HEAD').stdout.splitlines()
+    if any(is_private_path(name) for name in names if name):
+        raise RuntimeError('Candidate history contains private planning paths')
+    directory=diagnostic_path(root).parent
+    directory.mkdir(exist_ok=True)
+    bundle=directory/'upstream-candidate.bundle'
+    descriptor=directory/'upstream-candidate.json'
+    for path in (bundle,descriptor):
+        if path.is_symlink() or getattr(path,'is_junction',lambda:False)():
+            raise RuntimeError('Linked candidate export path')
+    temporary=directory/('candidate-'+uuid.uuid4().hex+'.bundle')
+    try:
+        git(root,'bundle','create',str(temporary),base+'..HEAD')
+        git(root,'bundle','verify',str(temporary))
+        os.replace(temporary,bundle)
+    finally:
+        temporary.unlink(missing_ok=True)
+    with bundle.open('rb') as stream:digest=hashlib.file_digest(stream,'sha256').hexdigest()
+    workflows=git(root,'diff','--name-only',base,'HEAD','--','.github/workflows').stdout.splitlines()
+    workflows.extend(name for name in names if name.startswith('.github/workflows/'))
+    result={'base_commit':base,'head_commit':git(root,'rev-parse','HEAD').stdout.strip(),
+            'bundle':bundle.name,'sha256':digest,'workflow_changes':bool(workflows),
+            'status':'tested_review_candidate','stable_branch_updated':False}
+    atomic_json(descriptor,result)
+    return result
 
 
 def select_ref(source, tag=None):
@@ -91,7 +136,7 @@ def abort_sync_merge(root, commit):
 
 def sync(root, url, ref, *, release_assets=None):
     root = Path(root)
-    report = root/'.portable-build/upstream-conflict.json'
+    report = diagnostic_path(root)
     # The workflow reads this exact descriptor on failure. Never reuse another run's branch.
     if report.is_symlink() or getattr(report, 'is_junction', lambda: False)() or report.parent.is_symlink() or getattr(report.parent, 'is_junction', lambda: False)():
         raise RuntimeError('Linked upstream diagnostic path')
@@ -199,13 +244,14 @@ def sync_fetched(root, commit, ref, *, release_assets=None):
         # or a merged file at the diagnostic directory must not leave our merge active.
         if not collisions:
             abort_sync_merge(root, merge_target)
-        report = root/'.portable-build/upstream-conflict.json'
+        report = diagnostic_path(root)
         if report.is_symlink() or getattr(report, 'is_junction', lambda: False)() or report.parent.is_symlink() or getattr(report.parent, 'is_junction', lambda: False)():
             raise RuntimeError('Linked upstream diagnostic path')
         report.parent.mkdir(exist_ok=True)
         branch = diagnostic_branch(root, commit)
-        report.write_text(json.dumps({'upstream_commit': commit, 'base_commit': before, 'conflicts': conflicts,
-                                      'branch': branch, 'error': merged.stdout + merged.stderr}, indent=2), encoding='utf-8')
+        atomic_json(report,{'upstream_commit':commit,'base_commit':before,'conflicts':conflicts,
+                            'branch':branch,'branch_scope':'local','stage':'merge','upstream_ref':ref,
+                            'error':merged.stdout+merged.stderr})
         raise RuntimeError(f'Upstream merge stopped; original checkout preserved. Diagnostic branch: {branch}; conflicts: {conflicts}')
     try:
         original = git(root, 'show', commit+':README.md').stdout
@@ -269,20 +315,41 @@ def sync_fetched(root, commit, ref, *, release_assets=None):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--source', choices=['release', 'main'], default='release')
+    parser.add_argument('--export-candidate',metavar='BASE_SHA',help='Export an already tested candidate as a verified Git bundle')
     args = parser.parse_args()
-    meta = json.loads((ROOT/'meta.json').read_text(encoding='utf-8'))
-    tag, assets = None, None
-    if args.source == 'release':
-        release = json.loads(subprocess.check_output(['gh', 'api', f'repos/{meta["upstream_repository"]}/releases/latest'], text=True, encoding='utf-8'))
-        if release.get('draft') or release.get('prerelease'):
-            raise ValueError('Expected an upstream stable published release')
-        tag, assets = release['tag_name'], release['assets']
-        release_asset_pins(assets)
-    result = sync(ROOT, f'https://github.com/{meta["upstream_repository"]}.git', select_ref(args.source, tag), release_assets=assets)
+    if args.export_candidate:
+        result=export_candidate(ROOT,args.export_candidate)
+        if output:=os.environ.get('GITHUB_OUTPUT'):
+            with open(output,'a',encoding='utf-8') as stream:stream.write(f'workflow_changes={str(result["workflow_changes"]).lower()}\n')
+        print(json.dumps(result),flush=True)
+        return
+    report=diagnostic_path(ROOT)
+    report.unlink(missing_ok=True)
+    stage='release_metadata';tag=None
+    base=git(ROOT,'rev-parse','HEAD').stdout.strip()
+    try:
+        meta = json.loads((ROOT/'meta.json').read_text(encoding='utf-8'))
+        assets=None
+        if args.source == 'release':
+            release = json.loads(subprocess.check_output(['gh', 'api', f'repos/{meta["upstream_repository"]}/releases/latest'], text=True, encoding='utf-8',timeout=60))
+            if release.get('draft') or release.get('prerelease'):
+                raise ValueError('Expected an upstream stable published release')
+            tag, assets = release['tag_name'], release['assets']
+            stage='release_assets'
+            release_asset_pins(assets)
+        stage='fetch_and_merge'
+        result = sync(ROOT, f'https://github.com/{meta["upstream_repository"]}.git', select_ref(args.source, tag), release_assets=assets)
+    except Exception as error:
+        if not report.exists():
+            report.parent.mkdir(exist_ok=True)
+            atomic_json(report,{'stage':stage,'base_commit':base,'upstream_tag':tag,
+                                'branch':None,'conflicts':[],'error':str(error)[:8000]})
+        raise
     if os_output := __import__('os').environ.get('GITHUB_OUTPUT'):
         with open(os_output, 'a', encoding='utf-8') as stream:
             stream.write(f'changed={str(result["changed"]).lower()}\n')
             stream.write(f'commit={git(ROOT, "rev-parse", "HEAD").stdout.strip()}\n')
+            stream.write(f'base_commit={base}\n')
     print(json.dumps(result), flush=True)
 
 

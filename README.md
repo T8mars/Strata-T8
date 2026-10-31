@@ -71,11 +71,11 @@ Strata-data 可位于运行包内、旁边或导入的其他路径；仅下载�
 
 Windows 10 1903+/11 x64、AVX2 CPU、SSD。NVIDIA RTX 20/30/40/50 系列建议 12GB 以上显存、驱动 580+；IQ3_S 建议 96GB 以上 RAM。RTX 4060 Ti 16GB / 128GB RAM 的验证范围见[本版验收](docs/VALIDATION-UPSTREAM-026-T8.md)。AMD 文本兼容以[上游列表](docs/AMD_HIP.md)为准，尚无 AMD 实机验收，Windows AMD 视觉暂不支持。
 
-启动时后台自动检查版本；模型设置页提供 **检查更新 / 一键更新**，聊天页 About 也可进入。点击更新后停止本启动器的服务，打开进度窗口，自动下载、校验及安装，完成后重新打开模型设置页；模型与配置保留，失败回滚。命令行仍可在退出服务后运行 **UPDATE-PORTABLE.bat**。旧 NoModels 用户先更新，再用 **INSTALL-VISION.bat** 切换；节点通过自己的 Manager/仓库更新后重启 ComfyUI。
+启动时后台自动检查版本；模型设置页提供 **检查更新 / 一键更新**，聊天页 About 也可进入。更新窗口显示下载、校验、备份与安装进度，网络中断可自动重试，完成后重新打开模型设置页；模型与配置保留，失败回滚。命令行仍可在退出服务后运行 **UPDATE-PORTABLE.bat**。旧 NoModels 用户先更新，再用 **INSTALL-VISION.bat** 切换；节点通过自己的 Manager/仓库更新后重启 ComfyUI。
 
 仓库每日检查上游正式版本并生成升级候选；完成合并审查和回归验收后，再手动触发发布。用户整合包仍自动检查 T8 正式版，并支持一键更新。[更新机制](docs/UPDATING-T8.md)
 
-本版本基于上游 [v0.2.6](https://github.com/Niko1221/Strata/releases/tag/v0.2.6)，应用版本 **0.2.6-t8.3**，配套节点 **1.3.3** 和 ComfyUI Protocol 1。本版修复 Terminal 停止失败的返回状态、坏档案影响 API Key 查找、运行状态串用配置及源码 Git 更新误判。T8 的 EXE 启动器、局域网 API、自动更新、视频进度恢复、自适应采样、语音转录与音画联合分析继续保留。现有主模型和视觉权重可沿用；可下载版本以 [Release](https://github.com/T8mars/Strata-T8/releases/latest) 为准。[本版修复](docs/MAINTENANCE-026-T8-3.md) · [此前联合审查](docs/AUDIT-026-POSTRELEASE-T8.md) · [同步策略](docs/UPDATING-T8.md)
+本版本基于上游 [v0.2.6](https://github.com/Niko1221/Strata/releases/tag/v0.2.6)，应用版本 **0.2.6-t8.4**，配套节点 **1.3.3** 和 ComfyUI Protocol 1。本版完善更新进度、下载中断恢复、失败后设置页重开及离线回退，修复回退校验阻塞、模型切换状态异常和上游同步诊断。T8 的 EXE 启动器、局域网 API、视频进度恢复、自适应采样、语音转录与音画联合分析继续保留。现有主模型和视觉权重可沿用；可下载版本以 [Release](https://github.com/T8mars/Strata-T8/releases/latest) 为准。[本版修复](docs/MAINTENANCE-026-T8-4.md) · [此前联合审查](docs/AUDIT-026-POSTRELEASE-T8.md) · [同步策略](docs/UPDATING-T8.md)
 
 上游在适用 NVIDIA 配置中默认启用专家尾部跳过和实测 PCIe 分配，回答可能略有变化。需要恢复此前行为，可在运行配置的 `env` 对象设置 `"STRATA_ROUTE_TAIL_SKIP":"0"` 和 `"STRATA_PCIE_FRAC_DEFAULT":"old"`，然后重启；已有显式 `--pcie-frac` 参数继续优先。上游性能数字取决于硬件与模型，不代表本机速度。
 

@@ -183,6 +183,18 @@ class ModelSetup:
                        'message': '启动时自动检查新版本；离线仍可使用。'}
         self.model = None
         self.current_error = None
+        # The detached helper survives the old page. Bring its failure back to the
+        # restarted settings page without trusting arbitrary files or a foreign install.
+        try:
+            receipt = _regular(self.root/'.portable-update/gui-result.json', self.root)
+            if receipt.is_file() and receipt.stat().st_size <= 16384:
+                result = json.loads(receipt.read_text('utf-8-sig'))
+                if isinstance(result,dict) and result.get('app_root') == str(self.root) and result.get('state') == 'error':
+                    detail = result.get('error')
+                    if isinstance(detail,str):
+                        self.job = {'state':'error','message':'更新未完成，可重试；详细进度见 logs/update-helper.log。','error':detail[:4000]}
+        except (OSError, ValueError, RuntimeError):
+            pass
         self.requested = getattr(options, 'data_dir', None)
         self.current_config = None
         self.prepared_model = None
@@ -311,7 +323,17 @@ class ModelSetup:
             if self.process is not None and not running and self.job['state'] == 'ready':
                 self.job = {'state': 'error', 'message': '服务已退出，请重新启动。', 'error': '服务进程已结束。'}
             connection = None
-            network = self.network_settings()
+            network_error = None
+            try:
+                network = self.network_settings()
+            except (OSError, ValueError, RuntimeError) as error:
+                # A config can be temporarily unavailable while a model is being
+                # switched. Keep status readable; writes/startup still require the
+                # real configuration and never use this display-only fallback.
+                fallback = self.backend_config or {}
+                network = {'scope':'lan' if fallback.get('host') == '0.0.0.0' and fallback.get('api_key') else 'local',
+                           'api_key':fallback.get('api_key','')}
+                network_error = str(error)
             if running and self.job['state'] == 'ready' and self.backend_port and self.backend_model_id:
                 base = f'http://127.0.0.1:{self.backend_port}/v1'
                 connection = {'model_id': self.backend_model_id, 'base_url': base, 'models_url': base+'/models',
@@ -324,7 +346,7 @@ class ModelSetup:
                     'configured': self.current_config is not None, 'running': running,
                     'chat_url': f'http://127.0.0.1:{self.backend_port}/' if running and self.job['state'] == 'ready' else None,
                     'defaults': self.defaults(), 'vision_available': self.vision_available(),
-                    'folder_picker': os.name == 'nt', 'configuration_error': self.current_error,
+                    'folder_picker': os.name == 'nt', 'configuration_error': self.current_error or network_error,
                     'prepared_model': self.prepared_model,
                     'api_connection': connection,
                     'network': api_access.public(network),
@@ -659,14 +681,19 @@ class ModelSetup:
             if not self.update['supported']:
                 raise SetupError('一键更新适用于 Windows 解压版；源码仓库请使用 Git 更新。')
             if restore_id is not None:
-                from tools.portable_restore import read_receipt
-                read_receipt(self.root,restore_id)
+                if not isinstance(restore_id,str) or len(restore_id)!=32 or any(c not in '0123456789abcdef' for c in restore_id):
+                    raise SetupError('无效的回退版本。')
             elif self.update['state'] != 'ready' or not self.update['available']:
                 raise SetupError('请先检查更新，确认有可用的新版本。')
             self.job = {'state': 'updating', 'message': '正在启动更新程序，确认就绪后才停止当前服务…', 'error': None}
         def work():
             helper_process = None
             try:
+                if restore_id is not None:
+                    from tools.portable_restore import read_receipt
+                    self.set_job('updating','正在校验回退备份，校验完成后才停止当前服务…')
+                    read_receipt(self.root,restore_id)
+                    if self.closed.is_set():return
                 source = _regular(self.root/'tools/gui_portable_update.ps1', self.root)
                 temporary = Path(tempfile.mkdtemp(prefix='Strata-T8-ui-update-')).resolve()
                 if temporary.is_relative_to(self.root):
@@ -939,6 +966,7 @@ def handler(app):
                     from tools.portable_restore import list_backups
                     self._send(200,list_backups(app.root))
                 elif path == '/api/update/restore' and set(data)=={'id'}:
+                    if not isinstance(data['id'],str):raise SetupError('无效的回退版本。')
                     app.begin_update(restore_id=data['id'])
                     self._send(202,{'accepted':True})
                 elif path == '/api/browse' and not data:

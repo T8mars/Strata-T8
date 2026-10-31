@@ -68,6 +68,62 @@ class SetupPage(unittest.TestCase):
         finally:
             connection.close()
 
+    def test_restarted_settings_displays_only_matching_update_failure(self):
+        directory=self.root/'.portable-update';directory.mkdir()
+        receipt=directory/'gui-result.json'
+        receipt.write_text(json.dumps({'state':'error','app_root':str(self.root.resolve()),'error':'fixture download failed'}))
+        app=ui.ModelSetup(self.root)
+        self.assertEqual(app.job['state'],'error')
+        self.assertIn('fixture download failed',app.job['error'])
+        receipt.write_text(json.dumps({'state':'error','app_root':str(self.root.parent/'other'),'error':'foreign failure'}))
+        self.assertEqual(ui.ModelSetup(self.root).job['state'],'idle')
+        receipt.write_text('{bad json')
+        self.assertEqual(ui.ModelSetup(self.root).job['state'],'idle')
+
+    def test_slow_restore_verification_keeps_status_available_and_preserves_launcher(self):
+        from tools import portable_restore
+        started=threading.Event();release=threading.Event()
+        self.app.update['supported']=True
+        def verify(*args):
+            started.set();release.wait(2)
+            raise ValueError('fixture backup verification failure')
+        try:
+            with mock.patch.object(portable_restore,'read_receipt',side_effect=verify):
+                before=time.monotonic()
+                status,_,_=self.request('/api/update/restore',{'id':'a'*32})
+                self.assertEqual(status,202)
+                self.assertLess(time.monotonic()-before,1)
+                self.assertTrue(started.wait(1))
+                status,_,snapshot=self.request('/api/status')
+                self.assertEqual(status,200)
+                self.assertEqual(snapshot['job']['state'],'updating')
+                release.set()
+                deadline=time.monotonic()+2
+                while self.app.job['state']=='updating' and time.monotonic()<deadline:time.sleep(.02)
+                self.assertEqual(self.app.job['state'],'error')
+                self.assertIn('fixture backup verification failure',self.app.job['error'])
+                self.assertFalse(self.app.closed.is_set())
+        finally:release.set()
+
+    def test_null_restore_id_cannot_start_a_normal_update(self):
+        self.app.update.update(supported=True,state='ready',available=True)
+        with mock.patch.object(self.app,'begin_update') as begin:
+            status,_,_=self.request('/api/update/restore',{'id':None})
+        self.assertEqual(status,400)
+        begin.assert_not_called()
+
+    def test_status_survives_unavailable_config_without_changing_network_or_exposing_key(self):
+        self.app.current_config=self.root/'temporarily-unavailable.json'
+        self.app.backend_config={'host':'0.0.0.0','api_key':'private-fixture-key-do-not-publish'}
+        status,_,snapshot=self.request('/api/status')
+        self.assertEqual(status,200)
+        self.assertEqual(snapshot['network']['scope'],'lan')
+        self.assertTrue(snapshot['network']['api_key_configured'])
+        self.assertTrue(snapshot['configuration_error'])
+        self.assertNotIn('private-fixture-key-do-not-publish',json.dumps(snapshot))
+        self.assertFalse((self.root/'portable-settings.json').exists())
+        with self.assertRaises(FileNotFoundError):self.app.network_settings()
+
     def model(self):
         data = self.root.parent/'Strata-data'
         (data/'models/IQ3_S').mkdir(parents=True,exist_ok=True)

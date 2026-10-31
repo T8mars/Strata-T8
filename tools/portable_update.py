@@ -12,12 +12,20 @@ import tempfile
 import urllib.request
 import zipfile
 import uuid
+import time
+import io
+import http.client
+import urllib.error
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from portable_version import ROOT, metadata, version_key, archive_name
 from portable_weights import validate_weights, weight_declaration, allowed_weight, allowed_runtime_data, MODEL_SUFFIXES
 from portable_io import atomic_json
+from portable_update_progress import Progress, file_hash
 urlopen = urllib.request.urlopen
+DOWNLOAD_TIMEOUT = 20
+DOWNLOAD_ATTEMPTS = 3
+DOWNLOAD_DEADLINE = 3600
 
 
 def update_json(text):
@@ -133,7 +141,7 @@ def safe_path(root, relative):
     return result
 
 
-def validate_manifest(root, manifest, verify=True):
+def validate_manifest(root, manifest, verify=True, *, progress=False):
     if not isinstance(manifest, dict) or not isinstance(manifest.get('files'), list) or not isinstance(manifest.get('version'), str):
         raise ValueError('Invalid package manifest: expected version and file list')
     for entry in manifest['files']:
@@ -143,6 +151,7 @@ def validate_manifest(root, manifest, verify=True):
             raise ValueError('Invalid package file entry: expected path, integer size and SHA256')
     edition = validate_weights(manifest)
     version_key(manifest['version'])
+    reporter = Progress('Checking complete package',sum(e['size'] for e in manifest['files'])) if verify and progress else None
     seen = set()
     for entry in manifest['files']:
         rel = entry['path']
@@ -158,14 +167,14 @@ def validate_manifest(root, manifest, verify=True):
         if verify:
             if not file.is_file() or file.stat().st_size != entry['size']:
                 raise ValueError(f'Missing or truncated release file: {rel}')
-            with file.open('rb') as stream:
-                actual = hashlib.file_digest(stream, 'sha256').hexdigest()
+            actual = file_hash(file,reporter)
             if actual != entry['sha256']:
                 raise ValueError(f'Release file checksum failed: {rel}')
     for key in seen:
         if any(parent.as_posix() in seen for parent in PurePosixPath(key).parents):
             raise ValueError(f'Conflicting package file paths: {key}')
     if verify:
+        if reporter:reporter.update(reporter.current,'Checking file inventory',force=True)
         actual = {p.relative_to(root).as_posix().casefold() for p in root.rglob('*') if p.is_file()}
         if actual != seen | {'package-manifest.json'}:
             raise ValueError('Release has unlisted or missing files')
@@ -217,21 +226,66 @@ def running_processes(root=ROOT):
 def fetch(url, destination=None, limit=2*1024**3):
     if not url.startswith('https://github.com/'):
         raise ValueError('Release asset must come from GitHub over HTTPS')
-    req = urllib.request.Request(url, headers={'User-Agent': 'Strata-T8'})
-    with urlopen(req, timeout=60) as response:
-        if destination is None:
-            data = response.read(limit+1)
-            if len(data) > limit:
-                raise ValueError('Oversized checksum file')
-            return data
-        size = 0
-        with destination.open('wb') as output:
-            while block := response.read(4*1024**2):
-                size += len(block)
-                if size > limit:
-                    raise ValueError('Oversized release archive')
-                output.write(block)
-        return size
+    destination = Path(destination) if destination is not None else None
+    if destination is not None and (destination.is_symlink() or getattr(destination,'is_junction',lambda:False)()):
+        raise ValueError('Linked download destination')
+    started=time.monotonic();size=0;total=None
+    reporter=Progress('Downloading '+url.rsplit('/',1)[-1])
+    for attempt in range(DOWNLOAD_ATTEMPTS):
+        headers={'User-Agent':'Strata-T8','Accept-Encoding':'identity'}
+        if destination is not None and size:headers['Range']=f'bytes={size}-'
+        request=urllib.request.Request(url,headers=headers)
+        try:
+            with urlopen(request,timeout=DOWNLOAD_TIMEOUT) as response:
+                status=getattr(response,'status',200)
+                response_headers=getattr(response,'headers',{})
+                length=response_headers.get('Content-Length')
+                length=int(length) if length is not None and str(length).isdigit() else None
+                if status==206:
+                    match=re.fullmatch(r'bytes (\d+)-(\d+)/(\d+)',response_headers.get('Content-Range',''))
+                    if not match:raise ValueError('Invalid download Content-Range')
+                    begin,end,expected=map(int,match.groups())
+                    if begin!=size or end<begin or end!=expected-1 or (total is not None and total!=expected) or (length is not None and length!=end-begin+1):
+                        raise ValueError('Download range differs from requested bytes')
+                    total=expected
+                elif status==200:
+                    # A mirror can ignore Range; never append a complete response to a partial file.
+                    size=0;total=length
+                else:raise ValueError(f'Unexpected download HTTP status: {status}')
+                if total is not None and total>limit:raise ValueError('Oversized release archive')
+                reporter.total=total
+                if destination is not None:
+                    if size and (not destination.is_file() or destination.stat().st_size!=size):
+                        raise ValueError('Partial download changed before retry')
+                    output=destination.open('ab' if size else 'wb')
+                else:
+                    size=0;output=io.BytesIO()
+                try:
+                    read=getattr(response,'read1',response.read)
+                    while True:
+                        if time.monotonic()-started>DOWNLOAD_DEADLINE:
+                            raise RuntimeError('Download exceeded one hour. Retry UPDATE-PORTABLE.bat; installation is unchanged.')
+                        try:block=read(min(64*1024,limit-size+1))
+                        except OSError as error:raise urllib.error.URLError(error) from error
+                        if not block:break
+                        size+=len(block)
+                        if size>limit or (total is not None and size>total):raise ValueError('Oversized release archive')
+                        output.write(block);reporter.update(size)
+                    if total is not None and size!=total:
+                        raise http.client.IncompleteRead(b'',total-size)
+                    data=output.getvalue() if destination is None else None
+                finally:
+                    output.close()
+                reporter.update(size,force=True)
+                return data if destination is None else size
+        except (urllib.error.URLError,TimeoutError,ConnectionError,http.client.HTTPException) as error:
+            if isinstance(error,urllib.error.HTTPError) and error.code not in (408,429,500,502,503,504):
+                raise RuntimeError(f'Download failed (HTTP {error.code}). Check GitHub access or proxy settings; installation is unchanged.') from error
+            if attempt+1==DOWNLOAD_ATTEMPTS or time.monotonic()-started>DOWNLOAD_DEADLINE:
+                raise RuntimeError(f'Download failed after {attempt+1} attempts ({type(error).__name__}). Check network/proxy and retry UPDATE-PORTABLE.bat; installation is unchanged.') from error
+            if destination is None:size=0;total=None
+            print(f'[Update] Network interrupted; retry {attempt+2}/{DOWNLOAD_ATTEMPTS}, saved {size/1048576:.1f} MiB.',flush=True)
+            time.sleep(attempt+1)
 
 
 def extract_release(archive, destination):
@@ -368,6 +422,7 @@ def prepare(root=ROOT, release=None, edition=None):
         raise RuntimeError('Git checkout: use git pull / upstream sync. Release updates apply to extracted packages.')
     if running := running_processes(root):
         raise RuntimeError(f'Exit Strata before updating. Running processes: {running}')
+    print('[Update] Checking published version...',flush=True)
     release = release or latest_release(current['repository'])
     current_edition = current.get('edition', 'Portable-NoModels')
     edition = edition or current_edition

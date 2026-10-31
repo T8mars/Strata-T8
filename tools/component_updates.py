@@ -11,6 +11,10 @@ import re
 import shutil
 import stat
 import zipfile
+try:
+    from .portable_update_progress import Progress, file_hash as progress_hash, copy_stream
+except ImportError:  # Invoked by the updater as a standalone script.
+    from portable_update_progress import Progress, file_hash as progress_hash, copy_stream
 
 GROUPS=('app','python','cuda','hip','vision','asr-cpu')
 MAX_ARCHIVE=2*1024**3-1
@@ -24,9 +28,8 @@ def index_name(version,edition):
     return f'Components-Strata-T8-{version}-Windows-x64-{edition}.json'
 
 
-def file_hash(path):
-    with Path(path).open('rb') as stream:
-        return hashlib.file_digest(stream,'sha256').hexdigest()
+def file_hash(path, progress=None):
+    return progress_hash(Path(path), progress)
 
 
 def group(path):
@@ -112,6 +115,7 @@ def validate(index,root):
 def extract(archive,destination,entries):
     from portable_update import safe_path
     expected={e['path']:e for e in entries}
+    progress=Progress('Extracting and checking component',sum(e['size'] for e in entries)*2)
     with zipfile.ZipFile(archive) as zipped:
         infos=zipped.infolist()
         if len(infos)!=len(expected) or len({i.filename.casefold() for i in infos})!=len(infos):
@@ -125,8 +129,9 @@ def extract(archive,destination,entries):
             if info.file_size!=entry['size']:raise ValueError('Component file size differs from index')
             path.parent.mkdir(parents=True,exist_ok=True)
             with zipped.open(info) as source,path.open('xb') as output:
-                shutil.copyfileobj(source,output,4*1024**2)
-            if file_hash(path)!=entry['sha256']:raise ValueError('Component file checksum failed')
+                copy_stream(source,output,progress,path.name)
+            if file_hash(path,progress)!=entry['sha256']:raise ValueError('Component file checksum failed')
+    progress.update(progress.current,force=True)
 
 
 def materialize(root,incoming,index,assets,fetch):
@@ -135,24 +140,34 @@ def materialize(root,incoming,index,assets,fetch):
     downloaded=[];reused=[]
     for component in index['components']:
         entries=component['files']
+        progress=Progress('Checking installed '+component['id'],sum(e['size'] for e in entries))
         can_reuse=True
         for entry in entries:
             path=safe_path(root,entry['path'])
-            if not path.is_file() or path.stat().st_size!=entry['size'] or file_hash(path)!=entry['sha256']:
+            if not path.is_file() or path.stat().st_size!=entry['size'] or file_hash(path,progress)!=entry['sha256']:
                 can_reuse=False;break
+        progress.update(progress.current,'reuse' if can_reuse else 'download required',force=True)
         if can_reuse:
+            progress=Progress('Copying verified '+component['id'],sum(e['size'] for e in entries))
             for entry in entries:
                 target=safe_path(incoming,entry['path']);target.parent.mkdir(parents=True,exist_ok=True)
-                shutil.copy2(safe_path(root,entry['path']),target)
+                source=safe_path(root,entry['path'])
+                with source.open('rb') as src,target.open('xb') as dst:
+                    copy_stream(src,dst,progress,target.name)
+                shutil.copystat(source,target)
+            progress.update(progress.current,force=True)
             reused.append(component['id']);continue
         asset=assets.get(component['asset'])
         if not asset or asset.get('size')!=component['size']:raise ValueError('Release lacks the pinned component asset')
         archive=incoming.parent/component['asset']
+        print(f'[Update] Downloading {component["id"]}: {component["size"]/1048576:.1f} MiB',flush=True)
         count=fetch(asset['browser_download_url'],archive,limit=MAX_ARCHIVE)
-        if count!=component['size'] or file_hash(archive)!=component['sha256']:raise ValueError('Component archive checksum or size failed')
+        progress=Progress('Checking downloaded '+component['id'],component['size'])
+        if count!=component['size'] or file_hash(archive,progress)!=component['sha256']:raise ValueError('Component archive checksum or size failed')
+        progress.update(progress.current,force=True)
         extract(archive,incoming,entries);archive.unlink();downloaded.append(component['id'])
     (incoming/'PACKAGE-MANIFEST.json').write_text(json.dumps(manifest,ensure_ascii=False),encoding='utf-8')
-    validate_manifest(incoming,manifest)
+    validate_manifest(incoming,manifest,progress=True)
     actual=update_metadata(incoming)
     if any(actual.get(k)!=v for k,v in index['compatibility'].items()):raise ValueError('Component ABI/version pins differ from application')
     return manifest,{'downloaded':downloaded,'reused':reused}

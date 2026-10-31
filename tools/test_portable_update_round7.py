@@ -316,13 +316,12 @@ class SharedGitTransactions(unittest.TestCase):
     def test_diagnostic_write_failure_still_aborts_our_merge(self):
         (self.up/'app.py').write_text('upstream conflict'); self.commit(self.up, 'upstream conflict')
         (self.repo/'app.py').write_text('fork conflict'); self.commit(self.repo, 'fork conflict')
-        original = Path.write_text
-        def fail_report(path, *args, **kwargs):
-            if path.name == 'upstream-conflict.json': raise OSError('simulated diagnostic write failure')
-            return original(path, *args, **kwargs)
         before = self.git(self.repo, 'rev-parse', 'HEAD')
-        with mock.patch.object(Path, 'write_text', fail_report), self.assertRaises(OSError):
+        # Diagnostics now use an atomic writer. Inject the same storage failure
+        # at that boundary and retain every checkout/merge-abort assertion.
+        with mock.patch.object(upstream, 'atomic_json', side_effect=OSError('simulated diagnostic write failure')) as writer, self.assertRaises(OSError):
             upstream.sync(self.repo, str(self.up), 'refs/heads/main')
+        writer.assert_called_once()
         self.assertEqual(self.git(self.repo, 'rev-parse', 'HEAD'), before)
         self.assertFalse((self.repo/'.git/MERGE_HEAD').exists())
         self.assertEqual((self.repo/'app.py').read_text(), 'fork conflict')

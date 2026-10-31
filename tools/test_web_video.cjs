@@ -391,14 +391,64 @@ test('an unrelated service or the original launcher cannot trigger an update-pag
   assert.equal(reloads,0);
 });
 
-test('an update that stays disconnected exposes recovery instructions',async()=>{
+test('a slow update exposes recovery instructions without declaring a failure',async()=>{
   const ui=setupPage();
-  ui.run("render({...state,job:{state:'updating',message:'working'}});updateStartedAt=Date.now()-121000");
+  ui.run("clearError();render({...state,job:{state:'updating',message:'working'}});updateStartedAt=Date.now()-121000");
   ui.context.fetch=async()=>{throw Error('network unavailable');};
   await ui.run('reconnectAfterUpdate()');
-  assert.equal(ui.nodes['error-box'].hidden,false);
-  assert.match(ui.nodes['error-detail'].textContent,/UPDATE-PORTABLE\.bat/);
+  assert.notEqual(ui.nodes['error-box'].hidden,false);
+  assert.match(ui.nodes['update-message'].textContent,/UPDATE-PORTABLE\.bat/);
   assert.match(ui.nodes['update-message'].textContent,/update-helper\.log/);
+});
+
+test('a lost update reply keeps the old page in reconnect mode',async()=>{
+  const ui=setupPage();
+  ui.run("render({...state,update:{supported:true,state:'ready',available:true,message:'new'}})");
+  ui.context.fetch=async()=>{throw Error('launcher exited before acknowledgement');};
+  await ui.nodes['update-start'].onclick();
+  assert.equal(ui.run('state.job.state'),'updating');
+  assert.equal(ui.nodes.save.disabled,true);
+  assert.match(ui.nodes['update-message'].textContent,/update-helper\.log/);
+});
+
+test('an explicit rejected update restores the usable settings page',async()=>{
+  const ui=setupPage();
+  ui.run("render({...state,job:{state:'idle',message:'idle'},update:{supported:true,state:'ready',available:true,message:'new'}})");
+  ui.context.fetch=async()=>({ok:false,json:async()=>({error:'update not available'})});
+  await ui.nodes['update-start'].onclick();
+  assert.equal(ui.run('state.job.state'),'idle');
+  assert.equal(ui.nodes['error-box'].hidden,false);
+  assert.match(ui.nodes['error-detail'].textContent,/not available/);
+});
+
+test('a lost reply followed by a confirmed running update does not show a false error',async()=>{
+  const ui=setupPage();ui.run('clearError()');
+  ui.context.fetch=async url=>{
+    if(url==='/api/update/start')throw Error('reply lost');
+    return {ok:true,json:async()=>ui.run("({...state,job:{state:'updating',message:'confirmed working'}})")};
+  };
+  await ui.nodes['update-start'].onclick();
+  assert.equal(ui.run('state.job.state'),'updating');
+  assert.equal(ui.nodes['error-box'].hidden,true);
+  assert.match(ui.nodes['update-message'].textContent,/confirmed working/);
+});
+
+test('restore controls recover after rejection and remain frozen only while updating',async()=>{
+  const ui=setupPage();
+  ui.context.fetch=async url=>url==='/api/update/backups'?{ok:true,json:async()=>({backups:[
+    {id:'a'.repeat(32),available:true,to_version:'new',from_version:'old'},
+    {id:'b'.repeat(32),available:false,to_version:'other',from_version:'older'}]})}:
+    {ok:false,json:async()=>({error:'fixture backup refused'})};
+  await ui.nodes['backup-list'].onclick();
+  const buttons=ui.nodes['backup-versions'].querySelectorAll('.backup-restore');
+  assert.equal(buttons[0].disabled,false);assert.equal(buttons[1].disabled,true);
+  await buttons[0].onclick();
+  assert.equal(buttons[0].disabled,false);assert.equal(buttons[1].disabled,true);
+  ui.run("render({...state,job:{state:'updating',message:'working'}})");
+  assert.equal(buttons[0].disabled,true);assert.equal(ui.nodes['backup-list'].disabled,true);
+  ui.run("render({...state,job:{state:'error',message:'failed'}})");
+  assert.equal(buttons[0].disabled,false);assert.equal(buttons[1].disabled,true);
+  assert.equal(ui.nodes['backup-list'].disabled,false);
 });
 
 test('a stalled status request is aborted and releases the polling lock',async()=>{

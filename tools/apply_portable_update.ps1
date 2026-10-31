@@ -8,6 +8,20 @@ using System.Runtime.InteropServices;
 public static class T8Paths {
     [DllImport("kernel32.dll", CharSet=CharSet.Unicode, SetLastError=true)]
     public static extern uint GetLongPathName(string shortPath, StringBuilder longPath, uint capacity);
+    [DllImport("kernel32.dll", CharSet=CharSet.Unicode, SetLastError=true, EntryPoint="GetFileAttributesW")]
+    private static extern uint GetAttributes(string path);
+    public static bool IsReparse(string path) {
+        string full=System.IO.Path.GetFullPath(path);
+        if (!full.StartsWith(@"\\?\"))
+            full=full.StartsWith(@"\\") ? @"\\?\UNC\"+full.Substring(2) : @"\\?\"+full;
+        uint attributes=GetAttributes(full);
+        if (attributes==UInt32.MaxValue) {
+            int error=Marshal.GetLastWin32Error();
+            if (error==2 || error==3) return false;
+            throw new System.ComponentModel.Win32Exception(error);
+        }
+        return (attributes & 0x400)!=0;
+    }
 }
 '@
 function LongPath([string]$path) {
@@ -23,7 +37,7 @@ $resultPath = $null
 function CheckRoot([string]$path) {
     $parent = $path
     while ($parent) {
-        if ((Test-Path -LiteralPath $parent) -and ((Get-Item -LiteralPath $parent -Force).Attributes -band [IO.FileAttributes]::ReparsePoint)) { throw "Linked update directory: $path" }
+        if ([T8Paths]::IsReparse($parent)) { throw "Linked update directory: $path" }
         $parent = [IO.Path]::GetDirectoryName($parent)
     }
 }
@@ -36,7 +50,7 @@ function ScopedPath([string]$base, [string]$relative) {
     if (!$target.StartsWith($base + '\', [StringComparison]::OrdinalIgnoreCase)) { throw "Path outside application: $relative" }
     $parent = $target
     while ($parent -and $parent.StartsWith($base, [StringComparison]::OrdinalIgnoreCase)) {
-        if ((Test-Path -LiteralPath $parent) -and ((Get-Item -LiteralPath $parent -Force).Attributes -band [IO.FileAttributes]::ReparsePoint)) { throw "Linked path: $relative" }
+        if ([T8Paths]::IsReparse($parent)) { throw "Linked path: $relative" }
         $parent = [IO.Path]::GetDirectoryName($parent)
     }
     return $target
@@ -48,6 +62,16 @@ $removedDirectories = [Collections.Generic.List[string]]::new()
 $backupDirectories = [Collections.Generic.List[string]]::new()
 $createdReceiptPath = $null
 $createdReceiptText = $null
+$script:progressPhase = ''
+$script:lastProgress = [DateTime]::MinValue
+function ReportProgress([string]$phase, [int]$current, [int]$total) {
+    $now = [DateTime]::UtcNow
+    if ($phase -ne $script:progressPhase -or $current -eq $total -or ($now-$script:lastProgress).TotalSeconds -ge 2) {
+        Write-Host "[Update] $phase : $current / $total files"
+        $script:progressPhase = $phase
+        $script:lastProgress = $now
+    }
+}
 function EnsureDirectory([string]$path) {
     $missing = [Collections.Generic.List[string]]::new()
     $parent = $path
@@ -311,6 +335,8 @@ try {
             $parent = [IO.Path]::GetDirectoryName($parent).Replace('\', '/')
         }
     }
+    $verifiedCount = 0
+    ReportProgress 'Verifying staged files' 0 $plan.new.Count
     foreach ($entry in $plan.new) {
         $source = ScopedPath $stageRoot $entry.path
         $destination = ScopedPath $appRoot $entry.path
@@ -318,6 +344,8 @@ try {
         if (!(Test-Path -LiteralPath $source -PathType Leaf) -or (Get-Item -LiteralPath $source).Length -ne $entry.size -or (FileDigest $source) -ne $entry.sha256) { throw "Staged file failed verification: $($entry.path)" }
         $newNames[$entry.path] = $true
         $newEntries[$entry.path] = $entry
+        $verifiedCount++
+        ReportProgress 'Verifying staged files' $verifiedCount $plan.new.Count
     }
     $stagedMetadata = ReadJsonObject (ScopedPath $stageRoot 'meta.json') 'Application metadata'
     CheckMetadata $stagedMetadata $manifest
@@ -329,6 +357,8 @@ try {
     }
     $managed = @($plan.new | ForEach-Object { $_.path }) + @($plan.old | Where-Object { !$newNames.ContainsKey($_.path) } | ForEach-Object { $_.path }) + @('PACKAGE-MANIFEST.json')
     # Detect known path conflicts before replacing a large runtime or moving the first old file.
+    $checkedCount = 0
+    ReportProgress 'Checking destination conflicts' 0 $managed.Count
     foreach ($relative in $managed) {
         $target = ScopedPath $appRoot $relative
         $null = ScopedPath $backupRoot $relative
@@ -346,9 +376,14 @@ try {
             if ((Test-Path -LiteralPath $parent -PathType Leaf) -and (!$oldNames.ContainsKey($parentRelative) -or $newNames.ContainsKey($parentRelative))) { throw "Target parent is a file: $relative" }
             $parent = [IO.Path]::GetDirectoryName($parent)
         }
+        $checkedCount++
+        ReportProgress 'Checking destination conflicts' $checkedCount $managed.Count
     }
     # Back up old managed files before installing any new files. This permits a
     # managed file to become a directory, or an entirely managed directory a file.
+    $backupCount = 0
+    $backupTotal = $plan.old.Count + 1
+    ReportProgress 'Backing up installed files' 0 $backupTotal
     foreach ($relative in @($plan.old | ForEach-Object { $_.path }) + @('PACKAGE-MANIFEST.json')) {
         $target = ScopedPath $appRoot $relative
         $backup = ScopedPath $backupRoot $relative
@@ -378,7 +413,12 @@ try {
             [IO.File]::Move($target, $backup)
             $change.saved = $true
         }
+        $backupCount++
+        ReportProgress 'Backing up installed files' $backupCount $backupTotal
     }
+    $installedCount = 0
+    $installTotal = $plan.new.Count + 1
+    ReportProgress 'Installing verified files' 0 $installTotal
     foreach ($relative in @($plan.new | ForEach-Object { $_.path }) + @('PACKAGE-MANIFEST.json')) {
         $target = ScopedPath $appRoot $relative
         $source = ScopedPath $stageRoot $relative
@@ -394,6 +434,8 @@ try {
         EnsureDirectory ([IO.Path]::GetDirectoryName($target))
         if ($relative -eq 'PACKAGE-MANIFEST.json') { InstallFile $source $target $manifestSize $plan.manifest_sha256 }
         else { $entry = $newEntries[$relative]; InstallFile $source $target $entry.size $entry.sha256 }
+        $installedCount++
+        ReportProgress 'Installing verified files' $installedCount $installTotal
     }
     WriteResult @{ success=$true; version=$plan.version; backup=$backupRoot }
     if ($plan.PSObject.Properties['stage_owner'] -and $plan.stage_owner -is [string] -and $plan.stage_owner -cmatch '^[0-9a-f]{32}$') {

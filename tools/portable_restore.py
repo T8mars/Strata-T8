@@ -7,6 +7,10 @@ import re
 import shutil
 import tempfile
 import uuid
+try:
+    from .portable_update_progress import Progress, copy_stream
+except ImportError:
+    from portable_update_progress import Progress, copy_stream
 
 
 def backup_destination(root,identity):
@@ -29,7 +33,7 @@ def _receipt(root,path,identity,update_json,validate_manifest,update_metadata,va
     raw=(backup/'PACKAGE-MANIFEST.json').read_bytes()
     if hashlib.sha256(raw).hexdigest()!=value.get('target_manifest_sha256'):raise ValueError('Rollback manifest checksum failed')
     manifest=update_json(raw)
-    validate_manifest(backup,manifest)
+    validate_manifest(backup,manifest,progress=True)
     validate_metadata(update_metadata(backup),manifest)
     if manifest['version']!=value.get('from_version'):raise ValueError('Rollback version differs from receipt')
     return value,backup,manifest
@@ -93,11 +97,16 @@ def prepare(root,identity):
     stage=Path(tempfile.mkdtemp(prefix='Strata-T8-update-')).resolve()
     incoming=stage/'incoming';incoming.mkdir();token=uuid.uuid4().hex;published=False
     try:
+        progress=Progress('Copying verified rollback files',sum(entry['size'] for entry in manifest['files']))
         for entry in manifest['files']:
             target=incoming/entry['path'];target.parent.mkdir(parents=True,exist_ok=True)
-            shutil.copy2(backup/entry['path'],target)
+            source=backup/entry['path']
+            with source.open('rb') as src,target.open('xb') as dst:
+                copy_stream(src,dst,progress,target.name)
+            shutil.copystat(source,target)
+        progress.update(progress.current,force=True)
         shutil.copy2(backup/'PACKAGE-MANIFEST.json',incoming/'PACKAGE-MANIFEST.json')
-        validate_manifest(incoming,manifest)
+        validate_manifest(incoming,manifest,progress=True)
         (stage/'stage-owner.json').write_text(__import__('json').dumps({'root':str(root),'token':token}),encoding='utf-8')
         plan={'root':str(root),'stage':str(incoming),'backup':str(backup_destination(root,token)),
               'new':manifest['files'],'old':old['files'],'version':manifest['version'],'stage_owner':token,

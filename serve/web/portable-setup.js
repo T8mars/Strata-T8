@@ -8,13 +8,14 @@ let confirmedPort = null;
 async function api(path, body) {
   const options = {headers: {"X-Strata-Setup-Token": token}, cache: "no-store"};
   if (body !== undefined) { options.method = "POST"; options.headers["Content-Type"] = "application/json"; options.body = JSON.stringify(body); }
-  const controller = ['/api/status', '/api/identity'].includes(path) ? new AbortController() : null;
-  const timer = controller ? setTimeout(() => controller.abort(), 5000) : null;
+  const statusRequest = ['/api/status', '/api/identity'].includes(path);
+  const controller = statusRequest || ['/api/update/check','/api/update/start','/api/update/restore'].includes(path) ? new AbortController() : null;
+  const timer = controller ? setTimeout(() => controller.abort(), statusRequest ? 5000 : 15000) : null;
   if (controller) options.signal = controller.signal;
   try {
     const response = await fetch(path, options);
     const result = await response.json();
-    if (!response.ok) throw new Error(result.error || "操作未完成，请重试。");
+    if (!response.ok) { const error = new Error(result.error || "操作未完成，请重试。"); error.responseReceived = true; throw error; }
     return result;
   } finally { if (timer !== null) clearTimeout(timer); }
 }
@@ -135,6 +136,8 @@ function render(current) {
     update ? update.message + (!update.supported ? ' 源码仓库请使用 Git 更新。' : '') : '重启此启动器后可检查版本更新。';
   $("update-check").disabled = busy || update?.state === 'checking' || !update;
   $("update-start").disabled = busy || !update?.supported || update.state !== 'ready' || !update.available;
+  if ($('backup-list')) $('backup-list').disabled = busy;
+  for (const button of $('backup-versions')?.querySelectorAll('.backup-restore') || []) button.disabled = busy || button.dataset.restoreAvailable !== 'true';
   if (current.job.state === 'updating') { redirect = false; if (!updateStartedAt) updateStartedAt = Date.now(); }
   else updateStartedAt = 0;
   $("current-model").textContent = current.model ? current.model.label + " · " + current.model.path : "尚未连接模型";
@@ -173,7 +176,19 @@ async function reconnectAfterUpdate() {
     if (sameApp && (restarted || identity.version !== state.version)) { window.location.replace('/'); return; }
   } catch (_) { /* The helper is still working, or it failed before a restart. */ }
   if (updateStartedAt && Date.now() - updateStartedAt > 120000) {
-    fail(new Error('尚未连接到更新后的启动器。下载较慢时请查看更新窗口和 logs/update-helper.log；若窗口已报错，请关闭后运行 UPDATE-PORTABLE.bat，或用 START-HERE.bat 重新打开设置页。'));
+    $('update-message').textContent = `仍在等待更新后的启动器（${Math.floor((Date.now()-updateStartedAt)/1000)} 秒）。下载与校验可能持续几分钟，请查看更新窗口的进度或 logs/update-helper.log；窗口报错时可运行 UPDATE-PORTABLE.bat 重试。`;
+  }
+}
+async function requestUpdate(path, body, message) {
+  const previous = state;
+  if (state) render({...state,job:{state:'updating',message}});
+  try { await api(path,body); }
+  catch(error) {
+    if (error.responseReceived) { if(previous)render(previous); fail(error); return; }
+    // The launcher can exit after accepting the request but before its reply arrives.
+    // Keep reconnecting in that case; a lost reply is not proof of a failed update.
+    try { const current=await api('/api/status');render(current);if(!['updating','error'].includes(current.job?.state))fail(error); }
+    catch(_) { await reconnectAfterUpdate(); }
   }
 }
 async function scan() {
@@ -283,10 +298,7 @@ $("prepare").onclick = async () => { clearError(); redirect = false; try { await
 $("update-check").onclick = async () => { clearError(); try { await api('/api/update/check', {}); render(await api('/api/status')); } catch (e) { fail(e); } };
 $("update-start").onclick = async () => {
   clearError(); redirect = false; $("update-start").disabled = true;
-  try {
-    await api('/api/update/start', {});
-    if (state) render({...state, job:{state:'updating',message:'正在确认更新程序是否就绪，随后会自动停止服务。进度见更新窗口和 logs/update-helper.log。'}});
-  } catch (e) { fail(e); if(state) render(state); }
+  await requestUpdate('/api/update/start', {}, '正在确认更新程序是否就绪，随后会自动停止服务。进度见更新窗口和 logs/update-helper.log。');
 };
 if ($('backup-list')) $('backup-list').onclick=async()=>{
   const list=$('backup-versions');list.replaceChildren();clearError();
@@ -295,11 +307,10 @@ if ($('backup-list')) $('backup-list').onclick=async()=>{
     if(!result.backups.length){list.textContent='尚无成功升级后的备份。';return;}
     for(const backup of result.backups) {
       const row=document.createElement('p'),text=document.createElement('span'),button=document.createElement('button');
-      text.textContent=`${backup.to_version} → ${backup.from_version} `;button.type='button';button.className='text-button';
+      text.textContent=`${backup.to_version} → ${backup.from_version} `;button.type='button';button.className='text-button backup-restore';button.dataset.restoreAvailable=String(backup.available);
       button.textContent=backup.available?'回退到此版本':'当前版本不匹配';button.disabled=!backup.available;
       button.onclick=async()=>{clearError();button.disabled=true;redirect=false;
-        try{await api('/api/update/restore',{id:backup.id});if(state)render({...state,job:{state:'updating',message:'正在确认回退程序就绪，进度见更新窗口和 logs/update-helper.log。'}});}
-        catch(error){fail(error);button.disabled=false;}};
+        await requestUpdate('/api/update/restore',{id:backup.id},'正在确认回退程序就绪，进度见更新窗口和 logs/update-helper.log。');};
       row.append(text,button);list.append(row);
     }
   }catch(error){fail(error);}

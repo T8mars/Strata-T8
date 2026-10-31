@@ -17,6 +17,7 @@ concurrency:
 jobs:
   sync:
     runs-on: windows-latest
+    timeout-minutes: 45
     outputs:
       changed: ${{ steps.sync.outputs.changed }}
       commit: ${{ steps.sync.outputs.commit }}
@@ -35,6 +36,7 @@ jobs:
         run: git switch -c codex/upstream-review-${{ github.run_id }}
       - name: Merge upstream
         id: sync
+        timeout-minutes: 10
         env:
           GH_TOKEN: ${{ github.token }}
           SYNC_SOURCE: ${{ inputs.source || 'release' }}
@@ -70,27 +72,31 @@ jobs:
       - name: Setup regression tests
         if: steps.sync.outputs.changed == 'true'
         run: python tools/run_release_checks.py --group setup
-      - name: Push tested review candidate
+      - name: Preserve tested review candidate
+        id: candidate
         if: steps.sync.outputs.changed == 'true'
+        run: python tools/sync_upstream.py --export-candidate ${{ steps.sync.outputs.base_commit }}
+      - name: Push tested review candidate without workflow changes
+        if: steps.sync.outputs.changed == 'true' && steps.candidate.outputs.workflow_changes != 'true'
         env:
           SYNC_SOURCE: ${{ inputs.source || 'release' }}
         run: |
           python tools/check_private_paths.py --ref HEAD
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           git push origin HEAD
-      - name: Preserve conflict branch
-        if: failure()
+      - name: Explain required workflow review
+        if: steps.candidate.outputs.workflow_changes == 'true'
         shell: pwsh
         run: |
-          if (Test-Path '.portable-build/upstream-conflict.json') {
-            $report = Get-Content '.portable-build/upstream-conflict.json' -Raw | ConvertFrom-Json
-            python tools/check_private_paths.py --ref $report.branch
-            if ($LASTEXITCODE) { exit $LASTEXITCODE }
-            git push origin $report.branch
-          }
+          Write-Output '::warning::Tested candidate changes GitHub workflows. The default token cannot push it. Download the verified candidate bundle for review; main and releases are unchanged.'
+          '### Upstream candidate requires workflow review' >> $env:GITHUB_STEP_SUMMARY
+          'Tests passed. The candidate is preserved in the artifact with its base/head commits and SHA256. No stable branch or release was updated.' >> $env:GITHUB_STEP_SUMMARY
       - uses: actions/upload-artifact@v4
-        if: failure()
+        if: always() && (failure() || steps.sync.outputs.changed == 'true')
         with:
           name: upstream-sync-diagnostics
-          path: .portable-build/upstream-conflict.json
+          path: |
+            .portable-build/upstream-conflict.json
+            .portable-build/upstream-candidate.json
+            .portable-build/upstream-candidate.bundle
           if-no-files-found: ignore
