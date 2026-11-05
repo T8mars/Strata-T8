@@ -6,7 +6,7 @@
 
 完整运行包较大时，Release 提供分卷。将同版本的全部 `.zip.001` 等分卷、`.parts.json` 和 `ASSEMBLE` 两个文件放在一起，双击 `*-ASSEMBLE.bat` 校验并合成 ZIP。自动更新使用组件，无需手动合并。
 
-DeepSeek 使用独立引擎和模型目录，默认完整质量；当前本地 native 包仅支持文本。[DeepSeek 安装与路径](docs/DEEPSEEK-T8.zh-CN.md)。
+DeepSeek 使用独立引擎和模型目录，默认完整质量与文本模式。具备完整视觉塔的 pack 可在运行设置中开启 GPU 图片识别；视频与语音融合使用 Qwen。[DeepSeek 安装与路径](docs/DEEPSEEK-T8.zh-CN.md)。
 
 ## 开始使用
 

@@ -91,7 +91,6 @@ def ignored_collisions(root, commit):
     source_names = git(root, 'ls-tree', '-r', '--name-only', '-z', commit).stdout.split('\0')
     # The documentation mirror is generated after merging, rather than by Git itself.
     source_names += ['README-UPSTREAM.md', 'meta.json']
-    targets = [key(name) for name in source_names if name]
     collisions = {name for name in source_names if name and is_private_path(name)}
     # Collapse ignored trees: enumerating every old distribution, model and build
     # cache can take minutes. Probe only incoming paths within those trees.

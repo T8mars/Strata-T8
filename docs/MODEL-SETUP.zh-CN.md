@@ -51,4 +51,4 @@ NVIDIA 用户要选择聊天页的原生视频模式，在 **运行设置** 中�
 
 `START-PORTABLE.bat settings` 只打开设置；`START-PORTABLE.bat start --no-browser` 保留原有无浏览器启动方式。命令行导入、模型准备、检查、更新和包完整性校验入口继续保留。
 
-模型路径和本机设置不进入发行 ZIP；主模型/MTP 独立分发，Python、运行依赖及 VisionReady 的视觉权重仍由整合包提供。协议 1 与独立 ComfyUI 节点 1.3.0 保持兼容。
+模型路径和本机设置不进入发行 ZIP；主模型/MTP 独立分发，Python、运行依赖及 VisionReady 的视觉权重仍由整合包提供。协议 1 与独立 ComfyUI 节点 1.3.3 保持兼容。

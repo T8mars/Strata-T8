@@ -1,6 +1,6 @@
 # DeepSeek 本地模型
 
-T8 0.2.6 使用独立的 `engine-dsv41` 引擎运行 DeepSeek-V4.1-Flash-1017。模型仍需单独提供；导入只检查本地文件，不下载权重。来源：[DeepSeek 官方模型](https://huggingface.co/deepseek-ai/DeepSeek-V4.1-Flash-1017)、[上游格式与模型说明](https://github.com/Niko1221/Strata/blob/v0.2.6/docs/MODELS.md#deepseek-v41-flash)。
+T8 0.2.10 使用独立的 `engine-dsv41` 0.1.56 引擎运行 DeepSeek-V4.1-Flash-1017。模型仍需单独提供；导入只检查本地文件，不下载权重。来源：[DeepSeek 官方模型](https://huggingface.co/deepseek-ai/DeepSeek-V4.1-Flash-1017)、[上游格式与模型说明](https://github.com/Niko1221/Strata/blob/v0.2.10/docs/MODELS.md#deepseek-v41-flash)。
 
 ## 选择模型
 
@@ -11,7 +11,13 @@ T8 0.2.6 使用独立的 `engine-dsv41` 引擎运行 DeepSeek-V4.1-Flash-1017。
 - **完整质量 / Full**：默认使用 6 个专家。
 - **更快 / Faster**：使用 5 个专家，可能改变回答质量；实际速度须在自己的硬件上比较。
 - 本版本上下文最高 8192。需要兼容此 CUDA 13 引擎的 NVIDIA GPU、580 或更新驱动、至少 12GB 显存和 46GB 内存。权重体积、剩余内存和 SSD 速度会影响加载与推理。
-- 当前适配的 native 包只有文本主干和 Engram，未包含视觉和 DSpark。图片、视频、音画对白分析请使用 Qwen；不能仅凭 DeepSeek 引擎支持就认定当前模型文件具备这些能力。
+- 已有 native 文本包保持可用，不会自动补下载视觉或 DSpark。视频和音画对白分析使用 Qwen。
+
+## 可选图片识别
+
+默认关闭。若导入的 pack 同时包含有效的视觉配置、图片 token 和 `vision` / `aligner` 张量，设置页才会开放 **GPU 图片识别**。选择后保存，服务使用 DeepSeek 自带的视觉塔，不要求 Qwen 的 mmproj。仅支持兼容 CUDA 的 NVIDIA 显卡，暂不提供 CPU 视觉或原生视频选项。文本包不会显示为具备视觉能力。
+
+配置字段为 `ds4.txt` 中的 `vision.num_hidden_layers` 和 `image_token_id`，实际张量由 `tensors.txt` 索引；只修改这些字段不能补齐缺失的权重。GPU 视觉在没有显式显存保留参数时预留 900 MiB，该值是启动配置，不是本机视觉显存测量。当前完成格式、配置和网页控制回归，尚未使用完整 DeepSeek 视觉权重实测。
 
 ## 已有 native GGUF 的索引准备
 

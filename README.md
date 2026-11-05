@@ -63,9 +63,9 @@ Release 附 SHA256，VERIFY-PACKAGE.bat 检查解压文件。请下载发行资�
 
 Strata-data 可位于运行包内、旁边或导入的其他路径；仅下载主模型 GGUF 后需运行 PREPARE-MODEL.bat 完成准备。
 
-## DeepSeek 本地文本模型
+## DeepSeek 本地模型
 
-支持独立的 DeepSeek-V4.1-Flash-1017 pack 目录，默认 Full 完整质量，可选择 Faster。上下文最高 8192；当前适配的 native 文件仅支持文本，视频和语音融合请使用 Qwen。[文件要求、模型来源与导入](docs/DEEPSEEK-T8.zh-CN.md)。
+支持独立的 DeepSeek-V4.1-Flash-1017 pack 目录，默认 Full 完整质量，可选择 Faster，上下文最高 8192。具备完整视觉塔的 pack 可在运行设置中选择 GPU 图片识别，默认关闭；已有文本 pack 可继续使用。视频和语音融合仍使用 Qwen。[文件要求、模型来源与导入](docs/DEEPSEEK-T8.zh-CN.md)。
 
 ## 环境与更新
 
@@ -75,7 +75,7 @@ Windows 10 1903+/11 x64、AVX2 CPU、SSD。NVIDIA RTX 20/30/40/50 系列建议 1
 
 仓库每日检查上游正式版本并生成升级候选；完成合并审查和回归验收后，再手动触发发布。用户整合包仍自动检查 T8 正式版，并支持一键更新。[更新机制](docs/UPDATING-T8.md)
 
-本版本基于上游 [v0.2.6](https://github.com/Niko1221/Strata/releases/tag/v0.2.6)，应用版本 **0.2.10-t8.1**，配套节点 **1.3.3** 和 ComfyUI Protocol 1。本版完善更新进度、下载中断恢复、失败后设置页重开及离线回退，修复回退校验阻塞、模型切换状态异常和上游同步诊断。T8 的 EXE 启动器、局域网 API、视频进度恢复、自适应采样、语音转录与音画联合分析继续保留。现有主模型和视觉权重可沿用；可下载版本以 [Release](https://github.com/T8mars/Strata-T8/releases/latest) 为准。[本版修复](docs/MAINTENANCE-026-T8-4.md) · [此前联合审查](docs/AUDIT-026-POSTRELEASE-T8.md) · [同步策略](docs/UPDATING-T8.md)
+本分支基于上游 [v0.2.10](https://github.com/Niko1221/Strata/releases/tag/v0.2.10)，应用版本 **0.2.10-t8.1**，Control 与引擎 **0.1.56**，兼容独立节点 **1.3.3 / 协议 1**。同步引擎、低显存适配、已有模型复用、组件更新和工具调用修复，保留 T8 的 EXE、模型切换、局域网 API、完整时长视频分段、进度恢复、语音转录和音画联合分析。现有主模型与视觉权重可沿用；实际可下载版本以 [Release](https://github.com/T8mars/Strata-T8/releases/latest) 为准。[迁移与验证范围](docs/VALIDATION-UPSTREAM-0210-T8.md) · [更新机制](docs/UPDATING-T8.md)
 
 上游在适用 NVIDIA 配置中默认启用专家尾部跳过和实测 PCIe 分配，回答可能略有变化。需要恢复此前行为，可在运行配置的 `env` 对象设置 `"STRATA_ROUTE_TAIL_SKIP":"0"` 和 `"STRATA_PCIE_FRAC_DEFAULT":"old"`，然后重启；已有显式 `--pcie-frac` 参数继续优先。上游性能数字取决于硬件与模型，不代表本机速度。
 

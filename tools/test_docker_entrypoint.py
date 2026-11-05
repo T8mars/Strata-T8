@@ -200,8 +200,13 @@ class Entrypoint(unittest.TestCase):
         (data / "Strata-data" / "models" / "t").mkdir(parents=True)
         (data / "Strata-data" / "models" / "t" / "f.gguf").write_text("new")
         p = self.start(MODEL="IQ3_XXS")
-        self.wait_for("--show-key")
-        self.stop(p)
+        out, err = p.communicate(timeout=30)
+        # Both copies remain after the conflict. The new legacy-file guard refuses
+        # to fetch another model until the person selects the intended folder.
+        self.assertEqual(p.returncode, 2, out + err)
+        self.assertIn("MODEL_PATH", err)
+        self.assertIn("Nothing was downloaded", err)
+        self.assertNotIn("launch --no-tui", self.log.read_text())
         self.assertEqual((data / "Strata-data" / "models" / "t" / "f.gguf").read_text(), "new")   # never overwritten
         self.assertEqual((data / "models" / "t" / "f.gguf").read_text(), "old")
 
