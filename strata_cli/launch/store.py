@@ -125,7 +125,9 @@ def list_presets() -> list[LaunchSettings]:
             out.append(s)
         except (OSError, ValueError):
             continue
-    out.sort(key=lambda s: s.last_used or s.created or "", reverse=True)
+    # A coarse Windows clock can give creation and use the same timestamp.
+    # An explicitly used preset wins that tie over one that has never been used.
+    out.sort(key=lambda s: (s.last_used or s.created or "", bool(s.last_used)), reverse=True)
     return out
 
 

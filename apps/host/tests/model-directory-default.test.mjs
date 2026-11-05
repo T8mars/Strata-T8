@@ -79,14 +79,23 @@ test('native data roots leave explicit custom libraries and new installer folder
 
 test('legacy native aliases never overwrite a conflicting library',t=>{
  const root=realpathSync(mkdtempSync(join(tmpdir(),'strata-conflicting-models-')));t.after(()=>rmSync(root,{recursive:true,force:true}));
- for(const kind of ['directory','link']){
+ for(const kind of ['directory','link','large-inode']){
  const home=join(root,kind),original=join(home,'models'),other=join(home,'other-library'),alias=join(home,'Strata-data','models');mkdirSync(original,{recursive:true});mkdirSync(other);mkdirSync(join(home,'Strata-data'));
  if(kind==='link')symlinkSync(other,alias,process.platform==='win32'?'junction':'dir');else mkdirSync(alias);
  writeFileSync(join(original,'original.gguf'),'GGUForiginal');writeFileSync(join(other,'other.gguf'),'GGUFother');
- if(kind==='directory')writeFileSync(join(alias,'other.gguf'),'GGUFconflict');
+ if(kind!=='link')writeFileSync(join(alias,'other.gguf'),'GGUFconflict');
  const env={...process.env,STRATA_HOME:home,STRATA_DOCUMENTS_DIR:join(home,'documents')};delete env.STRATA_MODELS_DIR;
  const result=spawnSync(process.execPath,['--input-type=module','-e',`
   import assert from 'node:assert/strict';import {join} from 'node:path';import {readFileSync,realpathSync} from 'node:fs';
+  if(${JSON.stringify(kind==='large-inode')}){
+   const {default:fs}=await import('node:fs'),{syncBuiltinESMExports}=await import('node:module');
+   const stat=fs.statSync,original=join(process.env.STRATA_HOME,'models'),alias=join(process.env.STRATA_HOME,'Strata-data','models');
+   fs.statSync=(path,options)=>{const result=stat(path,options);if(path===original||path===alias){
+    const identity=(1n<<60n)+(path===original?1n:2n);
+    result.ino=options?.bigint?identity:Number(identity);result.dev=options?.bigint?1n:1;
+   }return result;};
+   syncBuiltinESMExports();
+  }
   const store=await import('./server/store.mjs');
   assert.throws(()=>store.nativeDataDirectory(store.MODELS_DIR),/conflicts with another library/);
   assert.equal(realpathSync(store.MODELS_DIR),realpathSync(join(store.HOME,'models')));

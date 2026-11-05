@@ -209,6 +209,13 @@ class CatalogRules(unittest.TestCase):
 
 
 class PresetStore(unittest.TestCase):
+    def test_last_used_wins_when_the_clock_does_not_advance(self):
+        with Home(), mock.patch.object(store, "now_text", return_value="2026-11-05 12:00:00.000000"):
+            store.save(S.LaunchSettings(name="Z used", family="qwen", model="IQ3_XXS"))
+            store.save(S.LaunchSettings(name="A unused", family="coder", model="IQ1_M"))
+            store.touch_used("Z used")
+            self.assertEqual([p.name for p in store.list_presets()], ["Z used", "A unused"])
+
     def test_save_load_list_delete(self):
         with Home():
             s = S.LaunchSettings(name="IQ3_XXS 128K", family="qwen", model="IQ3_XXS", context=131072, api_key="sk-secret")
