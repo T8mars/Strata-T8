@@ -18,9 +18,16 @@ export function currentUserSid() {
 
 export function makePrivate(path, { platform = process.platform } = {}) {
   if (platform !== 'win32') { chmodSync(path, 0o600); return; }
-  // Grant first, then drop every inherited entry, so the file is never left without an owner entry.
-  execFileSync(system32('icacls.exe'), [path, '/grant:r', `*${currentUserSid()}:F`, '/inheritance:r'],
-    { stdio: 'ignore', timeout: 15000, windowsHide: true });
+  // /inheritance:r leaves explicit entries (including SYSTEM/Administrators on
+  // some Windows temp folders). Replace the DACL with exactly the user's rule.
+  const literal = value => `'${String(value).replaceAll("'", "''")}'`;
+  const script = `$ErrorActionPreference='Stop'; $sid=[System.Security.Principal.SecurityIdentifier]::new(${literal(currentUserSid())}); ` +
+    `$acl=[System.Security.AccessControl.FileSecurity]::new(); $acl.SetAccessRuleProtection($true,$false); ` +
+    `$acl.AddAccessRule([System.Security.AccessControl.FileSystemAccessRule]::new($sid,'FullControl','Allow')); ` +
+    `Set-Acl -LiteralPath ${literal(path)} -AclObject $acl`;
+  execFileSync(system32('WindowsPowerShell/v1.0/powershell.exe'), ['-NoProfile', '-NonInteractive', '-Command', script],
+    { stdio: 'ignore', timeout: 15000, windowsHide: true,
+      env: { ...process.env, PSModulePath: system32('WindowsPowerShell/v1.0/Modules') } });
   // The owner too, so a file an elevated run made is not left owned by Administrators (needs the right to; best effort).
   try { execFileSync(system32('icacls.exe'), [path, '/setowner', `*${currentUserSid()}`], { stdio: 'ignore', timeout: 15000, windowsHide: true }); } catch { /* the explicit entry above already opens it to the user */ }
 }
