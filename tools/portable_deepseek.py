@@ -59,8 +59,15 @@ def inspect_pack(directory):
         path = directory/name
         if not path.is_file() or not path.stat().st_size:
             raise RuntimeError('Missing DeepSeek auxiliary file: '+name)
+    try:
+        pictures = (int(geometry.get('vision.num_hidden_layers', '0')) > 0
+                    and 0 <= int(geometry.get('image_token_id', '-1')) < 129280
+                    and any(t.startswith('vision.') for t in tensors)
+                    and any(t.startswith('aligner.') for t in tensors))
+    except ValueError:
+        pictures = False
     return {'family':'deepseek41', 'model':'LOCAL', 'model_name':'deepseek-v4.1-flash-1017',
-            'pack_dir':str(directory), 'text_only':True,
+            'pack_dir':str(directory), 'text_only':not pictures, 'vision_available':pictures,
             'files':[{'file':str(p), 'size':n} for p,n in files.values()]}
 
 
@@ -105,8 +112,12 @@ def build_config(portable, directory, context=None, backend=None, vision=None, p
     model = inspect_pack(directory)
     if backend not in (None, 'auto', 'cuda'):
         raise RuntimeError('DeepSeek currently requires the NVIDIA CUDA engine in this portable edition')
-    if vision not in (None, 'no', 'auto') or native_video:
+    if vision not in (None, 'no', 'auto', 'gpu', 'cpu'):
+        raise RuntimeError('Invalid DeepSeek vision setting')
+    if native_video or (vision not in (None, 'no', 'auto') and not model['vision_available']):
         raise RuntimeError('This DeepSeek pack is text-only; select Qwen for images and video')
+    if vision == 'cpu':
+        raise RuntimeError('DeepSeek pictures use its own CUDA vision tower; CPU vision is available for Qwen')
     if speed not in (None, 'full', 'faster'):
         raise RuntimeError('DeepSeek speed must be full or faster')
     identity = hashlib.sha256(os.path.normcase(str(Path(directory).resolve())).encode('utf-8')).hexdigest()[:12]
@@ -144,7 +155,10 @@ def build_config(portable, directory, context=None, backend=None, vision=None, p
     option('--pack', model['pack_dir']); option('--max-context', context)
     for flag,value in (('--eos',1),('--experts',6),('--dspark','none')):
         option(flag,value,only_missing=True)
-    option('--vision','off')
+    # Older packs remain text-only. A tower is enabled only by an explicit choice.
+    option('--vision','on' if vision == 'gpu' and model['vision_available'] else 'off')
+    if vision == 'gpu' and model['vision_available']:
+        option('--reserve-mib',900,only_missing=True)
     if speed is not None:
         option('--experts', 5 if speed == 'faster' else 6)
     cfg.update(exe=str(engine),args=args,cwd=str(portable.ROOT),tokenizer=str(Path(model['pack_dir'])/'tokenizer'),

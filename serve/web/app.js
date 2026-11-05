@@ -1228,9 +1228,14 @@ async function send(payload) {
   const p = payload || {text: $("input").value.trim(), images: attachments.filter((a) => a.kind === "image"), videos: attachments.filter((a) => a.kind === "video"),
                         files: attachments.filter((a) => a.kind === "file")};
   p.videos = p.videos || [];
+  if (own && videoUploadError) { toast('warn', '视频尚未上传成功', '请重新上传视频，或移除失败的附件后再发送。'); return; }
+  if (own && attachments.some(a => a.kind === 'video_pending')) { toast('info', 'Video sampling in progress', 'Wait for sampling to finish or remove the video to cancel.'); return; }
   if (!p.text && !p.images.length && !p.videos.length && !p.files.length) return;
   if (panel) return;                                  // something is open above (an edit): finish it first
-  if (busy) { park(p, own); return; }
+  if (busy) {
+    if (p.videos.some(videoParametersChanged)) { toast('warn', '视频需要重新采样', '请等待当前回复完成后，按新参数重新采样视频。'); return; }
+    park(p, own); return;
+  }
   if (own && attachments.some((a) => a.kind === 'video_pending')) {
     toast('info', 'Video sampling in progress', 'Wait for sampling to finish or remove the video to cancel.');
     return;

@@ -166,7 +166,23 @@ class Recognised(unittest.TestCase):
             sizes = {n: v[0] for n, v in setup.DSV41_ALL_FILES.items()}
             for n in PIN["shards"]:
                 with (Path(tmp) / n).open("wb") as f:
-                    f.truncate(sizes[n])                                   # sparse files of the pinned sizes
+                    if __import__('os').name == 'nt':
+                        # truncate alone reserves the whole shard on Windows.
+                        # Mark the test fixture sparse before setting a model-sized length.
+                        import ctypes
+                        from ctypes import wintypes
+                        import msvcrt
+                        ioctl = ctypes.WinDLL('kernel32', use_last_error=True).DeviceIoControl
+                        ioctl.argtypes = [wintypes.HANDLE, wintypes.DWORD, wintypes.LPVOID, wintypes.DWORD,
+                                          wintypes.LPVOID, wintypes.DWORD, ctypes.POINTER(wintypes.DWORD), wintypes.LPVOID]
+                        ioctl.restype = wintypes.BOOL
+                        returned = wintypes.DWORD()
+                        if not ioctl(msvcrt.get_osfhandle(f.fileno()), 0x900C4, None, 0, None, 0, ctypes.byref(returned), None):
+                            raise ctypes.WinError(ctypes.get_last_error())
+                    # Windows' CRT truncate may physically zero the extension even
+                    # on a sparse file. Seeking leaves the hole unallocated.
+                    f.seek(sizes[n] - 1)
+                    f.write(b'\0')
             found = self.set_in(tmp)
             self.assertEqual(found[0], NAME)
 
@@ -186,7 +202,12 @@ class Plan(unittest.TestCase):
             self.assertEqual(p["variant"], NAME)
             self.assertAlmostEqual(p["experts_gb"], 66.0, delta=0.1)
         p = dsv41_fit.plan(FOUR, 251.0, None, 131072, model=NAME)
-        self.assertEqual(p["experts_in_vram"], 7680)                       # four 32 GB cards hold every one of them
+        if __import__('os').name == 'nt':
+            self.assertEqual(len(p['cards']), 1)    # Windows uses one AMD card.
+            single = dsv41_fit.plan([R9700], 251.0, None, 131072, model=NAME)
+            self.assertEqual(p['experts_in_vram'], single['experts_in_vram'])
+        else:
+            self.assertEqual(p["experts_in_vram"], 7680)                   # four 32 GB cards hold every one of them
         self.assertEqual(p["verdict"], "fits")
 
     def test_the_plan_follows_the_engine_on_r9700_cards(self):

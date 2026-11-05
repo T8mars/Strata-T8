@@ -3146,7 +3146,7 @@ class Vision:
         and no question."""
         check_cancel(cancel)
         try:
-            self._start_reader(cancel)
+            self._start_reader(cancel) if cancel is not None else self._start_reader()
         except (RequestCancelled, EngineStuck):
             raise
         except (RuntimeError, OSError) as e:
@@ -3157,7 +3157,7 @@ class Vision:
             again = " until it is idle" if getattr(self, "elastic", False) else ""
             print(f"[strata] the GPU picture reader did not start ({why}); pictures are read on the CPU{again}", flush=True)
             self.spawn, self.fallback, self.on_cpu = fallback, None, True
-            self._start_reader(cancel)
+            self._start_reader(cancel) if cancel is not None else self._start_reader()
 
     def use_cpu(self) -> bool:
         """The next start is the CPU reader's (the card has no room for the GPU one): False when there is no CPU reader to use."""
@@ -5796,6 +5796,28 @@ class Service:
         finally:
             self.fifo.release()
 
+    def _resolve_tool_images(self, messages):
+        """Resolve opaque tool-image references only inside the configured raster cache."""
+        directory = getattr(self.mcp, 'media_dir', None) if self.mcp is not None else None
+        for message in messages:
+            content = message.get('content')
+            if not isinstance(content, list):
+                continue
+            for index, item in enumerate(content):
+                if not isinstance(item, dict) or item.get('type') != 'image':
+                    continue
+                source = item.get('source')
+                if not isinstance(source, str) or not source.startswith('strata-tool-media:'):
+                    continue
+                name = source[len('strata-tool-media:'):]
+                if not re.fullmatch(r'[0-9a-f]{64}\.(?:png|jpg|webp)', name):
+                    raise ValueError('invalid tool image reference')
+                target = Path(directory) / name if directory is not None else None
+                if target is not None and target.is_file() and target.resolve().parent == Path(directory).resolve():
+                    item['source'] = str(target)
+                else:
+                    content[index] = {'type': 'text', 'text': '[image omitted: tool image cache is unavailable]'}
+
     def _note_unreadable_tool_images(self, messages, cancel=None):
         """Replace unreadable tool-result images with a note; user images remain strict errors."""
         fetched = {}
@@ -5970,6 +5992,7 @@ class Service:
         check_cancel(cancel)
         self.embeddings.spans = None
         self.embeddings.keys = None
+        self._resolve_tool_images(messages)
         has_video = video_api.has_video(messages)
         if has_video:
             messages = video_api.expand_videos(messages, Vision.load, lambda: check_cancel(cancel))
@@ -5991,6 +6014,7 @@ class Service:
                 self.forget_prompt(encoded_ids)
                 raise
             ids = self._prepare_native(ids, native_media, cancel)
+            images = []  # native preparation already encoded every ordered image/video span
         elif images:
             if self.offline and any(src.startswith(("http://", "https://")) for src in images):
                 raise ValueError("offline mode cannot download an image URL; send a data: image instead")

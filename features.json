@@ -24,7 +24,7 @@
   "split_upstream_component_versions": true,
   "deepseek41_local_pack": true,
   "deepseek41_text": true,
-  "deepseek41_vision": false,
+  "deepseek41_vision": true,
   "deepseek41_default_experts": 6,
   "default_host": "127.0.0.1",
   "bundled_vision_weights": true,

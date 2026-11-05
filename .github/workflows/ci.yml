@@ -46,14 +46,25 @@ jobs:
           python-version: '3.12'
       - uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: '24'
+      - name: Install browser test dependency
+        run: npm install --prefix .portable-build/webtest --ignore-scripts --no-audit --no-fund puppeteer-core
       - name: Browser video and model-switch logic
         run: node --test tools/test_web_video.cjs
       - run: python -m pip install -r requirements.txt -r requirements-portable.txt -r requirements-test.txt
       - name: Prepare pinned GGUF source dependency (no model download)
         run: python tools/bootstrap_portable.py --gguf-only
       - name: Server, security, update and synchronization tests
+        env:
+          WEBTEST_MODULES: ${{ github.workspace }}/.portable-build/webtest
         run: python tools/run_release_checks.py --group application
+      - name: Desktop host regression and build
+        working-directory: apps/host
+        run: |
+          npm ci
+          npm test
+          npm run typecheck
+          npm run build
       - name: Independent node integration
         env:
           STRATA_SOURCE_DIR: ${{ github.workspace }}

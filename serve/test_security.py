@@ -82,7 +82,10 @@ class ListenAddress(unittest.TestCase):
             self.assertEqual(httpd.address_family, socket.AF_INET6)
             c = http.client.HTTPConnection("::1", httpd.server_address[1], timeout=10)
             try:
-                c.request("GET", "/health")
+                try:
+                    c.request("GET", "/health")
+                except PermissionError as e:
+                    self.skipTest(f"OS policy blocks IPv6 loopback connections: {e}")
                 r = c.getresponse()
                 self.assertEqual(r.status, 200)
                 r.read()

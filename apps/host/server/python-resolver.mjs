@@ -6,7 +6,7 @@
  *   1. STRATA_PYTHON, then STRATA_NATIVE_PYTHON      (an explicit choice is never second-guessed)
  *   1b. the Control component's own interpreter, when the app ships one (control-runtime.mjs findControl):
  *      the installed app never looks at the user's Python
- *   2. the repository's own venv: .venv\Scripts\python.exe on Windows, .venv/bin/python elsewhere
+ *   2. the portable interpreter, then the repository's own venv
  *   3. Windows: `py -3` (the launcher), then python.exe; each one must actually start
  *      (the Microsoft Store alias in WindowsApps exists on PATH but only opens the Store)
  *      POSIX: Homebrew 3.11 / 3.10, then python3, then python
@@ -38,12 +38,21 @@ export function resolvePython({ repo = null, control = null, env = process.env, 
     if (explicit) return { command: explicit, args: [], source: 'environment' };
     if (control?.python) return { command: control.python, args: [], source: 'bundled' };
     if (repo) {
+      const portable = join(repo, 'runtime', 'python', platform === 'win32' ? 'python.exe' : 'bin/python3');
+      if (exists(portable)) return { command: portable, args: [], source: 'portable' };
       const venv = venvPython(repo, platform);
       if (exists(venv)) return { command: venv, args: [], source: 'venv' };
     }
     if (platform === 'win32') {
       if (starts('py', ['-3'])) return { command: 'py', args: ['-3'], source: 'py launcher' };
       if (starts('python.exe')) return { command: 'python.exe', args: [], source: 'PATH' };
+      // A Store alias may shadow a working interpreter later on PATH. Probe each
+      // concrete executable instead of returning that same broken alias again.
+      for (const directory of (env.PATH || env.Path || process.env.PATH || '').split(';')) {
+        if (!directory) continue;
+        const candidate = join(directory.replace(/^"|"$/g, ''), 'python.exe');
+        if (exists(candidate) && starts(candidate)) return { command: candidate, args: [], source: 'PATH' };
+      }
       return { command: 'python.exe', args: [], source: 'fallback' };
     }
     for (const brew of ['/opt/homebrew/bin/python3.11', '/opt/homebrew/bin/python3.10']) {

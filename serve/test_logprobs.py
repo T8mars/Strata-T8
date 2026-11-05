@@ -330,10 +330,12 @@ class Api(unittest.TestCase):
         self.engine = self.svc.engine = LpEngine(self.tok, written)
         content = '{"rent": "$1,250", "quote": "x"}'
         for max_tokens in (200, 0, 5000):
-            choice = self.post({"logprobs": True, "max_tokens": max_tokens, "response_format": SCHEMA})["choices"][0]
+            choice = self.post({"logprobs": True, "max_tokens": max_tokens, "response_format": SCHEMA,
+                                "strata_json_compatibility": True})["choices"][0]
             self.assertEqual(choice["message"]["content"], content, max_tokens)
             self.assertEqual("".join(e["token"] for e in choice["logprobs"]["content"]), content, max_tokens)
-            chunks = self.post({"logprobs": True, "max_tokens": max_tokens, "response_format": SCHEMA}, stream=True)
+            chunks = self.post({"logprobs": True, "max_tokens": max_tokens, "response_format": SCHEMA,
+                                "strata_json_compatibility": True}, stream=True)
             toks = [e["token"] for c in chunks if c.get("choices")
                     for e in (c["choices"][0].get("logprobs") or {}).get("content", [])]
             self.assertEqual("".join(toks), content, (max_tokens, "streamed"))
@@ -487,16 +489,19 @@ class Api(unittest.TestCase):
         # rather than re-pointed at a raw token list (which would drop the stop token).
         written = '```json\n{"rent": "$1,250", "quote": "x"}\n```'
         self.engine = self.svc.engine = LpEngine(self.tok, written)
-        out = self.post({"logprobs": True, "temperature": 0, "response_format": SCHEMA})
+        out = self.post({"logprobs": True, "temperature": 0, "response_format": SCHEMA,
+                         "strata_json_compatibility": True})
         choice = out["choices"][0]
         content = choice["message"]["content"]
         self.assertEqual(content, '{"rent": "$1,250", "quote": "x"}')   # the JSON as written
         self.assertEqual("".join(e["token"] for e in choice["logprobs"]["content"]), content)
-        streamed = self.post({"logprobs": True, "response_format": SCHEMA}, stream=True)
+        streamed = self.post({"logprobs": True, "response_format": SCHEMA,
+                              "strata_json_compatibility": True}, stream=True)
         toks = [e["token"] for c in streamed if c.get("choices")
                 for e in (c["choices"][0].get("logprobs") or {}).get("content", [])]
         self.assertEqual("".join(toks), content)
-        plain = self.post({"temperature": 0, "response_format": SCHEMA})    # not asked: as before
+        plain = self.post({"temperature": 0, "response_format": SCHEMA,
+                          "strata_json_compatibility": True})    # logprobs not asked
         self.assertEqual(plain["choices"][0]["message"]["content"],
                          '{"rent":"$1,250","quote":"x"}')
         self.assertNotIn("logprobs", plain["choices"][0])

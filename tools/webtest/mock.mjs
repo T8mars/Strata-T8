@@ -50,6 +50,7 @@ export async function startMock({ port = 0, root = WEB, loaded = true, csp = tru
       if (p.startsWith("/web/")) return file(res, path.join(root, p.slice(5)), root);
       if (p.startsWith("/fonts/")) return file(res, path.join(root, "fonts", p.slice(7)), root);
       if (p === "/health") return json(200, { status: "ok", max_context: 32768, model: "Mock-Model", images: true, image_generation: false, loaded: state.loaded, service: "strata" });
+      if (p === "/v1/status") return json(200, { service: "strata", loaded: state.loaded, capabilities: { native_video: false } });
       if (p === "/metrics") return json(200, metrics(state));
       if (p === "/mcp") return json(200, { servers: [], tools: 0 });
       if (p === "/settings") return json(200, { shared: false, defaults: null });

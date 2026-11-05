@@ -123,7 +123,7 @@ def model_summary(data, portable):
     return {'path': str(path), 'family': model['family'], 'quantization': model['model'],
             'label': label, 'api_model_id': portable.model_api_id(model),
             'bytes': sum(e['size'] for e in model.get('files', [])), 'complete': True,
-            'text_only': model.get('text_only', False)}
+            'text_only': model.get('text_only', False), 'vision_available': model.get('vision_available', False)}
 
 
 def discover_models(root, portable):
@@ -248,9 +248,10 @@ class ModelSetup:
             raise SetupError('完整质量 / 更快模式只适用于 DeepSeek。')
         if native and vision == 'no':
             raise SetupError('原生视频需要先启用视觉。')
-        if vision not in ('no', 'auto') and (summary['family'] != 'qwen' or backend == 'hip'):
+        ds_pictures = summary['family'] == 'deepseek41' and summary.get('vision_available') and vision == 'gpu'
+        if vision not in ('no', 'auto') and not ds_pictures and (summary['family'] != 'qwen' or backend == 'hip'):
             raise SetupError('此视觉权重用于 Qwen NVIDIA 配置，请改用文本模式。')
-        if vision not in ('no', 'auto') and not self.vision_available():
+        if vision not in ('no', 'auto') and not ds_pictures and not self.vision_available():
             raise SetupError('此版本未附视觉权重，请选择文本模式或安装 VisionReady 版。')
         return {**data, 'path': summary['path'], 'port': port, 'context': context,
                 'vision': vision, 'backend': backend, 'native_video': native}, summary
@@ -295,7 +296,9 @@ class ModelSetup:
             # A newly selected pack can still have the previous Qwen config.
             # Adapt inherited defaults; explicit incompatible choices must fail.
             if getattr(self.options, 'vision', None) is None:
-                vision = 'no'
+                vision = 'gpu' if cfg.get('arch') == 'deepseek41' and any(
+                    arg == '--vision' and i+1 < len(args) and args[i+1] == 'on'
+                    for i, arg in enumerate(args)) else 'no'
             if native_arg is None:
                 native = False
             if getattr(self.options, 'backend', None) is None:

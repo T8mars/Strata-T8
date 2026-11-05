@@ -35,6 +35,14 @@ test('Windows falls back to py -3, then python.exe, and skips an interpreter tha
   assert.equal(pick({ platform: 'win32' }).source, 'fallback');
 });
 
+test('the portable Python is preferred and a Store alias cannot shadow a working PATH interpreter', () => {
+  const portable = pick({ platform: 'win32', repo: 'C:\\repo', exists: p => /runtime[\\/]python[\\/]python\.exe$/.test(p) });
+  assert.equal(portable.source, 'portable');
+  const path = pick({ platform: 'win32', env: { PATH: 'C:\\alias;D:\\Python' }, exists: () => true,
+    starts: command => command.includes('Python') });
+  assert.match(path.command, /Python[\\/]python\.exe$/);
+});
+
 test('POSIX keeps Homebrew first, then python3', () => {
   assert.equal(pick({ platform: 'darwin', exists: (p) => p.endsWith('python3.11') }).command, '/opt/homebrew/bin/python3.11');
   assert.deepEqual(pick({ platform: 'linux' }), { command: 'python3', args: [], source: 'PATH' });

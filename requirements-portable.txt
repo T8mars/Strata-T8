@@ -9,7 +9,7 @@ typing-extensions==4.16.0
 # CPU video decoder; includes its FFmpeg libraries in the Windows wheel.
 av==15.0.0
 
-# Terminal UI dependencies, pinned to the upstream v0.2.6 Windows runtime lock.
+# Terminal UI dependencies shared with the upstream v0.2.10 Windows runtime.
 textual==8.2.8
 rich==15.0.0
 linkify-it-py==2.2.0

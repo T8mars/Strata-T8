@@ -58,17 +58,20 @@ class WatcherIdentity(unittest.TestCase):
         # Execute the actual child-side parser without running its signal loop.
         node = next(n for n in ast.parse(lifeline._WATCHER).body
                     if isinstance(n, ast.FunctionDef) and n.name == 'start_of')
-        namespace = {'subprocess': subprocess}
+        namespace = {'subprocess': subprocess, 'os': os}
         exec(compile(ast.Module(body=[node], type_ignores=[]), '<watcher>', 'exec'), namespace)
         birth = 'Wed Oct 28 02:00:00 2026'
         for state in ('R', 'S', 'Ss', 'Sl', 'S+'):
-            with self.subTest(state=state), mock.patch.object(subprocess, 'run',
-                    return_value=SimpleNamespace(stdout=birth+' '+state+'\n')):
-                self.assertEqual(lifeline._start_token(123), 's:'+birth)
-                self.assertEqual(namespace['start_of'](123), 's:'+birth)
-        for output in ('', birth+' Z', birth+' Z+'):
+            # A birth-only ps query returns the same value in every mutable state.
+            with self.subTest(state=state), mock.patch('os.path.exists', return_value=False), mock.patch.object(subprocess, 'run',
+                    return_value=SimpleNamespace(stdout=birth+'\n')) as run:
+                self.assertEqual(lifeline._start_token(123), 'p:'+birth)
+                self.assertEqual(namespace['start_of'](123), 'p:'+birth)
+                for call in run.call_args_list:
+                    self.assertEqual(call.args[0], ['ps', '-o', 'lstart=', '-p', '123'])
+        for output in ('', '\n'):
             with self.subTest(output=output), mock.patch.object(subprocess, 'run',
-                    return_value=SimpleNamespace(stdout=output)):
+                    return_value=SimpleNamespace(stdout=output)), mock.patch('os.path.exists', return_value=False):
                 self.assertEqual(lifeline._start_token(123), '')
                 self.assertIsNone(namespace['start_of'](123))
 

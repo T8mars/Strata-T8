@@ -104,7 +104,10 @@ function render(current) {
     $("browse").hidden = !current.folder_picker;
     $("download-path").value = d.path || "";
     $('api-scope').value = current.network?.scope || 'local';
-    for (const option of $("vision").options) if (["gpu", "cpu"].includes(option.value)) option.disabled = !current.vision_available;
+    for (const option of $("vision").options) if (["gpu", "cpu"].includes(option.value)) {
+      option.disabled = current.model?.family === 'deepseek41'
+        ? option.value === 'cpu' || !current.model.vision_available : !current.vision_available;
+    }
     initialized = true;
   }
   if (current.running && current.job.state === 'ready') {
@@ -242,11 +245,17 @@ function applyModelCapabilities(model) {
       qwenSettings = {context:$('context').value, vision:$('vision').value, native:$('native-video').checked, backend:$('backend').value};
     }
     $('context').value = String(Math.min(Number($('context').value) || 8192, 8192));
-    $('vision').value = 'no'; $('native-video').checked = false; $('backend').value = 'cuda';
+      if (!model.vision_available || selectedFamily !== 'deepseek41' || $('vision').value === 'cpu') $('vision').value = 'no';
+      for (const option of $('vision').options) {
+        if (option.value === 'gpu') option.disabled = !model.vision_available;
+        if (option.value === 'cpu') option.disabled = true;
+      }
+      $('native-video').checked = false; $('backend').value = 'cuda';
   } else if (selectedFamily === 'deepseek41') {
     const saved = qwenSettings || {context:'32768', vision:state?.vision_available ? 'auto' : 'no', native:false, backend:'auto'};
     $('context').value = saved.context; $('vision').value = saved.vision;
     $('native-video').checked = saved.native; $('backend').value = saved.backend;
+    for (const option of $('vision').options) if (['gpu','cpu'].includes(option.value)) option.disabled = !state?.vision_available;
   }
   selectedFamily = model.family || 'qwen'; // Older launchers omit the family for Qwen cards.
 }

@@ -36,7 +36,7 @@ class ElasticVision:
     def unload(self):
         self.up, self.unloads = False, self.unloads + 1
 
-    def encode(self, source):
+    def encode(self, source, cancel=None):
         assert self.up, "a picture reached an encoder that was not started"
         return self.rows, 3
 

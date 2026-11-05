@@ -36,5 +36,14 @@ docker/compose/* text eol=lf
 # Apple tools (codesign, plutil) read these: LF only, wherever the repository is cloned
 *.plist text eol=lf
 
+# Host tests inspect source snippets; keep them consistent on Windows and Linux.
+apps/host/**/*.ts text eol=lf
+apps/host/**/*.tsx text eol=lf
+apps/host/**/*.js text eol=lf
+apps/host/**/*.mjs text eol=lf
+apps/host/**/*.json text eol=lf
+apps/host/**/*.css text eol=lf
+apps/host/**/*.html text eol=lf
+
 # vendored KaTeX (serve/web/vendor): the files are hashed byte for byte (PROVENANCE.json), never convert their line endings.
 serve/web/vendor/** -text

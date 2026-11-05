@@ -16,6 +16,35 @@ class SyncFeedback(unittest.TestCase):
     identity=fixtures.UpstreamSync.identity
     commit=fixtures.UpstreamSync.commit
 
+    def test_collapsed_ignored_tree_keeps_unrelated_files_and_rejects_real_collision(self):
+        (self.repo/'.gitignore').write_text('cache/\n')
+        self.commit(self.repo,'ignore a large cache')
+        local=self.repo/'cache/old/sub/model.bin'
+        local.parent.mkdir(parents=True);local.write_bytes(b'private')
+        (self.up/'cache').mkdir()
+        (self.up/'cache/new.py').write_text('upstream')
+        self.commit(self.up,'a new file in a directory with unrelated ignored data')
+        self.git(self.repo,'fetch',str(self.up),'main')
+        head=self.git(self.up,'rev-parse','HEAD')
+        with mock.patch.object(sync,'git',wraps=sync.git) as calls:
+            self.assertEqual(sync.ignored_collisions(self.repo,head),[])
+        listings=[call.args[1:] for call in calls.call_args_list if 'ls-files' in call.args]
+        self.assertTrue(listings)
+        self.assertTrue(all('--directory' in args for args in listings))
+        (self.repo/'cache/new.py').write_text('private local file')
+        self.assertIn('cache/new.py',sync.ignored_collisions(self.repo,head))
+        self.assertEqual(local.read_bytes(),b'private')
+
+    def test_collapsed_ignored_directory_cannot_be_replaced_by_incoming_file(self):
+        (self.repo/'.gitignore').write_text('cache/\n')
+        self.commit(self.repo,'ignore empty cache')
+        (self.repo/'cache').mkdir()
+        (self.up/'cache').write_text('incoming file')
+        self.commit(self.up,'replace cache directory')
+        self.git(self.repo,'fetch',str(self.up),'main')
+        collisions=sync.ignored_collisions(self.repo,self.git(self.up,'rev-parse','HEAD'))
+        self.assertIn('cache/',collisions)
+
     def prepare(self):
         (self.repo/'.gitignore').write_text('.portable-build/\n')
         meta=json.loads((self.repo/'meta.json').read_bytes())

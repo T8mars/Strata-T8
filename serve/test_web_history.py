@@ -63,7 +63,7 @@ class OffIsThePageFromBefore(unittest.TestCase):
     def test_nothing_about_a_chat_goes_to_the_server(self):
         for name, src in (("app.js", self.app), ("chats-ui.js", self.ui), ("chatstore.js", self.store)):
             for call in re.findall(r'fetch\(\s*([^,)]+)', src):
-                if call != '"v1/chat/completions"':                    # the question itself, as ever
+                if call not in ('"v1/chat/completions"', "'v1/chat/completions'"):  # the question itself
                     self.assertNotRegex(call, r"chat|histor", f"{name}: {call}")
 
     def test_the_edit_controls_wait_for_a_finished_answer(self):

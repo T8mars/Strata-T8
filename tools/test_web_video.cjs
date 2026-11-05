@@ -248,6 +248,34 @@ function installChat(ui) {
   const history=require('../serve/web/history.js');
   ui.context.saveChat=()=>ui.context.store.set('chat',history.cleanMessages(ui.context.messages));
 }
+
+test('multi-chat storage keeps video evidence and plans without storing original video bytes',()=>{
+  const history=require('../serve/web/history.js');
+  const video={kind:'video',name:'clip.mp4',file:{name:'clip.mp4'},encoded:'large-data',part:{type:'video'},
+    manifest:{source:{duration_s:12}},plan:{segments:[{start_s:0,end_s:12}]},analysis:{coverage:{sample_count:288}},save_progress:true};
+  const message={role:'user',text:'analyze',videos:[video],videoEvidence:'timed observations'};
+  const stored=history.cleanMessages([message])[0];
+  assert.equal(stored.videoEvidence,'timed observations');
+  assert.deepEqual(stored.videos[0].plan,video.plan);
+  for(const field of ['file','encoded','part'])assert.equal(stored.videos[0][field],undefined);
+  assert.equal(history.draftOf(message).videos.length,1);
+  assert.equal(history.draftOf(message).lost,0);
+  assert.equal(history.draftOf(stored).lost,1);
+});
+
+test('DeepSeek own vision is explicit and switching back restores Qwen vision choices',()=>{
+  const ui=setupPage();
+  ui.nodes.vision.options=[{value:'gpu',disabled:false},{value:'cpu',disabled:false}];
+  ui.run("applyModelCapabilities({family:'deepseek41',vision_available:true,text_only:false})");
+  assert.equal(ui.nodes.vision.value,'no');
+  assert.equal(ui.nodes.vision.options[0].disabled,false);
+  assert.equal(ui.nodes.vision.options[1].disabled,true);
+  ui.nodes.vision.value='gpu';
+  ui.run("applyModelCapabilities({family:'deepseek41',vision_available:true,text_only:false})");
+  assert.equal(ui.nodes.vision.value,'gpu');
+  ui.run("applyModelCapabilities({family:'qwen'})");
+  assert.equal(ui.nodes.vision.options[1].disabled,false);
+});
 test('real chat send path analyzes 240 frames then streams a text-only summary and saves no video payload',async()=>{
   const ui=videoPage(); ui.fields['video-duration'].value=10;ui.fields['video-fps'].value=24;ui.fields['video-fps'].onchange();
   await ui.run('addVideo({name:"clip.mp4",size:1000})'); installChat(ui);

@@ -1183,6 +1183,8 @@ class _Lenient:
             key = self.string()
             if self.peek() == ":":
                 self.i += 1
+                if key in out:
+                    raise ValueError("duplicate JSON member")
                 out[key] = self.value(depth)
             elif self.peek() not in (",", "}", ""):     # a bare string where a member belongs is dropped
                 raise ValueError("object member")
@@ -1227,22 +1229,28 @@ def coerce_value(value: str, declared, notes: list | None = None):
     if declared == "string":
         return value
     try:
-        v = json.loads(value)
-    except ValueError:
+        v = _json_loads(value)
+    except json.JSONDecodeError:
         if not value.lstrip().startswith(("[", "{", "`")) or (isinstance(declared, list) and "string" in declared):
             return value
         try:
-            v = lenient_json(value)
-        except (ValueError, RecursionError):
+            v = _json_value(lenient_json(value))
+        except (ValueError, UnicodeError, RecursionError):
             return value
         if notes is not None:
             notes.append("a damaged JSON " + ("array" if isinstance(v, list) else "object") + " argument was read as written")
         return v
+    except (ValueError, UnicodeError):
+        # Valid syntax with duplicate keys, nonfinite numbers, excessive depth or
+        # invalid Unicode must not be repaired into different executable arguments.
+        return value
     if isinstance(v, str) and declared in ("array", "object") and v.lstrip().startswith(("[", "{")):
         try:
-            return json.loads(v)
-        except ValueError:
+            return _json_loads(v)
+        except json.JSONDecodeError:
             return coerce_value(v, declared, notes)
+        except (ValueError, UnicodeError):
+            return value
     return v
 
 
@@ -1271,14 +1279,16 @@ def parse_tool_call(body: str, schema: dict | None = None, notes: list | None = 
         if pname in args:
             raise StructuredOutputError('Generated tool call has a duplicate parameter name: '+pname)
         rest = rest[rest.index(">") + 1:]
-        end = param_end(rest, final=True, name=pname.strip())
+        prop = props.get(pname)
+        declared = prop.get("type") if isinstance(prop, dict) else None
+        end = param_end(rest, final=True, name=pname.strip() if declared == "string" else None)
         value = rest[:end] if end >= 0 else rest
         rest = rest[end + len(PARAM_END):] if end >= 0 else ""
         if value.startswith("\n"):
             value = value[1:]
         if value.endswith("\n"):
             value = value[:-1]
-        args[pname] = coerce_value(value, (props.get(pname) or {}).get("type"), notes)
+        args[pname] = coerce_value(value, declared, notes)
     return ToolCall(name=name, arguments=args)
 
 
@@ -1675,7 +1685,7 @@ class OutputParser:
                     self.sp += safe
                 return out
             elif self.ss == "raw":
-                end = param_end(rest, self._final, name=self.spname)
+                end = param_end(rest, self._final)
                 if end < 0:
                     return out
                 value = rest[:end]

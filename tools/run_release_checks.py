@@ -17,6 +17,22 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(ROOT), str(ROOT/'tools')]
 
 POSIX_CASES = (
+    'tools.test_check_cuda_spills.Demangling.test_a_demangler_that_exits_nonzero_is_not_a_pass',
+    'tools.test_check_cuda_spills.Demangling.test_a_demangler_that_hands_a_mangled_name_back_is_not_a_pass',
+    'tools.test_check_cuda_spills.Demangling.test_a_demangler_that_prints_a_blank_name_is_not_a_pass',
+    'tools.test_check_cuda_spills.Demangling.test_a_demangler_that_prints_the_wrong_number_of_lines_is_not_a_pass',
+    'tools.test_check_cuda_spills.Demangling.test_a_working_demangler_reaches_the_verdict',
+    'tools.test_check_cuda_spills.Demangling.test_an_unmangled_name_may_come_back_unchanged',
+    'serve.test_lifeline.Lifeline.test_the_watcher_token_does_not_change_with_the_child_state',
+    'serve.test_replicas.SharedArena.test_a_memfd_arena_warns_when_the_engines_will_not_all_fit',
+    'serve.test_replicas.SharedArena.test_a_memfd_is_not_limited_by_dev_shm_and_is_closed_at_the_end',
+    'serve.test_resource_warnings.Closed.test_the_cpu_and_ram_sampler_closes_its_files',
+    'serve.test_resource_warnings.Closed.test_the_cpu_topology_closes_its_files',
+    'serve.test_resource_warnings.Closed.test_the_hip_probes_close_their_files',
+    'serve.test_vision_elastic_http.EncoderFailureHTTP.test_real_encoder_failure_retries_and_reaps_each_child',
+
+    'tools.test_setup_dsv41.CardsAndLayout.test_the_hardware_probe_falls_back_to_the_pci_ids',
+    'tools.test_setup_dsv41.CardsAndLayout.test_the_pci_ids_name_the_card_when_kfd_and_rocminfo_say_nothing',
     'serve.test_cache_drop.CacheDrop.test_on',
     'serve.test_server.StartCrashReported.test_sigill_is_reported_not_retried',
     'serve.test_server.StartCrashReported.test_a_silent_exit_is_retried_without_claiming_the_gpu_runtime',

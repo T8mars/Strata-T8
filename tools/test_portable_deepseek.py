@@ -72,6 +72,28 @@ class PortablePack(unittest.TestCase):
                      'tokenizer/tokenizer.json','tokenizer/chat_template.jinja'):
             (self.pack/name).write_bytes(b'fixture')
 
+    def test_existing_text_pack_and_optional_embedded_vision_tower(self):
+        self.assertTrue(ds.inspect_pack(self.pack)['text_only'])
+        self.assertFalse(ds.inspect_pack(self.pack)['vision_available'])
+        with (self.pack/'ds4.txt').open('a',encoding='utf-8') as f:
+            f.write('vision.num_hidden_layers 2\nimage_token_id 10\n')
+        with (self.pack/'tensors.txt').open('a',encoding='utf-8') as f:
+            f.write('t vision.patch_emb.weight F32 0 0 4 1\nt aligner.w1.weight F32 0 0 4 1\n')
+        self.assertTrue(ds.inspect_pack(self.pack)['vision_available'])
+        (self.root/'engine-dsv41').mkdir()
+        (self.root/'engine-dsv41/strata-dsv41.exe').write_bytes(b'fixture')
+        with mock.patch.object(portable,'ROOT',self.root):
+            _,off=ds.build_config(portable,self.pack)
+            self.assertEqual(off['args'][off['args'].index('--vision')+1],'off')
+            _,on=ds.build_config(portable,self.pack,vision='gpu')
+            self.assertEqual(on['args'][on['args'].index('--vision')+1],'on')
+            self.assertEqual(on['args'][on['args'].index('--reserve-mib')+1],'900')
+            self.assertNotIn('vision',on)   # DS uses its own tower, not the Qwen reader.
+            with self.assertRaisesRegex(RuntimeError,'own CUDA'):
+                ds.build_config(portable,self.pack,vision='cpu')
+            with self.assertRaisesRegex(RuntimeError,'Invalid'):
+                ds.build_config(portable,self.pack,vision='unknown')
+
     def test_missing_or_truncated_weights_are_not_advertised_as_ready(self):
         self.assertEqual(ds.inspect_pack(self.pack)['family'],'deepseek41')
         (self.pack/'weights.gguf').write_bytes(b'GGUF')
