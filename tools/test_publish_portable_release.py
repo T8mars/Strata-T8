@@ -369,6 +369,7 @@ class ArchiveAudit(GitFixture):
                    'src/program/generate.cpp':'tested native algorithm\n',
                    'include/native.hpp':'tested native contract\n',
                    'tools/build_native_portable.py':'tested build commands\n',
+                   'tools/portable_io.py':'tested Windows file operations\n',
                    'tools/windows_utf8_manifest.py':'tested manifest patch\n',
                    'third_party/llama.cpp/CMakeLists.txt':'pinned cmake\n',
                    'third_party/llama.cpp/src/llama.cpp':'pinned native source\n'}

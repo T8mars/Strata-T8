@@ -241,6 +241,7 @@ def native_fixture(root):
         'tools/vision/strata_vision.cpp': 'vision fixture v1\n',
         'include/strata/native.hpp': 'paired-frame contract\n',
         'tools/build_native_portable.py': 'builder fixture\n',
+        'tools/portable_io.py': 'Windows file-operation helper fixture\n',
         'tools/windows_utf8_manifest.py': 'manifest fixture\n',
         'third_party/llama.cpp/CMakeLists.txt': 'project(llama)\n',
         'third_party/llama.cpp/src/llama.cpp': 'pinned llama fixture\n',

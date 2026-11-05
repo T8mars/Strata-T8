@@ -69,7 +69,7 @@ Strata-data 可位于运行包内、旁边或导入的其他路径；仅下载�
 
 ## 环境与更新
 
-Windows 10 1903+/11 x64、AVX2 CPU、SSD。NVIDIA RTX 20/30/40/50 系列建议 12GB 以上显存、驱动 580+；IQ3_S 建议 96GB 以上 RAM。RTX 4060 Ti 16GB / 128GB RAM 的验证范围见[本版验收](docs/VALIDATION-UPSTREAM-026-T8.md)。AMD 文本兼容以[上游列表](docs/AMD_HIP.md)为准，尚无 AMD 实机验收，Windows AMD 视觉暂不支持。
+Windows 10 1903+/11 x64、AVX2 CPU、SSD。NVIDIA RTX 20/30/40/50 系列建议 12GB 以上显存、驱动 580+；IQ3_S 建议 96GB 以上 RAM。RTX 4060 Ti 16GB / 128GB RAM 的验证范围见[本版验收](docs/VALIDATION-UPSTREAM-0210-T8.md)和[此前硬件基线](docs/VALIDATION-UPSTREAM-026-T8.md)。AMD 文本兼容以[上游列表](docs/AMD_HIP.md)为准，尚无 AMD 实机验收，Windows AMD 视觉暂不支持。
 
 启动时后台自动检查版本；模型设置页提供 **检查更新 / 一键更新**，聊天页 About 也可进入。更新窗口显示下载、校验、备份与安装进度，网络中断可自动重试，完成后重新打开模型设置页；模型与配置保留，失败回滚。命令行仍可在退出服务后运行 **UPDATE-PORTABLE.bat**。旧 NoModels 用户先更新，再用 **INSTALL-VISION.bat** 切换；节点通过自己的 Manager/仓库更新后重启 ComfyUI。
 
