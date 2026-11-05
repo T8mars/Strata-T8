@@ -92,19 +92,27 @@ def ignored_collisions(root, commit):
     # The documentation mirror is generated after merging, rather than by Git itself.
     source_names += ['README-UPSTREAM.md', 'meta.json']
     targets = [key(name) for name in source_names if name]
-    ignored = git(root, 'ls-files', '--others', '--ignored', '--exclude-standard', '-z').stdout.split('\0')
     collisions = {name for name in source_names if name and is_private_path(name)}
-    for name in filter(None, ignored):
-        local = key(name)
-        if any(local == target or local.startswith(target+'/') or target.startswith(local+'/') for target in targets):
-            collisions.add(name)
-    # Include empty ignored directories that would be replaced by a tracked file.
+    # Collapse ignored trees: enumerating every old distribution, model and build
+    # cache can take minutes. Probe only incoming paths within those trees.
     directories = git(root, 'ls-files', '--others', '--ignored', '--exclude-standard', '--directory', '-z').stdout.split('\0')
-    for name in directories:
-        if name.endswith('/'):
-            local = key(name.rstrip('/'))
-            if any(local == target or local.startswith(target+'/') for target in targets):
+    for name in filter(None, directories):
+        local = key(name.rstrip('/'))
+        for incoming in filter(None, source_names):
+            target = key(incoming)
+            if local == target or local.startswith(target+'/'):
                 collisions.add(name)
+            elif target.startswith(local+'/'):
+                path = root/incoming
+                if os.path.lexists(path):
+                    collisions.add(incoming)
+                    continue
+                for parent in path.parents:
+                    if parent == root:
+                        break
+                    if parent.is_symlink() or getattr(parent, 'is_junction', lambda: False)() or (os.path.lexists(parent) and not parent.is_dir()):
+                        collisions.add(incoming)
+                        break
     return sorted(collisions)
 
 

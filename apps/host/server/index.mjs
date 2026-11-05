@@ -71,7 +71,10 @@ import { createRuntimeModels } from './runtime-models.mjs';
 import { createNativeControl } from './native-control.mjs';
 import { nativeUnloadPlan } from './storage-check.mjs';
 import { installBundledEngine, cleanupAfterInstall } from './bundled-engine.mjs';
+import { systemLocale } from './region.mjs';
+import { createShellNotifier, DEFAULT_PORT, parsePortNotice, readShellPrefs, writeShellPrefs } from './shell-prefs.mjs';
 import { findControl, createControl, componentsDirectory } from './control-runtime.mjs';
+import { listEngines, changeEngine } from './engine-library.mjs';
 import { forbidden as acquisitionForbidden } from './acquisition.mjs';
 import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { nativeGateway } from './native-gateway.mjs';
@@ -115,7 +118,7 @@ const WORKSPACE_NAME = process.env.STRATA_WORKSPACE ? basename(WORKSPACE) : 'Str
 const insideApp = path => { const rel = relative(ROOT, resolve(path)); return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel)); };
 
 const hub = new EventHub();
-const modelProviders = createModelProviders({ directory: store.DATA_DIR, changed: value => hub.send('providers', withPictureAnswers(value)) });
+const modelProviders = createModelProviders({ directory: store.DATA_DIR, knownThinks: (connection, modelId) => visionProbe.knownThinks(connection, modelId), changed: value => hub.send('providers', withPictureAnswers(value)) });
 const imageModels = createImageModels({ dataDir: store.DATA_DIR, modelsDir: () => store.MODELS_DIR, real: models.REAL, changed: value => hub.send('image-models', value) });
 /* The installed app ships Strata Control (python + strata_control) next to the host; a source checkout has none and keeps its older paths. */
 const CONTROL = findControl();
@@ -127,6 +130,19 @@ const appUi = createAppUi({ shutdown: () => shutdown() });
 /* The app's version has one source: the desktop shell passes it (STRATA_APP_VERSION, from apps/desktop/src-tauri/Cargo.toml). Outside the app it is read from the same file in a checkout, else 'dev'. */
 function appVersion() { return appVersionFrom({ env: process.env, here: HERE }); }
 const appUpdater = appUi.updater;
+const shellNotifier = createShellNotifier();
+/** What the page needs for the desktop settings: whether this is the desktop app, the port in use, the saved choices and a busy-port notice. */
+function shellState() {
+  const saved = readShellPrefs();
+  const desktop = !!shellNotifier;
+  return {
+    desktop,
+    tray: desktop && process.platform !== 'linux',
+    port: PORT, defaultPort: DEFAULT_PORT,
+    pinnedPort: saved.port || null, minimizeToTray: saved.tray,
+    portNotice: parsePortNotice(process.env.STRATA_PORT_NOTICE),
+  };
+}
 /* The engine that ships inside the installer is put in the components folder when this PC has none (or an older one); no network, hashes checked. The model list waits for it. */
 const bundledEngine = control && !process.env.STRATA_NO_BUNDLED_ENGINE
   ? installBundledEngine({ bundleDir: process.env.STRATA_ENGINE_BUNDLE_DIR || resolve(HERE, '..', '..', 'engine-bundle'), components: componentsDirectory(), log: line => console.log(line) })
@@ -224,6 +240,7 @@ models.init(hub);
 engine.init(hub);
 engineInstall.init(hub);
 monitor.init(hub, boot);
+monitor.setLiveProbe(() => native.hasLive());
 serving.init(hub, { port: PORT, host: HOST });
 runtimeModels=createRuntimeModels({hardware:()=>hardware.cachedHardware()??boot,library:()=>models.library(),requests:()=>serving.state().requests,real:models.REAL,changed:value=>{
   if(!models.REAL){const primary=value.instances.find(i=>i.id===value.defaultId);if(store.get().loaded!==(primary?.variantId??null))store.update({loaded:primary?.variantId??null});}
@@ -557,17 +574,18 @@ function clientName(req) {
   return 'Local client';
 }
 
-async function runRemoteTurn({ selection, message, history, images = [], onFrame, signal, workspaceId }) {
+async function runRemoteTurn({ selection, message, history, images = [], thinking, onFrame, signal, workspaceId }) {
   const controller = new AbortController();
   const requestSignal = signal ? AbortSignal.any([signal, controller.signal]) : controller.signal;
   let entry;
   const started = Date.now();
   try {
     const { connection, model } = modelProviders.resolve(selection);
+    if (connection.protocol === 'openai-chat' && model.reasoning == null) await visionProbe.check(connection, model.id);
     const appliedSkills = selectSkills(skillState, message, workspaceId);
     entry = serving.open({ client: 'Strata chat', endpoint: connection.protocol === 'anthropic' ? '/messages' : connection.protocol === 'openai-responses' ? '/responses' : '/chat/completions', model: `${connection.name} · ${model.name}`, cancel: () => controller.abort(new DOMException('Cancelled by the user', 'AbortError')) });
     serving.mark(entry.id, { state: 'generating' });
-    const result = await modelProviders.stream({ selection, message, history, images, signal: requestSignal, systemPrompt: ['You are Strata, a helpful assistant. Answer clearly. Do not claim to have read files or performed actions unless their results are included in the conversation.', skillInstructions(appliedSkills)].filter(Boolean).join('\n\n'), onFrame: frame => {
+    const result = await modelProviders.stream({ selection, message, history, images, thinking, signal: requestSignal, systemPrompt: ['You are Strata, a helpful assistant. Answer clearly. Do not claim to have read files or performed actions unless their results are included in the conversation.', skillInstructions(appliedSkills)].filter(Boolean).join('\n\n'), onFrame: frame => {
       if (frame.type === 'start') noteSkillUse(appliedSkills);
       if (frame.type === 'done') serving.mark(entry.id, { tokensIn: frame.tokensIn, tokensOut: frame.tokensOut, usageSource: frame.usageSource });
       onFrame({ ...frame, requestId: entry.id, model: model.name, contextMax: model.contextMax, remoteModel: true, ...(frame.type === 'start' ? { skills: appliedSkills.map(s => s.name) } : {}) });
@@ -630,7 +648,7 @@ async function runAgentTurn({ res, controller, chatId, body, message, workspaceI
 }
 
 async function runTurn({ message, history = [], onFrame, signal, client, workspaceId = null, sessionId = null, remoteModel = null, runtimeModelId = undefined, nativeModelId, images=[], useTools=false, thinking='medium', thinkingBudget=0 }) {
-  if (remoteModel) return runRemoteTurn({ selection: remoteModel, message, history, images, onFrame, signal, workspaceId });
+  if (remoteModel) return runRemoteTurn({ selection: remoteModel, message, history, images, thinking, onFrame, signal, workspaceId });
   if(native.hasLive()||nativeModelId){
     let instance;try{instance=native.resolveInstance(nativeModelId??native.state().defaultId);}catch(e){const message=plainNoModel(e.message);onFrame({type:'error',message});return {error:message};}const started=Date.now(),cancel=new AbortController();
     const entry=serving.open({client:client??'Strata chat',endpoint:'/chat/completions',model:instance.apiModelId,instanceId:instance.id,gpuIds:instance.gpus.map(String),cancel:()=>cancel.abort()});
@@ -993,6 +1011,7 @@ async function api(req, res, path, method, url) {
   if(path==='/api/native/models-folder/leave'&&method==='POST')return json(res,200,await native.leaveInterruptedMove());
   if(path==='/api/native/plan'&&method==='POST')return json(res,200,await native.plan(await readBody(req)));
   if(path==='/api/native/operations'&&method==='POST'){if(storageChanging)return error(res,409,'Wait for the model folder check to finish.');const body=await readBody(req);return json(res,202,native.operation(body.kind,body.args));}
+  if(path==='/api/native/engine-restart/dismiss'&&method==='POST')return json(res,200,native.dismissRestart());
   if(path==='/api/native/logs'&&method==='GET')return json(res,200,{logs:native.logs()});
   if(path==='/api/native/logs/save'&&method==='POST'){
    /* Diagnostics to a file: the engine messages the app kept, failed operations, and the tail of each model's server log under Control.
@@ -1337,6 +1356,15 @@ async function api(req, res, path, method, url) {
     try { let at = componentsDirectory(); while (at && !existsSync(at) && dirname(at) !== at) at = dirname(at); const f = statfsSync(at); info.freeBytes = Number(f.bavail) * Number(f.bsize); } catch { /* unknown: no warning */ }
     return json(res, 200, info);
   }
+  if (path === '/api/engines' && method === 'GET') {
+    const { status, body } = await listEngines(control);
+    return json(res, status, body);
+  }
+  if ((path === '/api/engines/use' || path === '/api/engines/remove') && method === 'POST') {
+    const { status, body } = await changeEngine(control, path.endsWith('/use') ? 'use' : 'remove', await readBody(req), { modelsRunning: () => native.state().instances.length > 0 });
+    if (status === 200) Promise.resolve(native.refresh?.(true)).catch(() => { /* the next poll reads it */ });
+    return json(res, status, body);
+  }
   if (path === '/api/engine/job' && method === 'GET') {
     // The newest engine download / file install, read without waiting for the native snapshot to connect (the first-run card needs it before that).
     const kinds = ['update-engine', 'install-engine-file'];
@@ -1586,7 +1614,7 @@ async function api(req, res, path, method, url) {
   if (cancelMatch && method === 'POST') return json(res, 200, serving.cancel(cancelMatch[1]));
 
   // --- monitor ------------------------------------------------------------
-  if (path === '/api/monitor') return json(res, 200, monitor.snapshot());
+  if (path === '/api/monitor') { monitor.watch(); return json(res, 200, monitor.snapshot()); }
 
   // --- skills / workspace -------------------------------------------------
   if (path === '/api/skills' && method === 'GET') {
@@ -1897,6 +1925,18 @@ async function api(req, res, path, method, url) {
     try { return json(res, 200, agent.queueMessage({ chatId: String(body.sessionId ?? ''), text: body.message })); }
     catch (e) { return error(res, e.code === 'queue-idle' ? 409 : 400, e.message); }
   }
+  // The person's answer to a question the agent asked, or a skip (#4244).
+  if (path === '/api/chat/answer' && method === 'POST') {
+    const body = await readBody(req);
+    try { return json(res, 200, await agent.answerQuestion({ chatId: String(body.sessionId ?? ''), callId: String(body.callId ?? ''), answers: body.answers, skip: body.skip === true })); }
+    catch (e) { return error(res, e.code === 'question-gone' ? 409 : 400, e.message); }
+  }
+  // A message for one helper (#4749).
+  if (path === '/api/chat/helper' && method === 'POST') {
+    const body = await readBody(req);
+    try { return json(res, 200, await agent.messageHelper({ chatId: String(body.sessionId ?? ''), helperId: body.helperId, text: body.message, delivery: body.delivery })); }
+    catch (e) { return error(res, e.code === 'helper-idle' || e.code === 'helper-refused' ? 409 : 400, e.message); }
+  }
   if (path === '/api/chat/queue/cancel' && method === 'POST') {
     const body = await readBody(req);
     try { return json(res, 200, agent.cancelQueued({ chatId: String(body.sessionId ?? ''), id: String(body.id ?? '') })); }
@@ -1929,6 +1969,19 @@ async function api(req, res, path, method, url) {
     if (typeof b.sessionId !== 'string' || typeof b.toolId !== 'string' || !['approve', 'deny'].includes(b.decision)) return error(res, 400, 'sessionId, toolId and decision (approve or deny) are required');
     try { return json(res, 200, await agent.approve({ chatId: b.sessionId, callId: b.toolId, decision: b.decision })); }
     catch (e) { return error(res, e.code === 'approval-gone' ? 409 : 400, e.message); }
+  }
+  /* The desktop shell's own choices (#3402, #3477): the port it asks for, the tray, and a desktop notification through the shell. */
+  if (path === '/api/locale' && method === 'GET') return json(res, 200, systemLocale());
+  if (path === '/api/shell' && method === 'GET') return json(res, 200, shellState());
+  if (path === '/api/shell/prefs' && method === 'POST') {
+    const b = await readBody(req);
+    try { writeShellPrefs(b); } catch (e) { return error(res, 400, e.message); }
+    return json(res, 200, shellState());
+  }
+  if (path === '/api/shell/notify' && method === 'POST') {
+    const b = await readBody(req);
+    if (!shellNotifier || typeof b.title !== 'string') return json(res, 200, { shown: false });
+    try { return json(res, 200, await shellNotifier.notify({ title: b.title, body: String(b.body ?? '') })); } catch { return json(res, 200, { shown: false }); }
   }
   /* The person changed the chat's mode while a turn runs: it applies to the next tool call, goal and helpers included. */
   if (path === '/api/chat/mode' && method === 'POST') {
@@ -2181,7 +2234,7 @@ async function staticFile(req, res, path) {
   if (!existsSync(DIST)) {
     res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
     res.end(
-      `<!doctype html><meta charset="utf-8"><title>Strata host</title>
+      `<!doctype html><meta charset="utf-8"><title>Strata</title>
        <body style="font:16px/1.6 -apple-system,system-ui;background:#0e1113;color:#eef1f3;padding:48px">
        <h1 style="margin:0 0 8px">Strata host is running</h1>
        <p style="color:#8e979f">No built web app found at <code>${DIST}</code>.</p>

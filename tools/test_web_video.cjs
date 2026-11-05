@@ -18,7 +18,7 @@ function sample(segment, duration = 12, mode = 'native') {
 }
 function element(value = '') {
   return {get value() { return String(this._value ?? value); }, set value(v) { this._value = v; },
-    hidden:false, disabled:false, textContent:'', dataset:{}, options:[], children:[], checked:false,
+    hidden:false, disabled:false, textContent:'', dataset:{}, options:[], children:[], checked:false, remove(){},
     classList:{toggle(){}, add(){}, remove(){}}, setAttribute(){}, removeAttribute(key){delete this[key];}, focus(){this.focused=true;}, select(){this.selected=true;}, reportValidity(){return true;},
     querySelectorAll(selector){const found=[];for(const child of this.children){if(selector.startsWith('.') && (child.className||'').split(' ').includes(selector.slice(1)))found.push(child);found.push(...child.querySelectorAll(selector));}return found;},
     querySelector(selector){return this.querySelectorAll(selector)[0]||null;}, replaceChildren(){this.children=[];}, append(...v){this.children.push(...v);}};
@@ -227,7 +227,8 @@ test('invalid upload displays a persistent error, and resampling replaces the ex
   assert.equal(ui.run('attachments.length'),1); assert.equal(ui.run('attachments[0].plan.estimated_frames'),240);
 });
 function installChat(ui) {
-  Object.assign(ui.context,{messages:[],busy:null,settings:{thinking:'none',temperature:0.6,top_p:0.95,top_k:20},
+  Object.assign(ui.context,{messages:[],busy:null,pending:null,panel:null,clearUndo(){},paintLive(){},renderUndoBar(){},
+    tr:(_key,fallback)=>typeof fallback==='string'?fallback:'',settings:{thinking:'none',temperature:0.6,top_p:0.95,top_k:20},
     mcpInfo:{tools:0},projectionLoaded:()=>false,renderChat(){},updateAssistant(){},scrollDown(){},autosize(){},
     requestAnimationFrame:()=>0,cancelAnimationFrame(){},performance,fmt:n=>String(n)});
   ui.fields.chat=element(); ui.fields.chat.lastElementChild={}; ui.fields.input=element('分析动作');
@@ -244,7 +245,8 @@ function installChat(ui) {
   ui.context.TextDecoder=TextDecoder;
   ui.run(source.slice(source.indexOf('function apiMessages()'),source.indexOf('$("composer").onsubmit')));
   ui.run(source.slice(source.indexOf('function fileBlock(f)'),source.indexOf('function renderAttachments()')));
-  ui.run(source.slice(source.indexOf('function saveChat()'),source.indexOf('function timeStr(')));
+  const history=require('../serve/web/history.js');
+  ui.context.saveChat=()=>ui.context.store.set('chat',history.cleanMessages(ui.context.messages));
 }
 test('real chat send path analyzes 240 frames then streams a text-only summary and saves no video payload',async()=>{
   const ui=videoPage(); ui.fields['video-duration'].value=10;ui.fields['video-fps'].value=24;ui.fields['video-fps'].onchange();

@@ -2,22 +2,22 @@
   "name": "Strata-T8",
   "repository": "T8mars/Strata-T8",
   "upstream_repository": "Niko1221/Strata",
-  "upstream_version": "0.2.6",
-  "upstream_release_tag": "v0.2.6",
-  "upstream_stable_release_tag": "v0.2.6",
-  "upstream_ref": "refs/tags/v0.2.6",
-  "upstream_commit": "4b9e05a2a806a3fe24f7b2560d98626c37dade35",
-  "engine_version": "0.1.51",
+  "upstream_version": "0.2.10",
+  "upstream_release_tag": "v0.2.10",
+  "upstream_stable_release_tag": "v0.2.10",
+  "upstream_ref": "refs/tags/v0.2.10",
+  "upstream_commit": "ffa80d73133ea5c548aefe57889a16e8085a938f",
+  "engine_version": "0.1.56",
   "engine_assets_sha256": {
-    "strata-dsv41-0.1.51-windows-x86_64-cuda-cuda13.tar.gz": "4586838c4bcbd16d1d561ed730e8193c96d63410db930d4adc2fe838141d32fb",
-    "strata-engine-0.1.50-windows-x86_64-cuda-cuda12.tar.gz": "89db02d7a23ea76edf1869bd3f6e054975e59958610f3d44774522f309ef420a",
-    "strata-engine-0.1.50-windows-x86_64-cuda-cuda13.tar.gz": "a9643e2f5dd5c62e734d2980484c320d41da0160fc4932bf638b7f34e38e74f5",
-    "strata-engine-0.1.50-windows-x86_64-hip-rdna2.tar.gz": "50ea870ed5860e2d5a36f712ae164e35afacf3d51e7e8386b513237fa22c20c4",
-    "strata-engine-0.1.50-windows-x86_64-hip-rdna3.tar.gz": "2b6d191b3e3a0b3c8895a88be6663249d19adbf9085c90db2750c4093a1f1779",
-    "strata-engine-0.1.50-windows-x86_64-hip-rx9070.tar.gz": "75f83ea81e6f151d5ebd39365bb4a93463246b9baeeaf98a51bc2b8ced4905e1"
+    "strata-dsv41-0.1.56-windows-x86_64-cuda-cuda13.tar.gz": "eabba8c117d4863529e9f1c668418e91c1960db117c254e0060e8bf38465daf8",
+    "strata-engine-0.1.56-windows-x86_64-cuda-cuda12.tar.gz": "70fd72378ef19207365164c5d3d171a19c4e6a86526bb4b45a15d4ca8ee61424",
+    "strata-engine-0.1.56-windows-x86_64-cuda-cuda13.tar.gz": "5336671c55bc1b819d076104608522147227001d1711378f35ea5d524bc866ec",
+    "strata-engine-0.1.56-windows-x86_64-hip-rdna2.tar.gz": "cd365e582215cce0cd11fdc625053bac036f6c53dc529ac5e8f8d3e88f04b98b",
+    "strata-engine-0.1.56-windows-x86_64-hip-rdna3.tar.gz": "b44aa3f33bae8f02774588651459d5402923428a0bcb34de505e0af949a7ceeb",
+    "strata-engine-0.1.56-windows-x86_64-hip-rx9070.tar.gz": "fb7de19531f8ba2972f1ce3a61cb5d5c8795541b12a3922a1b9d54dc29433a9f"
   },
-  "revision": 4,
-  "version": "0.2.6-t8.4",
+  "revision": 1,
+  "version": "0.2.10-t8.1",
   "python_version": "3.12.10",
   "python_zip_sha256": "4acbed6dd1c744b0376e3b1cf57ce906f9dc9e95e68824584c8099a63025a3c3",
   "model_family": "qwen",
@@ -31,51 +31,51 @@
   "protocol_version": 1,
   "models_included": true,
   "comfyui_repository": "T8mars/Comfyui-Strata-T8",
-  "source_version": "0.1.51",
-  "control_version": "0.1.51",
+  "source_version": "0.1.56",
+  "control_version": "0.1.56",
   "component_schema": 2,
   "engine_components": {
     "engine-dsv41": {
-      "name": "strata-dsv41-0.1.51-windows-x86_64-cuda-cuda13.tar.gz",
-      "version": "0.1.51",
+      "name": "strata-dsv41-0.1.56-windows-x86_64-cuda-cuda13.tar.gz",
+      "version": "0.1.56",
       "backend": "cuda",
       "variant": "cuda13",
-      "sha256": "4586838c4bcbd16d1d561ed730e8193c96d63410db930d4adc2fe838141d32fb"
+      "sha256": "eabba8c117d4863529e9f1c668418e91c1960db117c254e0060e8bf38465daf8"
     },
     "engine-cuda12": {
-      "name": "strata-engine-0.1.50-windows-x86_64-cuda-cuda12.tar.gz",
-      "version": "0.1.50",
+      "name": "strata-engine-0.1.56-windows-x86_64-cuda-cuda12.tar.gz",
+      "version": "0.1.56",
       "backend": "cuda",
       "variant": "cuda12",
-      "sha256": "89db02d7a23ea76edf1869bd3f6e054975e59958610f3d44774522f309ef420a"
+      "sha256": "70fd72378ef19207365164c5d3d171a19c4e6a86526bb4b45a15d4ca8ee61424"
     },
     "engine": {
-      "name": "strata-engine-0.1.50-windows-x86_64-cuda-cuda13.tar.gz",
-      "version": "0.1.50",
+      "name": "strata-engine-0.1.56-windows-x86_64-cuda-cuda13.tar.gz",
+      "version": "0.1.56",
       "backend": "cuda",
       "variant": "cuda13",
-      "sha256": "a9643e2f5dd5c62e734d2980484c320d41da0160fc4932bf638b7f34e38e74f5"
+      "sha256": "5336671c55bc1b819d076104608522147227001d1711378f35ea5d524bc866ec"
     },
     "engine-hip-rdna2": {
-      "name": "strata-engine-0.1.50-windows-x86_64-hip-rdna2.tar.gz",
-      "version": "0.1.50",
+      "name": "strata-engine-0.1.56-windows-x86_64-hip-rdna2.tar.gz",
+      "version": "0.1.56",
       "backend": "hip",
       "variant": "rdna2",
-      "sha256": "50ea870ed5860e2d5a36f712ae164e35afacf3d51e7e8386b513237fa22c20c4"
+      "sha256": "cd365e582215cce0cd11fdc625053bac036f6c53dc529ac5e8f8d3e88f04b98b"
     },
     "engine-hip-rdna3": {
-      "name": "strata-engine-0.1.50-windows-x86_64-hip-rdna3.tar.gz",
-      "version": "0.1.50",
+      "name": "strata-engine-0.1.56-windows-x86_64-hip-rdna3.tar.gz",
+      "version": "0.1.56",
       "backend": "hip",
       "variant": "rdna3",
-      "sha256": "2b6d191b3e3a0b3c8895a88be6663249d19adbf9085c90db2750c4093a1f1779"
+      "sha256": "b44aa3f33bae8f02774588651459d5402923428a0bcb34de505e0af949a7ceeb"
     },
     "engine-hip": {
-      "name": "strata-engine-0.1.50-windows-x86_64-hip-rx9070.tar.gz",
-      "version": "0.1.50",
+      "name": "strata-engine-0.1.56-windows-x86_64-hip-rx9070.tar.gz",
+      "version": "0.1.56",
       "backend": "hip",
       "variant": "rx9070",
-      "sha256": "75f83ea81e6f151d5ebd39365bb4a93463246b9baeeaf98a51bc2b8ced4905e1"
+      "sha256": "fb7de19531f8ba2972f1ce3a61cb5d5c8795541b12a3922a1b9d54dc29433a9f"
     }
   }
 }

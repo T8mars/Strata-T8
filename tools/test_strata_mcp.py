@@ -14,6 +14,7 @@ import os
 import socket
 import subprocess
 import sys
+import shutil
 import tempfile
 import threading
 import time
@@ -170,8 +171,12 @@ class FakeRoot(unittest.TestCase):
         self.strata.disk_free = lambda p: 1000.0
         self.tools = M.Tools(self.strata)
         self.extra = []
+        # the tests must never see a Strata server that happens to run on the real default port on this PC
+        self._default_port = M.DEFAULT_PORT
+        M.DEFAULT_PORT = free_port()
 
     def tearDown(self):
+        M.DEFAULT_PORT = self._default_port
         for p in self.extra:
             if p.poll() is None:
                 p.kill()
@@ -396,7 +401,7 @@ class Install(FakeRoot):
         res, err = self.call("strata_install", {})
         self.assertFalse(err)
         self.assertIn("Nothing was done yet", res["summary"])
-        self.assertEqual((res["plan"]["family"], res["plan"]["model"], res["plan"]["context"]), ("qwen", "IQ3_S", 32768))
+        self.assertEqual((res["plan"]["family"], res["plan"]["model"], res["plan"]["context"]), ("qwen", "IQ3_S", 131072))
         self.assertFalse((self.root / "setup-args.json").exists())
         self.assertIsNone(self.strata.install_job())
 
@@ -679,7 +684,7 @@ class Helpers(unittest.TestCase):
         r = s.recommend({"ram_gb": 64, "gpus": [], "cpu": {"avx2": True}})
         self.assertIsNone(r["model"])
         r = s.recommend({"ram_gb": 64, "gpus": [{**gpu[0], "vram_gb": 12.0}], "cpu": {"avx2": True}})
-        self.assertEqual(r["context"], 32768)
+        self.assertEqual(r["context"], 131072)      # 128K on every card, a 12 GB one too (owner, 2026-11-01)
 
     def test_a_pick_that_reads_from_the_ssd_says_so(self):
         # #3425: 36 GB RAM + 16 GB VRAM - 5 GB is the 48 GB tier; about 8 GB of IQ3_XXS would come from the SSD
@@ -738,6 +743,14 @@ class MacCatalog(unittest.TestCase):
             hw = s._hardware()
         return s, hw
 
+    def engine(self, marker: bool):
+        """A stand-in strata-dsv41 program: with or without the Metal picture-tower marker (the engine is only read, never started)."""
+        d = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, d, True)
+        f = d / "strata-dsv41"
+        f.write_bytes(b"\0" * 64 + (b"STRATA_DS4_METAL_VISION_V1" if marker else b"") + b"\0" * 64)
+        return f
+
     def test_the_hardware_is_one_apple_gpu_with_unified_memory(self):
         s, hw = self.hw(32)
         self.assertEqual(hw["ram_gb"], 32.0)
@@ -773,7 +786,8 @@ class MacCatalog(unittest.TestCase):
     def test_the_model_list_is_the_macs_sizes_with_unified_memory_verdicts(self):
         s, hw = self.hw(32)
         fams = s.model_table(hw)
-        self.assertEqual([f["family"] for f in fams], ["qwen", "gyro"], "no Unsloth, Swift or NVFP4 on a Mac in the app; Gyro after the regular sizes")
+        self.assertEqual([f["family"] for f in fams], ["qwen", "gyro", "deepseek41"],
+                         "no Unsloth, Swift or NVFP4 on a Mac in the app; Gyro after the regular sizes, DeepSeek (0.2.7.1) last")
         by = {x["model"]: x for x in fams[0]["sizes"]}
         self.assertEqual(list(by), ["Q2_0", "IQ3_XXS", "IQ3_S"])
         gy = {x["model"]: x for x in fams[1]["sizes"]}
@@ -786,9 +800,67 @@ class MacCatalog(unittest.TestCase):
         self.assertTrue(by["IQ3_S"]["on_this_pc"].startswith("slow here"))
         self.assertTrue(all(x["images"] for x in by.values()), "the Mac engine carries the Metal picture reader: pictures are on")
         s, hw = self.hw(128)
-        self.assertEqual({x["on_this_pc"] for f in s.model_table(hw) for x in f["sizes"]}, {"fits"})
+        self.assertEqual({x["on_this_pc"] for f in s.model_table(hw) if f["family"] != "deepseek41" for x in f["sizes"]}, {"fits"})
         s, hw = self.hw(8)
-        self.assertEqual({x["on_this_pc"] for f in s.model_table(hw) for x in f["sizes"]}, {"does not fit"})
+        self.assertEqual({x["on_this_pc"] for f in s.model_table(hw) if f["family"] != "deepseek41" for x in f["sizes"]}, {"does not fit"})
+        self.assertTrue(all(x["on_this_pc"].startswith("does not fit") for f in s.model_table(hw) if f["family"] == "deepseek41" for x in f["sizes"]))
+
+    def test_deepseek_pictures_on_a_mac_follow_the_installed_engine(self):
+        """DeepSeek reads pictures on a Mac exactly when the installed strata-dsv41 carries STRATA_DS4_METAL_VISION_V1; no engine installed yet: on (setup looks again once it is fetched)."""
+        s, hw = self.hw(128)
+        pics = lambda: {x["model"]: (x["images"], x["images_reader"]) for f in s.model_table(hw) if f["family"] == "deepseek41" for x in f["sizes"]}
+        s.dsv41_engine_exe = lambda: self.engine(True)
+        self.assertEqual(set(pics().values()), {(True, "gpu")})
+        s.dsv41_engine_exe = lambda: self.engine(False)
+        self.assertEqual(set(pics().values()), {(False, "none")})
+        s.dsv41_engine_exe = lambda: None
+        self.assertEqual(set(pics().values()), {(True, "gpu")})
+        from strata_control import dsv41_engine
+        self.assertEqual([dsv41_engine.mac_vision_state(self.engine(True)), dsv41_engine.mac_vision_state(self.engine(False)), dsv41_engine.mac_vision_state(None)], ["yes", "no", "unknown"])
+
+    def test_the_mac_install_tool_accepts_pictures_with_the_marker_and_says_why_not_without_it(self):
+        s, hw = self.hw(128)
+        s.hardware = lambda fresh=False: hw
+        s.disk_free = lambda p: 1000.0
+        s.dsv41_engine_exe = lambda: self.engine(True)
+        _plan, args = M.Tools(s).install_plan("deepseek41", "IST-DAS-2.25bpw", None, "yes", None, None, None, None, None, None, None, None)
+        self.assertEqual(args[args.index("--vision") + 1], "yes")
+        s.dsv41_engine_exe = lambda: self.engine(False)
+        with self.assertRaises(M.ToolError) as cm:
+            M.Tools(s).install_plan("deepseek41", "IST-DAS-2.25bpw", None, "yes", None, None, None, None, None, None, None, None)
+        self.assertIn("reads text only with this engine (its picture reader needs an engine update)", str(cm.exception))
+        _plan, args = M.Tools(s).install_plan("deepseek41", "IST-DAS-2.25bpw", None, None, None, None, None, None, None, None, None, None)
+        self.assertEqual(args[args.index("--vision") + 1], "no")
+
+    def test_a_pc_does_not_look_at_the_mac_marker(self):
+        s = M.Strata(HERE.parent)
+        s.dsv41_engine_exe = lambda: self.engine(False)
+        hw = {"ram_gb": 128, "gpus": [{"index": 0, "name": "x", "vram_gb": 24.0, "usable": True, "vendor": "nvidia"}], "cpu": {"cores": 16}}
+        rows = [x for f in s.model_table(hw) if f["family"] == "deepseek41" for x in f["sizes"]]
+        self.assertTrue(rows and all(x["images"] for x in rows))
+
+    def test_deepseek_on_a_mac_offers_the_sets_with_the_mac_words(self):
+        s, hw = self.hw(128)
+        s.dsv41_engine_exe = lambda: self.engine(False)
+        ds = next(f for f in s.model_table(hw) if f["family"] == "deepseek41")
+        by = {x["model"]: x for x in ds["sizes"]}
+        self.assertEqual(list(by), ["IST-DAS-2.00bpw", "IST-DAS-2.25bpw", "ISTA-DAS-Coder", "UD-IQ1_S", "UD-IQ1_M"], "the 1.75 bpw set was never run on a Mac; the Coder, UD-IQ1_S and UD-IQ1_M are offered with a plain note")
+        for x in by.values():
+            self.assertTrue(x["multi_file"] and not x["images"])
+            self.assertGreater(x["disk_gb"], x["download_gb"])
+            if x["model"] == "ISTA-DAS-Coder":      # 66 GB of experts: all of them stay in a 128 GB Mac's memory
+                self.assertTrue(x["on_this_pc"].startswith("fits: every expert stays"), x["on_this_pc"])
+                continue
+            self.assertTrue(x["on_this_pc"].startswith("runs on this Mac's memory"), x["on_this_pc"])
+            self.assertIn("read from the SSD", x["on_this_pc"])
+        s, hw = self.hw(32)
+        ds = next(f for f in s.model_table(hw) if f["family"] == "deepseek41")
+        for x in ds["sizes"]:                           # a small Mac: said plainly, never refused
+            self.assertTrue(x["on_this_pc"].startswith("slow here"), x["on_this_pc"])
+            self.assertIn("can still be installed", x["on_this_pc"])
+        from strata_cli.launch import catalog as C
+        self.assertEqual(C.verdict(by["IST-DAS-2.00bpw"]["on_this_pc"])[0], C.FITS)
+        self.assertEqual(C.verdict(ds["sizes"][0]["on_this_pc"])[0], C.TIGHT)
 
     def test_the_install_plan_on_a_mac_has_no_card_kv_or_ram_options(self):
         s, hw = self.hw(32)
@@ -808,6 +880,24 @@ class MacCatalog(unittest.TestCase):
             s2, hw2 = self.hw(8)
             s2.hardware = lambda fresh=False: hw2
             M.Tools(s2).install_plan(None, None, None, None, None, None, None, None, None, None, None)
+
+    def test_the_install_plan_for_deepseek_on_a_mac_is_text_only_at_8k(self):
+        """(with an engine that has no Metal picture tower)"""
+        s, hw = self.hw(128)
+        s.dsv41_engine_exe = lambda: self.engine(False)
+        s.hardware = lambda fresh=False: hw
+        s.disk_free = lambda p: 1000.0
+        with tempfile.TemporaryDirectory() as own:
+            plan, args = M.Tools(s).install_plan("deepseek41", "IST-DAS-2.00bpw", None, None, None, None, None, None, None, None, None, None)
+        self.assertEqual(args[:9], ["--yes", "--no-start", "--family", "deepseek41", "--model", "IST-DAS-2.00bpw", "--context", "8192", "--vision"])
+        self.assertEqual(args[args.index("--vision") + 1], "no", "the installed engine has no Metal picture tower")
+        for flag in ("--kv", "--gpu", "--gpus", "--low-ram", "--backend"):
+            self.assertNotIn(flag, args)
+        self.assertTrue(plan["ram"].startswith("runs on this Mac's memory"))
+        with self.assertRaises(M.ToolError):            # UD-Q8_K_XL (508 GB) and the 1.75 set were never run on a Mac
+            M.Tools(s).install_plan("deepseek41", "UD-Q8_K_XL", None, None, None, None, None, None, None, None, None, None)
+        with self.assertRaises(M.ToolError):
+            M.Tools(s).install_plan("deepseek41", "IST-DAS-2.25bpw", None, "yes", None, None, None, None, None, None, None, None)
 
     def test_a_pc_is_unchanged(self):
         s = M.Strata(HERE.parent)
