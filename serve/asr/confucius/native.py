@@ -86,6 +86,10 @@ def _load_backends(build: Path) -> None:
             _BACKEND_REGISTRIES[ggml] = registry
         for plugin in plugins:
             if plugin not in _LOADED_PLUGINS:
+                if not str(plugin).isascii():
+                    if _load_unicode_backend(registry, plugin):
+                        _LOADED_PLUGINS.add(plugin)
+                    continue
                 if plugin.name == 'ggml-cuda.dll':
                     # ggml uses raw LoadLibraryW; preload with ctypes' safe DLL search
                     # flags so the bundled CUDA dependencies do not require PATH/Toolkit.
@@ -94,6 +98,29 @@ def _load_backends(build: Path) -> None:
                 # native registry reports its reason; continue with other DLLs.
                 if registry.ggml_backend_load(str(plugin).encode("utf-8")):
                     _LOADED_PLUGINS.add(plugin)
+
+
+def _load_unicode_backend(registry, plugin: Path) -> bool:
+    """Load with Windows' wide API; the pinned ggml narrow API uses the system code page."""
+    library = ctypes.WinDLL(str(plugin))
+    score = getattr(library, 'ggml_backend_score', None)
+    if score is not None:
+        score.argtypes, score.restype = [], ctypes.c_int
+        if score() == 0:
+            return False  # do not initialize an unsupported CPU instruction set
+    initialize = library.ggml_backend_init
+    initialize.argtypes, initialize.restype = [], ctypes.c_void_p
+    backend = initialize()
+    if not backend:
+        return False
+    # ggml-backend-impl.h at the ASR runtime's frozen ad6c6683 pin.
+    if ctypes.c_int.from_address(backend).value != 2:
+        raise RuntimeError('ASR backend API version does not match the pinned runtime')
+    register = registry.ggml_backend_register
+    register.argtypes, register.restype = [ctypes.c_void_p], None
+    register(backend)
+    _DLL_HANDLES.append(library)  # the registry and its worker threads retain these function pointers
+    return True
 
 
 def _load_extension(build: Path):

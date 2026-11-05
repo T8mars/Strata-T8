@@ -28,6 +28,10 @@ class LaunchDeepSeek(unittest.TestCase):
         p = mock.patch.object(Catalog, "hardware", lambda s, fresh=False: dict(self.hw))
         p.start()
         self.addCleanup(p.stop)
+        # The four-card R9700 fixture models Linux. Windows deliberately uses one.
+        platform = mock.patch('strata_control.dsv41_fit._on_windows', return_value=False)
+        platform.start()
+        self.addCleanup(platform.stop)
 
     def plan(self, *args):
         code, out, err = run_cli(["launch", "--plan", "--output", "json", *args])

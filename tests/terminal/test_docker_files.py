@@ -3,6 +3,7 @@ docs/DOCKER.md says they carry, and every setting the document lists is one the 
 from __future__ import annotations
 
 import ast
+import os
 import re
 import shutil
 import subprocess
@@ -16,6 +17,20 @@ DOCKER = ROOT / "docker"
 SH = shutil.which("sh")
 BASH = shutil.which("bash")      # the full path: on Windows a bare "bash" can start the WSL launcher in System32 instead of Git bash
 CYGPATH = shutil.which("cygpath")
+# A WSL launcher on PATH is not a working POSIX installation. Prefer the Git
+# shell beside sh/cygpath when the test is running directly on Windows.
+if os.name == "nt":
+    git = shutil.which('git')
+    candidates = [Path(tool).with_name('bash.exe') for tool in (SH, CYGPATH) if tool]
+    if git:
+        candidates.append(Path(git).resolve().parents[1] / 'usr/bin/bash.exe')
+    for candidate in candidates:
+        if candidate.is_file():
+            BASH = str(candidate)
+            cygpath = candidate.with_name('cygpath.exe')
+            if CYGPATH is None and cygpath.is_file():
+                CYGPATH = str(cygpath)
+            break
 
 
 def sh_path(p) -> str:

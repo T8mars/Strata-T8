@@ -8522,7 +8522,10 @@ def make_handler(svc: Service):
                         value = req.get(key)
                         if value is not None and (isinstance(value, bool) or not isinstance(value, (int, float))
                                 or not -1 <= value <= 2147483647 or value != int(value)):
-                            raise ValueError(f'{key}: expected a whole number of tokens (-1, 0: remaining context)')
+                            message = f'{key}: expected a whole number of tokens (-1, 0: remaining context)'
+                            if path == '/v1/responses':
+                                raise ResponsesError(message, key)
+                            raise ValueError(message)
                     self.record = svc.begin_request(path, req)
                 if path == "/v1/responses":
                     self._responses(req)
@@ -8551,6 +8554,8 @@ def make_handler(svc: Service):
                 print(f"[strata] 503: {e}", flush=True)
                 self._json(503, responses_error_body(str(e), "server_error") if path == "/v1/responses"
                            else {"error": {"type": "server_error", "message": str(e)}})
+            except ResponsesError as e:
+                self._json(e.status, e.body())
             except ValueError as e:
                 print(f"[strata] 400 invalid request: {e}", flush=True)
                 if path == "/v1/responses":
@@ -8904,7 +8909,6 @@ def make_handler(svc: Service):
                 if bad:
                     raise ValueError(f"allowed_token_ids: {bad[0]} is outside the vocabulary "
                                      f"(0..{n_vocab - 1})")
-            bias_api.validate_request(req, svc.engine, len(getattr(svc.tok, "tokens", ())) or None)
             use_mcp = req.get("strata_mcp") is True and svc.mcp is not None      # the web app's opt-in (serve/mcp.py)
             own = {t.get("name") for t in tools or [] if isinstance(t, dict)}   # #592: a second line of defence
             if use_mcp:
