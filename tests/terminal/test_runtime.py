@@ -31,7 +31,8 @@ WINDOWS = os.name == "nt"
 class RuntimeTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(prefix="strata-runtime-test-")
-        self.addCleanup(self.temp.cleanup)
+        from tools.portable_io import windows_file_operation
+        self.addCleanup(lambda: windows_file_operation(self.temp.cleanup))
         self.root = Path(self.temp.name)
         env = mock.patch.dict(os.environ, {"STRATA_PROFILE_DIR": str(self.root / "profiles"),
                                        "STRATA_RUNTIME_DIR": str(self.root / "runtime")})

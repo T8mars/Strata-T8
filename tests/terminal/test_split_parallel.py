@@ -49,6 +49,16 @@ class Base(unittest.TestCase):
     def setUp(self):
         self.home = Home().__enter__()
         self.addCleanup(self.home.__exit__, None, None, None)
+        # All synthetic multi-card starts in this module use the Linux-only engine.
+        expected = SE.expected
+
+        def on_linux(*args, **kwargs):
+            kwargs.setdefault("system", "linux")
+            return expected(*args, **kwargs)
+
+        split_platform = mock.patch.object(SE, "expected", side_effect=on_linux)
+        split_platform.start()
+        self.addCleanup(split_platform.stop)
 
     def profile_for(self, cfg: dict, *, parallel=None, hw=None, four_card=None) -> dict:
         """What Runner.ensure_profile saves as the launch profile's overrides for this written run config."""
