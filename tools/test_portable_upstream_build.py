@@ -134,6 +134,20 @@ class UpstreamNativeBuild(unittest.TestCase):
         self.assertFalse(old.exists())
         self.assertTrue((old.parent/'strata.exe').is_file())
 
+    def test_temporary_windows_directory_lock_retries_the_verified_install(self):
+        original=Path.rename
+        failed=[]
+        def rename(path,destination):
+            if path.name=='engine' and path.parent.name.startswith('.engine-stage-') and not failed:
+                failed.append(True)
+                error=PermissionError('temporary directory lock');error.winerror=5
+                raise error
+            return original(path,destination)
+        with mock.patch.object(Path,'rename',rename), mock.patch('portable_io.time.sleep') as sleep:
+            self.invoke()
+        self.assertEqual(sleep.call_count,1)
+        self.assertTrue((self.root/'stage/engine/strata.exe').is_file())
+
     def test_failed_install_restores_previous_engine(self):
         target = self.root/'stage/engine'
         target.mkdir(parents=True)

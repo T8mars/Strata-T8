@@ -18,6 +18,7 @@ import tempfile
 import time
 import urllib.request
 import zipfile
+from portable_io import windows_file_operation
 
 ROOT = Path(__file__).resolve().parents[1]
 ARCHITECTURES = ('75', '80', '86', '89', '90', '100', '120')
@@ -53,7 +54,7 @@ def selected_source(relative):
 
 def native_inputs(root):
     root = Path(root).resolve()
-    names = {'CMakeLists.txt', 'tools/build_native_portable.py', 'tools/windows_utf8_manifest.py'}
+    names = {'CMakeLists.txt', 'tools/build_native_portable.py', 'tools/windows_utf8_manifest.py', 'tools/portable_io.py'}
     for directory in ('src', 'include', 'cmake', 'tools/vision', 'third_party/ggml'):
         names.update(p.relative_to(root).as_posix() for p in (root/directory).rglob('*')
                      if p.is_file() and selected_source(p.relative_to(root)))
@@ -358,11 +359,11 @@ def install_build(root, destination, artifacts, native, build_root):
         build['t8_native_build'] = native
         (incoming/'BUILD.json').write_text(json.dumps(build, ensure_ascii=False, indent=2)+'\n', encoding='utf-8')
         validate_native_build(native, root, incoming)
-        target.rename(previous)
+        windows_file_operation(lambda: target.rename(previous))
         try:
-            incoming.rename(target)
+            windows_file_operation(lambda: incoming.rename(target))
         except BaseException as error:
-            try: previous.rename(target)
+            try: windows_file_operation(lambda: previous.rename(target))
             except OSError as rollback:
                 keep_backup = True
                 raise RuntimeError(f'Native install rollback incomplete; vendor retained at {previous}: {rollback}') from error

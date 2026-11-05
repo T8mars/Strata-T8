@@ -5,6 +5,18 @@ import json
 import os
 from pathlib import Path
 import tempfile
+import time
+
+
+def windows_file_operation(action, *, attempts=20, delay=.25):
+    """Retry a brief Windows sharing/access refusal; other errors fail immediately."""
+    for attempt in range(attempts):
+        try:
+            return action()
+        except OSError as error:
+            if getattr(error, 'winerror', None) not in (5, 32, 33) or attempt == attempts - 1:
+                raise
+            time.sleep(delay)
 
 
 def atomic_json(path, value, *, indent=2, replace=None):

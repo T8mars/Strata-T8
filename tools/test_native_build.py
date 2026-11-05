@@ -25,6 +25,7 @@ class NativeBuildTests(unittest.TestCase):
             'CMakeLists.txt': 'project(strata VERSION 0.1.42)\n', 'src/program/generate.cpp': 'native v1\n',
             'include/strata/native.hpp': 'native contract\n', 'tools/vision/strata_vision.cpp': 'vision v1\n',
             'tools/build_native_portable.py': 'build fixture\n', 'tools/windows_utf8_manifest.py': 'patch fixture\n',
+            'tools/portable_io.py': 'bounded Windows file operation fixture\n',
             'third_party/llama.cpp/CMakeLists.txt': 'project(llama)\n',
             'third_party/llama.cpp/src/llama.cpp': 'pinned llama\n',
         }.items():

@@ -17,6 +17,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from portable_version import ROOT, metadata, source_version
 from portable_build_provenance import ENGINE_ASSETS, engine_assets, build_identity, validate_engine_build
 from windows_utf8_manifest import patch_engine
+from portable_io import windows_file_operation
 sys.path.insert(0, str(ROOT))
 import setup
 
@@ -152,13 +153,13 @@ def bootstrap_engines(meta, version, cache, destination):
                                                       allow_vendor=True)
             backup = temporary/'previous'
             if target.exists():
-                target.rename(backup)
+                windows_file_operation(lambda: target.rename(backup))
             try:
-                staged.rename(target)
+                windows_file_operation(lambda: staged.rename(target))
             except BaseException as error:
                 if backup.exists():
                     try:
-                        backup.rename(target)
+                        windows_file_operation(lambda: backup.rename(target))
                     except OSError as rollback:
                         # Keep the previous complete engine if Windows or an
                         # antivirus prevents restoring the directory name.
