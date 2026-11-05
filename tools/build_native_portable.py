@@ -15,6 +15,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import urllib.request
 import zipfile
 
@@ -327,7 +328,16 @@ def install_build(root, destination, artifacts, native, build_root):
                 backup = backups/name
                 if not backup.exists(): shutil.copy2(old, backup)
                 native['vendor_binaries'][name] = {'sha256': digest(backup)}
-            shutil.copy2(source, old)
+            for attempt in range(6):
+                try:
+                    # Replace only the private staged copy, then swap the whole tree.
+                    old.unlink(missing_ok=True)
+                    shutil.copy2(source, old)
+                    break
+                except OSError as error:
+                    if getattr(error, 'winerror', None) not in (32, 33) or attempt == 5:
+                        raise
+                    time.sleep(.25 * (attempt + 1))
             if name.endswith('.exe'):
                 patch = patch_executable(old)
                 native['outputs'][name].update(sha256=patch['sha256_after'], size=old.stat().st_size,

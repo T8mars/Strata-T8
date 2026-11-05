@@ -541,10 +541,6 @@ def main() -> int:
         raise SystemExit("%s: not a DeepSeek-V4.1 GGUF (architecture %r)" % (model, arch))
     if a.config_json:
         apply_source_config(kv, json.loads(pathlib.Path(a.config_json).expanduser().read_text()))
-    template = (pathlib.Path(a.chat_template).read_text(encoding='utf-8') if a.chat_template
-                else kv.get('tokenizer.chat_template'))
-    if not isinstance(template, str) or not template.strip():
-        raise SystemExit('%s: the GGUF has no tokenizer.chat_template; supply an explicit validated --chat-template' % model)
     split = int(kv.get("split.count", 1))
     here = len(shards) + engram_is_last_shard(a.engram, split, shards)
     if split != here:
@@ -552,6 +548,10 @@ def main() -> int:
         raise SystemExit("%s: %d of the %d shards are here" % (model, here, split) if len(counts) < 2 else
                          "%s: the shards of more than one GGUF split (-of-%s): name the model's own with --shards" %
                          (model, ", -of-".join(counts)))
+    template = (pathlib.Path(a.chat_template).read_text(encoding='utf-8') if a.chat_template
+                else kv.get('tokenizer.chat_template'))
+    if not isinstance(template, str) or not template.strip():
+        raise SystemExit('%s: the GGUF has no tokenizer.chat_template; supply an explicit validated --chat-template' % model)
     # a quant whose shards leave the Engram's metadata out (the ISTA-DAS sets: deepseek41.engram_* only, no token map):
     # the hash parameters come from --engram-meta, a GGUF of the same model that still has llama.cpp's ple.* / engram.*
     if a.engram_meta:

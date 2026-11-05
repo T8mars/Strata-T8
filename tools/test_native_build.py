@@ -245,6 +245,22 @@ class NativeBuildTests(unittest.TestCase):
         self.assertEqual(installed['cuda'], '13.0')
         self.assertEqual(len(list((self.root/'build/vendor-backup').rglob('*.exe'))), 2)
 
+    def test_staged_binary_copy_recovers_from_a_temporary_windows_sharing_violation(self):
+        original = b.shutil.copy2
+        failed = []
+        def retry_copy(source, target, **kwargs):
+            if Path(source) == self.artifacts['strata.exe'] and not failed:
+                failed.append(True)
+                error = PermissionError('temporary scanner lock'); error.winerror = 32
+                raise error
+            return original(source, target, **kwargs)
+        patcher = lambda p: {'sha256_after': b.digest(p), 'manifest': 'activeCodePage=UTF-8'}
+        with patch('windows_utf8_manifest.patch_executable', side_effect=patcher), \
+             patch.object(b.shutil, 'copy2', side_effect=retry_copy), patch.object(b.time, 'sleep') as sleep:
+            b.install_build(self.root, self.root, self.artifacts, copy.deepcopy(self.native), self.root/'build')
+        self.assertEqual(sleep.call_count, 1)
+        b.validate_native_build(json.loads((self.engine/'BUILD.json').read_text())['t8_native_build'], self.root, self.engine)
+
     def test_failed_second_copy_keeps_vendor_tree(self):
         real_copy = b.shutil.copy2
         def failing_copy(source, destination, *args, **kwargs):
