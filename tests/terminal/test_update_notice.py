@@ -291,13 +291,29 @@ class Monitor(unittest.TestCase):
         self.addCleanup(hang.close)
         with tempfile_home() as home:
             env = {"STRATA_COMPONENTS_DIR": home, "STRATA_UPDATE_FEED": f"http://127.0.0.1:{hang.getsockname()[1]}/strata-feed.json"}
-            with mock.patch.dict(os.environ, env):
+            threads = []
+            start_check = engine_update.start_daily_check
+
+            def track_check(*args, **kwargs):
+                thread = start_check(*args, **kwargs)
+                if thread is not None:
+                    threads.append(thread)
+                return thread
+
+            with mock.patch.dict(os.environ, env), mock.patch.object(engine_update, "start_daily_check", side_effect=track_check):
                 started = time.monotonic()
 
                 async def case(app, pilot):
                     self.assertNotIn("Press u", flat(app))
                     return time.monotonic() - started
-                took = self.run_app(case, info={**INFO, "daily_check": True})
+                try:
+                    took = self.run_app(case, info={**INFO, "daily_check": True})
+                finally:
+                    # Measure drawing first, then release the background check's
+                    # Windows lock before removing its isolated component folder.
+                    for thread in threads:
+                        thread.join(30)
+                        self.assertFalse(thread.is_alive())
         self.assertLess(took, 5.0, "the monitor drew and ran while the check was still waiting")
 
     def test_u_asks_names_the_model_and_shows_what_happened(self):
