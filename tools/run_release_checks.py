@@ -30,6 +30,11 @@ POSIX_CASES = (
     'serve.test_resource_warnings.Closed.test_the_cpu_topology_closes_its_files',
     'serve.test_resource_warnings.Closed.test_the_hip_probes_close_their_files',
     'serve.test_vision_elastic_http.EncoderFailureHTTP.test_real_encoder_failure_retries_and_reaps_each_child',
+    'serve.test_stream_ownership.ReplicaOwnership.test_an_undrainable_replica_is_not_handed_to_the_next_request',
+    'tools.test_appimage_elf.RealStaticPie.test_a_filled_dynamic_section_does_not_start_and_is_found',
+    'tools.test_appimage_elf.RealStaticPie.test_a_real_shared_library_with_a_runpath_passes',
+    'tools.test_appimage_elf.RealStaticPie.test_the_real_program_runs_and_passes',
+    'tools.test_appimage_elf.RealStaticPie.test_the_repack_script_check_passes_a_sound_bundled_rg_and_stops_a_damaged_one',
 
     'tools.test_setup_dsv41.CardsAndLayout.test_the_hardware_probe_falls_back_to_the_pci_ids',
     'tools.test_setup_dsv41.CardsAndLayout.test_the_pci_ids_name_the_card_when_kfd_and_rocminfo_say_nothing',

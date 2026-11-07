@@ -2786,6 +2786,9 @@ class StrataEngine:
         has gone.  A consumer that stops early (or `cancel`) makes the engine STOP, so it does not run to max_new."""
         if not self.alive():
             raise EngineDied("the engine is unavailable; this request was not sent")
+        proc = self.proc
+        if proc is None:
+            raise EngineDied("the engine is unavailable; this request was not sent")
         bias_api.validate_request(sampling or {}, self, None)
         if media_spans is not None:
             if not embeddings or not self.native_video or getattr(self, 'batch', 0):
@@ -2799,12 +2802,13 @@ class StrataEngine:
         # DeepSeek --parallel: the engine holds several conversations; this request is one of them (GEN ... rid=<id>), its
         # lines come on a queue of their own and its STOP names it.  One at a time (self.multi 0): the one queue, as before.
         rid, lines_q, stop_line = None, self.lines, "STOP\n"
+        rid_queues = self.rid_q if self.multi else None
         if self.multi:
             with self.rid_lock:
                 self.rid_n += 1
                 rid = self.rid_n
             lines_q = queue.Queue()
-            self.rid_q[rid] = lines_q
+            rid_queues[rid] = lines_q
             stop_line = f"STOP {rid}\n"
         # logprobs: the engine writes "LP <logprob> [id:logprob ...]" right after each "T <id>" (the same
         # flush), read here before the token is yielded, so whoever takes the token finds its line in
@@ -2824,15 +2828,21 @@ class StrataEngine:
             if prefill_only:
                 raise ValueError("Native video cannot be prefill_only")
             head = f"GENIV {int(max_new)}{self.sampling_keys(sampling or {})}{rid_key} {embeddings} {media_spans}"
+        request = f"{head} {','.join(str(int(t)) for t in ids)}\n"
         try:
             if rid is not None:                          # several requests write to the engine at once
-                self._send(f"{head} {','.join(str(int(t)) for t in ids)}")
+                btrace("send>", request[:60])
+                with self.wlock:
+                    if self.proc is not proc:
+                        raise EngineDied("the engine restarted before this request was sent")
+                    proc.stdin.write(request)
+                    proc.stdin.flush()
             else:
-                self.proc.stdin.write(f"{head} {','.join(str(int(t)) for t in ids)}\n")
-                self.proc.stdin.flush()
-        except (OSError, EngineDied):                    # the pipe is gone: the engine died (not the client)
+                proc.stdin.write(request)
+                proc.stdin.flush()
+        except (OSError, ValueError, EngineDied):         # a closed pipe is also ValueError in Python
             if rid is not None:
-                self.rid_q.pop(rid, None)
+                rid_queues.pop(rid, None)
             raise EngineDied(f"the engine stopped unexpectedly (exit code {self.exit_code()})") from None
         done = False
         # #481: how long the engine may stay silent from here.  Until the first line: the request's first prompt
@@ -2925,12 +2935,12 @@ class StrataEngine:
                     self._swallow_trailing_done(lines_q)  # an engine that ended the request on ERR may still print its DONE
                     raise ValueError(line[4:].strip())
         finally:
-            if not done:                                  # the consumer stopped early: stop the engine, drain to DONE
+            if not done and self.proc is proc:             # never STOP a replacement process from an old stream
                 if self.can_stop:
                     try:
-                        self.proc.stdin.write(stop_line)
-                        self.proc.stdin.flush()
-                    except OSError:
+                        proc.stdin.write(stop_line)
+                        proc.stdin.flush()
+                    except (OSError, ValueError):
                         pass
                 # #481: never an untimed wait here - it holds the request FIFO, and an engine that lost step never
                 # answers.  An engine that honours STOP gets the current allowance in all (a STOP during a prompt
@@ -2956,7 +2966,7 @@ class StrataEngine:
                     if not self.can_stop:
                         heard = time.monotonic()
             if rid is not None:                           # this request's lines are over (a late one goes nowhere)
-                self.rid_q.pop(rid, None)
+                rid_queues.pop(rid, None)
 
     @staticmethod
     def _swallow_trailing_done(lines_q, wait: float = 0.3) -> None:

@@ -176,6 +176,42 @@ class ReplicaOwnership(FakeEngines, unittest.TestCase):
             time.sleep(0.001)
         return False
 
+    def test_closing_a_stream_after_unload_does_not_use_a_cleared_process(self):
+        engine = self.engines[0]
+        stream = engine.generate(prompt_ids('QA0101'), 500, {}, threading.Event())
+        try:
+            for token in stream:
+                if token is not None:
+                    break
+            engine.close()
+            self.assertIsNone(engine.proc)
+            stream.close()
+        finally:
+            stream.close()
+
+    def test_an_old_stream_does_not_stop_the_replacement_engines_answer(self):
+        engine = self.engines[0]
+        old = engine.generate(prompt_ids('QA0102'), 500, {}, threading.Event())
+        new = None
+        try:
+            for token in old:
+                if token is not None:
+                    break
+            engine.restart()
+            new = engine.generate(prompt_ids('QB0103'), 500, {}, threading.Event())
+            received = []
+            for token in new:
+                if token is not None:
+                    received.append(token)
+                    break
+            old.close()
+            collect(new, received)
+            self.assertEqual(received, expected_reply('QB0103'))
+        finally:
+            old.close()
+            if new is not None:
+                new.close()
+
     def run_handoff(self, a_can, b_can, hold_s):
         """A reads two tokens and its consumer closes it; B takes the replica the moment the lock is free and reads
         for `hold_s` seconds before A's child is finalized (so A's tokens are already in the line queue)."""
@@ -317,8 +353,9 @@ class ReplicaOwnership(FakeEngines, unittest.TestCase):
         # the engine stops answering: its process is frozen
         import os
         import signal
+        proc = engine.proc
         if hasattr(signal, "SIGSTOP"):
-            os.kill(engine.proc.pid, signal.SIGSTOP)
+            os.kill(proc.pid, signal.SIGSTOP)
         else:
             self.skipTest("needs SIGSTOP to freeze the fake engine")
         try:
@@ -327,8 +364,8 @@ class ReplicaOwnership(FakeEngines, unittest.TestCase):
             except EngineSilent:
                 pass
         finally:
-            if engine.proc.poll() is None:
-                os.kill(engine.proc.pid, signal.SIGCONT)
+            if proc.poll() is None:
+                os.kill(proc.pid, signal.SIGCONT)
         self.assertFalse(engine.alive(), "the replica that could not be drained is out of the routing")
         self.assertFalse(self.lock.locked(), "and its run lock is free")
         self.assertEqual(self.rep.route(prompt_ids("QA0006")), -1)
