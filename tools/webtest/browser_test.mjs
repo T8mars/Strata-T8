@@ -546,7 +546,50 @@ htest("while answering - interrupt waits for a running tool, then stops", async 
   await page.waitForFunction(() => messages.length === 4 && busy === null, { timeout: 20000 });
   const tool = await page.evaluate(() => messages[1].tools[0]);
   assert.equal(tool.state, "done"); assert.equal(tool.result, "The file says hello.", "the tool finished and its result is kept");
-  assert.equal(mock.state.aborted, 1);
+  // A fast server can finish writing before the browser observes the result.
+  // Check the user-visible interruption instead of the timing of a TCP close.
+  assert.equal(await page.evaluate(() => messages[1].interrupted), true);
+  assert.equal(requestTexts(mock).at(-1), "u:never mind, second");
+  await page.close();
+});
+
+htest("while answering - a buffered tool result stops before later answer text", async ({ browser, mock }) => {
+  const page = await openPage(browser, mock, { seed: on({ whileBusy: "interject" }) });
+  // A legal network schedule: the tool result, answer text and DONE are delivered
+  // in one read. Keep the tool call's earlier read intact so an interjection waits.
+  await page.evaluate(() => {
+    const fetch = window.fetch.bind(window);
+    let wrapped = false;
+    window.fetch = async (...args) => {
+      const response = await fetch(...args);
+      if (wrapped || !String(args[0]).includes("/v1/chat/completions")) return response;
+      wrapped = true;
+      const reader = response.body.getReader(), read = reader.read.bind(reader);
+      reader.read = async () => {
+        const first = await read();
+        if (first.done || !new TextDecoder().decode(first.value).includes('"event":"result"')) return first;
+        const chunks = [first.value];
+        for (;;) { const next = await read(); if (next.done) break; chunks.push(next.value); }
+        const value = new Uint8Array(chunks.reduce((n, chunk) => n + chunk.length, 0));
+        let at = 0;
+        for (const chunk of chunks) { value.set(chunk, at); at += chunk.length; }
+        return { done: false, value };
+      };
+      response.body.getReader = () => reader;
+      return response;
+    };
+  });
+  await say(page, "#tool find it");
+  await page.waitForFunction(() => busy && (busy.msg.tools || []).some(t => t.state === "running"));
+  await say(page, "never mind, second");
+  await page.waitForFunction(() => messages.length === 4 && busy === null, { timeout: 20000 });
+  const answer = await page.evaluate(() => messages[1]);
+  assert.equal(answer.tools[0].state, "done");
+  assert.equal(answer.tools[0].result, "The file says hello.");
+  assert.equal(answer.interrupted, true);
+  assert.equal(answer.stopped, true);
+  assert.equal(answer.text.trim(), "Let me look that up.", "buffered text after the tool result must not appear");
+  assert.match(answer.meta, /nterrupted/);
   assert.equal(requestTexts(mock).at(-1), "u:never mind, second");
   await page.close();
 });

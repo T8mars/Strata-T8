@@ -9,26 +9,30 @@ on:
         description: Run focused Windows desktop host and launch checks
         type: boolean
         default: false
+      windows_only:
+        description: Run Windows application, host, setup and node checks
+        type: boolean
+        default: false
 permissions:
   contents: read
 jobs:
   terminal-checks:
-    if: ${{ !inputs.host_only }}
+    if: ${{ !inputs.host_only && !inputs.windows_only }}
     uses: ./.github/workflows/t8-terminal-checks.yml
     with:
       ref: ${{ github.sha }}
   native-sycl:
-    if: ${{ !inputs.host_only }}
+    if: ${{ !inputs.host_only && !inputs.windows_only }}
     uses: ./.github/workflows/native-sycl.yml
     with:
       ref: ${{ github.sha }}
   native-hip:
-    if: ${{ !inputs.host_only }}
+    if: ${{ !inputs.host_only && !inputs.windows_only }}
     uses: ./.github/workflows/native-hip.yml
     with:
       ref: ${{ github.sha }}
   docker-entrypoint:
-    if: ${{ !inputs.host_only }}
+    if: ${{ !inputs.host_only && !inputs.windows_only }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

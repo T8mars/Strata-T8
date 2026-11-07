@@ -1332,6 +1332,7 @@ async function generateReply() {
     let buf = "";
     for (;;) {
       const {value, done} = await reader.read();
+      controller.signal.throwIfAborted();
       if (done) break;
       buf += dec.decode(value, {stream: true});
       let nl;
@@ -1350,6 +1351,8 @@ async function generateReply() {
           // an interjection waited for a running tool: it has its result now, so the answer can stop
           if (busy.cutAfterTool && !busy.cut && !(m.tools || []).some((t) => t.state === "running")) { busy.cut = true; controller.abort(); }
         }
+        // The same read can already contain text after this tool result.
+        controller.signal.throwIfAborted();
         const d = (j.choices && j.choices[0] && j.choices[0].delta) || {};
         const lastTool = m.tools && m.tools.length ? m.tools[m.tools.length - 1] : null;   // a new round after a tool
         if (d.reasoning_content) {
