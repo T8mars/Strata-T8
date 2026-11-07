@@ -976,11 +976,16 @@ class EngineProcessTests(unittest.TestCase):
     def test_start_engine_runs_serve_with_the_profile_and_stop_ends_only_that_process(self):
         class Fake:
             pid = 4242
+            returncode = None
 
             def poll(self):
-                return None
+                return self.returncode
+
+            def kill(self):
+                self.returncode = -9
 
             def wait(self, timeout=None):
+                self.returncode = 0
                 return 0
         seen = {}
 
@@ -994,7 +999,7 @@ class EngineProcessTests(unittest.TestCase):
             self.assertEqual(seen["command"][1].replace("\\", "/").rsplit("/", 1)[-1], "strata.py")
             self.assertEqual(seen["command"][2:5], ["serve", "--profile", "run.json"])
             with mock.patch("subprocess.run") as run, mock.patch("os.killpg", create=True) as killpg:
-                bs.stop_engine(proc)
+                self.assertIsNone(bs.stop_engine(proc))
             if os.name == "nt":
                 self.assertEqual(run.call_args[0][0][:4], ["taskkill", "/PID", "4242", "/T"])
             else:

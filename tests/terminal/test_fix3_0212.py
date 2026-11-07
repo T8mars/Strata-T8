@@ -31,10 +31,18 @@ from tests.terminal.test_own_files import IQ3XXS, gguf_bytes
 
 class Base(unittest.TestCase):
     one_card_pc = True                                  # the plan tests run on a fake one-card PC; the others hand their own hardware to catalog()
+    linux_split = False
 
     def setUp(self):
         self.home = Home().__enter__()
         self.addCleanup(self.home.__exit__, None, None, None)
+        if self.linux_split:
+            # The all-cards split package is Linux-only. Exercise its real
+            # decision with an explicit simulated system on Windows runners too.
+            expected = SE.expected
+            p = mock.patch.object(SE, "expected", side_effect=lambda *a, **kw: expected(*a, **dict(kw, system="linux")))
+            p.start()
+            self.addCleanup(p.stop)
         if self.one_card_pc:
             p = mock.patch.object(Catalog, "hardware", lambda self, fresh=False: dict(HW_12, disk_free_gb=500.0))
             p.start()
@@ -317,6 +325,7 @@ class SplitFitCountsFreeMemory(unittest.TestCase):
 class PlanOnBusyCards(Base):
     """The plan: busy cards get the layer split with DFlash2 and no 5.2 GB fetch; free cards still get the split with the MTP."""
     one_card_pc = False
+    linux_split = True
 
     def runner(self, probe, **kw):
         s = S.LaunchSettings(**{"family": "qwen", "model": "UD-Q4_K_XL", "context": 131072, "tune": "skip", "vision": "off", "gpus": [0, 1], **kw})
@@ -363,6 +372,7 @@ class PlanOnBusyCards(Base):
 class AppPlanWhileItsEngineRuns(Base):
     """The desktop app asks `drafting plan` before it unloads the running model: `--engines-unloading` says that engine's memory is given back, as Runner.card_probe does."""
     one_card_pc = False
+    linux_split = True
 
     def plan(self, *extra):
         data = self.base / "d"
