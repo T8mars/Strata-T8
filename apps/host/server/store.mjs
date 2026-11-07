@@ -2,7 +2,7 @@ import { migrateSetup } from './setup.mjs';
 /** Tiny persisted state for the host: one JSON file under STRATA_HOME. */
 import { accessSync, constants, mkdirSync, readFileSync, writeFileSync, existsSync, realpathSync, readdirSync, statSync, statfsSync, symlinkSync } from 'node:fs';
 import { alignModels, isDriveRoot, libraryFolderFromPick, makeFolder } from './model-folder.mjs';
-import { dirname, isAbsolute, join, parse, relative, resolve } from 'node:path';
+import { basename, dirname, isAbsolute, join, parse, relative, resolve } from 'node:path';
 import { homedir } from 'node:os';
 import { defaultModelDirectory } from './model-directory-default.mjs';
 
@@ -73,9 +73,21 @@ export function pickModelsDirectory({ saved, home, preferred, fixedByEnv = false
  // Keep an existing library in place. A new install uses Documents/Strata/Models.
  if (!fixedByEnv && hasWeights(legacy)) return { directory: legacy, notice: '' };
  try {
-  mkdirSync(preferred, { recursive: true });
-  accessSync(preferred, constants.R_OK | constants.W_OK | constants.X_OK);
-  return { directory: realpathSync(preferred), notice: '' };
+  // Windows recursive mkdir can report ENOENT below a Documents junction.
+  // Resolve its existing ancestor before creating the missing tail.
+  let target = resolve(preferred);
+  const tail = [];
+  for (;;) {
+   try { target = join(realpathSync(target), ...tail); break; }
+   catch (error) {
+    const parent = dirname(target);
+    if (error.code !== 'ENOENT' || parent === target) throw error;
+    tail.unshift(basename(target)); target = parent;
+   }
+  }
+  mkdirSync(target, { recursive: true });
+  accessSync(target, constants.R_OK | constants.W_OK | constants.X_OK);
+  return { directory: realpathSync(target), notice: '' };
  } catch (error) {
   return { directory: legacy, notice: `Strata could not use ${preferred} for models (${error.code ?? error.message}), so models go to ${legacy}. You can pick another folder in Settings.` };
  }
