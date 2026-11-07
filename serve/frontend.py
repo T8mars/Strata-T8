@@ -1336,30 +1336,34 @@ class OutputParser:
         # declared tool has it. Only an unambiguous alias counts, and an exactly declared
         # name always wins over an alias.
         aliases = {}
+        def add_alias(alias, name):
+            # Responses can list several spellings of one schema. Count the
+            # canonical tool, rather than treating its own aliases as ambiguity.
+            aliases.setdefault(alias, set()).add(self.schemas[name].get('name', name))
         for name in self.schemas:
             if isinstance(name, str) and "." in name:
                 namespace, member = name.rsplit(".", 1)
                 for alias in (f"{namespace}__{member}", f"{namespace}={member}",
                               f"{namespace}_{member}", member):
-                    aliases.setdefault(alias, set()).add(name)
+                    add_alias(alias, name)
         # #3796: the same tool written with every `__` collapsed to `_` (`mcp__playwright__browser_navigate` as
         # `mcp_playwright_browser_navigate`, the way Qwen often flattens a name) is that tool.  Only a spelling of a declared
         # name: a reordered or renamed tool (`server1_label_values` for `label_values_mcp_server1`) is not guessed.
         for name in self.schemas:
             if isinstance(name, str) and "__" in name:
-                aliases.setdefault(name.replace("__", "_"), set()).add(name)
+                add_alias(name.replace("__", "_"), name)
                 # #5281: a namespaced MCP tool (`mcp__assets__get_asset_info`) written with its last segment only (`get_asset_info`),
                 # as the bare member of a dotted name is accepted above; only when exactly one declared tool ends that way
                 last = name.rsplit("__", 1)[1]
                 if last:
-                    aliases.setdefault(last, set()).add(name)
+                    add_alias(last, name)
         # #4751: a programmatic-tool-calling harness (the DeepSeek Harness's PTC mode) shows the model its tools as `tools.write(...)`
         # inside code, and the model then writes the native call with that spelling (`tools.write`, also `functions.write`).  The
         # prefix is not part of the declared name; the same unambiguous-alias rule applies, an exactly declared name always wins.
         for name in self.schemas:
             if isinstance(name, str) and name:
                 for prefix in ("tools.", "functions.", "default_api."):
-                    aliases.setdefault(prefix + name, set()).add(name)
+                    add_alias(prefix + name, name)
         self.aliases = {alias: next(iter(names)) for alias, names in aliases.items()
                         if len(names) == 1 and alias not in self.schemas}
         self.unread = 0              # #3441: `<tool_call>` blocks that opened like a call and were returned as text

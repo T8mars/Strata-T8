@@ -4032,7 +4032,7 @@ class SharingTheGpu(unittest.TestCase):
             self.up = False
             self.unloads += 1
 
-        def restart(self):
+        def restart(self, cancel=None):
             self.up = True
 
     def test_the_servers_own_encoder_is_not_another_program_after_the_engine_died(self):      # #4352
@@ -4058,7 +4058,8 @@ class SharingTheGpu(unittest.TestCase):
     def test_unload_with_a_dead_engine_still_gives_the_encoders_card_back(self):                # #4352
         self.svc.unload()
         encoder = self.svc.vision = self._Encoder()
-        self.assertEqual(self.req("/unload", {}), (200, {"status": "not loaded"}))
+        # T8 reports a real encoder unload even when the language engine died.
+        self.assertEqual(self.req("/unload", {}), (200, {"status": "unloaded"}))
         self.assertFalse(encoder.up)
 
     def test_min_free_vram_unreadable_loads(self):

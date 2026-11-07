@@ -166,7 +166,7 @@ class ApplyManifestBinding(unittest.TestCase):
     def test_altered_old_plan_cannot_delete_an_unmanaged_user_file(self):
         root, _, path = self.plan()
         (root/'user.txt').write_text('preserve me')
-        plan = json.loads(path.read_text())
+        plan = json.loads(path.read_text(encoding='utf-8'))
         plan['old'][0]['path'] = 'user.txt'
         path.write_text(json.dumps(plan))
         result = self.apply(path)
@@ -177,7 +177,7 @@ class ApplyManifestBinding(unittest.TestCase):
     def test_changed_plan_hash_cannot_authorize_corrupted_staged_file(self):
         root, incoming, path = self.plan()
         (incoming/'app.py').write_text('bad')
-        plan = json.loads(path.read_text())
+        plan = json.loads(path.read_text(encoding='utf-8'))
         for entry in plan['new']:
             if entry['path'] == 'app.py': entry['sha256'] = hashlib.sha256(b'bad').hexdigest()
         path.write_text(json.dumps(plan))
@@ -187,7 +187,7 @@ class ApplyManifestBinding(unittest.TestCase):
 
     def test_omitted_plan_entry_cannot_delete_a_file_still_in_the_manifest(self):
         root, _, path = self.plan()
-        plan = json.loads(path.read_text())
+        plan = json.loads(path.read_text(encoding='utf-8'))
         plan['new'] = [e for e in plan['new'] if e['path'] != 'app.py']
         path.write_text(json.dumps(plan))
         result = self.apply(path)

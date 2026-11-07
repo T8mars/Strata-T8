@@ -376,7 +376,7 @@ class UpdateDirectoryPreflight(unittest.TestCase):
         for field in ('backup','stage'):
             with self.subTest(field=field):
                 root,incoming,path=self.plan()
-                plan=json.loads(path.read_text()); plan[field]=str(root/'nested')
+                plan=json.loads(path.read_text(encoding='utf-8')); plan[field]=str(root/'nested')
                 if field=='stage': (root/'nested').mkdir()
                 path.write_text(json.dumps(plan))
                 result=self.apply(path)
@@ -396,7 +396,7 @@ class UpdateDirectoryPreflight(unittest.TestCase):
     def test_backup_parent_junction_is_refused_without_moving_files(self):
         root,_,path=self.plan(); outside=self.base/'external'; outside.mkdir(); link=self.base/'linked'
         junction(link,outside)
-        plan=json.loads(path.read_text()); plan['backup']=str(link/'backup'); path.write_text(json.dumps(plan))
+        plan=json.loads(path.read_text(encoding='utf-8')); plan['backup']=str(link/'backup'); path.write_text(json.dumps(plan),encoding='utf-8')
         try:
             result=self.apply(path); self.assertNotEqual(result.returncode,0)
             self.assertEqual(list(outside.iterdir()),[]); self.assertEqual((root/'app.py').read_text(),'old')

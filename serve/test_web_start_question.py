@@ -87,7 +87,7 @@ class StartQuestion(unittest.TestCase):
 
     def run_page(self, url):
         js = HARNESS % {"url": json.dumps(url), "start": self.start, "autosize": self.autosize}
-        out = subprocess.run(["node", "-e", js], capture_output=True, text=True, timeout=60)
+        out = subprocess.run(["node"], input=js, capture_output=True, text=True, encoding='utf-8', timeout=60)
         self.assertEqual(out.returncode, 0, out.stderr)
         return json.loads(out.stdout)
 
