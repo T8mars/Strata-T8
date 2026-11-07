@@ -355,7 +355,7 @@ def install_build(root, destination, artifacts, native, build_root):
         # release remains fully identified in the untouched upstream_asset.
         from portable_version import source_version
         build.update(version=source_version(root), source='t8_native_build', archs=list(map(int, ARCHITECTURES)),
-                     cuda=cuda_series[1], portable=True, vision='gpu')
+                     cuda=cuda_series[1], portable=True, vision='gpu', vision_archs=list(map(int, ARCHITECTURES)))
         build['t8_native_build'] = native
         (incoming/'BUILD.json').write_text(json.dumps(build, ensure_ascii=False, indent=2)+'\n', encoding='utf-8')
         validate_native_build(native, root, incoming)

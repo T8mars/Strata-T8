@@ -262,6 +262,19 @@ class NativeBuildTests(unittest.TestCase):
         self.assertEqual(sleep.call_count, 1)
         b.validate_native_build(json.loads((self.engine/'BUILD.json').read_text())['t8_native_build'], self.root, self.engine)
 
+    def test_native_vision_architecture_stamp_prevents_false_cpu_fallback(self):
+        from strata_control import pictures
+        self.vendor['vision_archs'] = '75;86;89;120'
+        (self.engine/'BUILD.json').write_text(json.dumps(self.vendor))
+        patcher = lambda p: {'sha256_after': b.digest(p), 'manifest': 'activeCodePage=UTF-8'}
+        with patch('windows_utf8_manifest.patch_executable', side_effect=patcher):
+            b.install_build(self.root, self.root, self.artifacts, copy.deepcopy(self.native), self.root/'build')
+        for arch in (80, 90, 100):
+            with self.subTest(arch=arch):
+                section, note = pictures.reader_section(self.engine, self.root/'mmproj.gguf',
+                    self.root/'model.gguf', 'gpu', hardware={'make':'nvidia', 'arch':arch, 'vram_gb':80})
+                self.assertTrue(section['gpu'], note)
+
     def test_failed_second_copy_keeps_vendor_tree(self):
         real_copy = b.shutil.copy2
         def failing_copy(source, destination, *args, **kwargs):
