@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -125,7 +126,13 @@ class MetalPerSet(Base):
         self.put_tuned()
         self.assertTrue(drafting.tuned_ok(self.data))
         self.assertTrue((self.data / "dflash2" / (drafting.TUNED_NAME + ".ok")).is_file())
+        path = self.data / "dflash2" / drafting.TUNED_NAME
+        before = path.stat()
         self.put_tuned(b"y" * len(TUNED_BYTES))
+        # This 2.2 MB substitute can be rewritten within one filesystem clock
+        # tick. Give the size/time cache a changed time, as the selector test does.
+        os.utime(path, ns=(before.st_atime_ns, before.st_mtime_ns + 1_000_000_000))
+        self.assertGreater(path.stat().st_mtime_ns, before.st_mtime_ns)
         self.assertFalse(drafting.tuned_ok(self.data))
 
     def test_the_users_own_draft_conf_and_spec_are_respected(self):
