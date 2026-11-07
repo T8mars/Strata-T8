@@ -191,6 +191,21 @@ class WindowsApply(unittest.TestCase):
         self.assertTrue((root/'blocked.py').is_dir())
         self.assertEqual(json.loads((root/'PACKAGE-MANIFEST.json').read_text())['version'], '0.1.39-t8.1')
 
+    def test_apply_prunes_only_empty_obsolete_dependency_metadata(self):
+        base = 'runtime/python/Lib/site-packages/'
+        current = base+'pillow-13.0.0.dist-info/METADATA'
+        root, _, path = self.plan({current:'Name: pillow\nVersion: 13.0.0\n'})
+        empty = root/base/'pillow-12.3.0.dist-info'
+        (empty/'licenses').mkdir(parents=True)
+        private = root/base/'user_dependency-1.0.dist-info/notes.txt'
+        private.parent.mkdir()
+        private.write_bytes(b'private metadata notes')
+        result = self.apply(path)
+        self.assertEqual(result.returncode, 0, result.stdout+result.stderr)
+        self.assertFalse(empty.exists())
+        self.assertEqual(private.read_bytes(), b'private metadata notes')
+        self.assertIn('Version: 13.0.0', (root/current).read_text())
+
     def test_staged_corruption_changes_nothing(self):
         root, incoming, path = self.plan()
         (incoming/'app.py').write_text('bad')

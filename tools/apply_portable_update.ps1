@@ -92,6 +92,35 @@ function WriteResult($value) {
         if (Test-Path -LiteralPath $temporary -PathType Leaf) { Remove-Item -LiteralPath $temporary }
     }
 }
+function PruneEmptyMetadataDirectory([string]$path, [int]$depth=0) {
+    if ($depth -ge 32 -or [T8Paths]::IsReparse($path)) { return }
+    if (!$path.StartsWith($appRoot + '\', [StringComparison]::OrdinalIgnoreCase)) { throw 'Metadata cleanup leaves the application' }
+    $relative = $path.Substring($appRoot.Length + 1).Replace('\', '/')
+    $null = ScopedPath $appRoot $relative
+    foreach ($child in @(Get-ChildItem -LiteralPath $path -Force)) {
+        if ($child.PSIsContainer) { PruneEmptyMetadataDirectory $child.FullName ($depth+1) }
+    }
+    if (@(Get-ChildItem -LiteralPath $path -Force).Count -eq 0) {
+        # Never remove files or linked directories, including user-added metadata.
+        [IO.Directory]::Delete($path, $false)
+        $removedDirectories.Add($path)
+    }
+}
+function PruneObsoleteMetadata {
+    $sites = @($plan.new | ForEach-Object {
+        if ($_.path -match '^(runtime/.*?/site-packages)/') { $Matches[1] }
+    } | Sort-Object -Unique)
+    foreach ($relative in $sites) {
+        $site = ScopedPath $appRoot $relative
+        if (!(Test-Path -LiteralPath $site -PathType Container)) { continue }
+        foreach ($info in @(Get-ChildItem -LiteralPath $site -Directory -Force)) {
+            if ($info.Name -notlike '*.dist-info' -or [T8Paths]::IsReparse($info.FullName)) { continue }
+            if (Test-Path -LiteralPath (Join-Path $info.FullName 'METADATA') -PathType Leaf) { continue }
+            try { PruneEmptyMetadataDirectory $info.FullName }
+            catch { Write-Host "[Update] Kept metadata directory: $($info.FullName)" }
+        }
+    }
+}
 function FileDigest([string]$path) {
     $stream = [IO.File]::OpenRead($path)
     $hasher = [Security.Cryptography.SHA256]::Create()
@@ -437,6 +466,7 @@ try {
         $installedCount++
         ReportProgress 'Installing verified files' $installedCount $installTotal
     }
+    PruneObsoleteMetadata
     WriteResult @{ success=$true; version=$plan.version; backup=$backupRoot }
     if ($plan.PSObject.Properties['stage_owner'] -and $plan.stage_owner -is [string] -and $plan.stage_owner -cmatch '^[0-9a-f]{32}$') {
         $history = ScopedPath $appRoot '.portable-update/history'

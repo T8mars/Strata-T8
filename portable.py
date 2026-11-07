@@ -86,6 +86,23 @@ def config_path(state):
     return path
 
 
+def runtime_dependency_version(name):
+    version = importlib.metadata.version(name)
+    if isinstance(version, str) and version.strip():
+        return version
+    # Published older executors remove managed files but leave empty dist-info
+    # directories. importlib may select that empty directory before the new one.
+    from pip._vendor.packaging.utils import canonicalize_name
+    wanted = canonicalize_name(name)
+    for distribution in importlib.metadata.distributions(name=name):
+        declared = distribution.metadata.get('Name')
+        version = distribution.version
+        if (isinstance(declared, str) and canonicalize_name(declared) == wanted
+                and isinstance(version, str) and version.strip()):
+            return version
+    raise RuntimeError(f'Runtime dependency metadata is missing: {name}. Run VERIFY-PACKAGE.bat.')
+
+
 def environment_check():
     if os.name == 'nt' and sys.getwindowsversion().build < 18362:
         raise RuntimeError('Windows 10 1903 (build 18362) or later is required for UTF-8 model paths')
@@ -101,7 +118,7 @@ def environment_check():
         req = Requirement(line)
         if req.marker and not req.marker.evaluate():
             continue
-        version = importlib.metadata.version(req.name)
+        version = runtime_dependency_version(req.name)
         if version not in req.specifier:
             raise RuntimeError(f'Runtime dependency mismatch: {req.name} {version}, expected {req.specifier}')
     for path in [ROOT/'engine/strata.exe', ROOT/'engine-hip/strata.exe', ROOT/'third_party/llama.cpp/gguf-py/gguf']:
