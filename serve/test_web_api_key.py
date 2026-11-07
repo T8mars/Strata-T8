@@ -94,6 +94,17 @@ console.log(JSON.stringify({before, kinds: notices.map(n => n[0])}));
         got = self.run_js('console.log(JSON.stringify(headers(true)));')
         self.assertEqual(got, {"Content-Type": "application/json"})
 
+    def test_explicit_save_uses_the_current_field_and_reports_storage_failure(self):
+        for blocked in (False, True):
+            with self.subTest(blocked=blocked):
+                got = self.run_js('''
+field.value = "  button-key  ";
+field.onclick();
+console.log(JSON.stringify({headers: headers(), kinds: notices.map(n => n[0])}));
+''', blocked=blocked)
+                self.assertEqual(got, {"headers": {"Authorization": "Bearer button-key"},
+                                       "kinds": ["warn" if blocked else "success"]})
+
 
 if __name__ == "__main__":
     unittest.main()

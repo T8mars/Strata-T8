@@ -18,16 +18,31 @@ export function currentUserSid() {
 
 export function makePrivate(path, { platform = process.platform } = {}) {
   if (platform !== 'win32') { chmodSync(path, 0o600); return; }
+  privateWindowsAcl(path, false);
+}
+
+function privateWindowsAcl(path, directory) {
   // /inheritance:r leaves explicit entries (including SYSTEM/Administrators on
   // some Windows temp folders). Replace the DACL with exactly the user's rule.
   const literal = value => `'${String(value).replaceAll("'", "''")}'`;
+  const security = directory ? 'DirectorySecurity' : 'FileSecurity';
+  const rule = directory ? "$sid,'FullControl','ContainerInherit,ObjectInherit','None','Allow'" : "$sid,'FullControl','Allow'";
   const script = `$ErrorActionPreference='Stop'; $sid=[System.Security.Principal.SecurityIdentifier]::new(${literal(currentUserSid())}); ` +
-    `$acl=[System.Security.AccessControl.FileSecurity]::new(); $acl.SetAccessRuleProtection($true,$false); ` +
-    `$acl.AddAccessRule([System.Security.AccessControl.FileSystemAccessRule]::new($sid,'FullControl','Allow')); ` +
+    `$acl=[System.Security.AccessControl.${security}]::new(); $acl.SetAccessRuleProtection($true,$false); ` +
+    `$acl.AddAccessRule([System.Security.AccessControl.FileSystemAccessRule]::new(${rule})); ` +
     `Set-Acl -LiteralPath ${literal(path)} -AclObject $acl`;
   execFileSync(system32('WindowsPowerShell/v1.0/powershell.exe'), ['-NoProfile', '-NonInteractive', '-Command', script],
     { stdio: 'ignore', timeout: 15000, windowsHide: true,
       env: { ...process.env, PSModulePath: system32('WindowsPowerShell/v1.0/Modules') } });
   // The owner too, so a file an elevated run made is not left owned by Administrators (needs the right to; best effort).
   try { execFileSync(system32('icacls.exe'), [path, '/setowner', `*${currentUserSid()}`], { stdio: 'ignore', timeout: 15000, windowsHide: true }); } catch { /* the explicit entry above already opens it to the user */ }
+}
+
+/**
+ * Owner-only folder. POSIX: mode 0700. Windows: a protected ACL naming only the current user that the files made inside inherit,
+ * so a file written later (a chat saved every second) is private without a tool run per write.
+ */
+export function makePrivateDir(path, { platform = process.platform } = {}) {
+  if (platform !== 'win32') { chmodSync(path, 0o700); return; }
+  privateWindowsAcl(path, true);
 }

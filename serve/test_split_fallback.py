@@ -135,6 +135,28 @@ class Fallback(unittest.TestCase):
             self.run_start(cfg)
         self.assertEqual(len(FakeEngine.started), 1)
 
+    def test_cancellation_deadline_and_unconfirmed_exit_do_not_start_another_engine(self):
+        for error_type in (S.RequestCancelled, S.EngineStarting, S.EngineStuck):
+            with self.subTest(error_type=error_type):
+                failure = error_type('do not start another process')
+                with mock.patch.object(S, 'StrataEngine', side_effect=failure) as constructor:
+                    with self.assertRaises(error_type):
+                        self.run_start(split_cfg())
+                    self.assertEqual(constructor.call_count, 1)
+
+    def test_split_fallback_keeps_the_configured_start_deadline(self):
+        cfg = split_cfg()
+        cfg['start_timeout_s'] = 17
+        calls = []
+        def construct(exe, args, **kwargs):
+            calls.append(kwargs)
+            if len(calls) == 1:
+                raise S.EngineDied('unsupported split engine')
+            return FakeEngine(NORMAL, args, **kwargs)
+        with mock.patch.object(S, 'StrataEngine', side_effect=construct):
+            self.run_start(cfg)
+        self.assertEqual([call['start_timeout_s'] for call in calls], [17, 17])
+
 
 if __name__ == "__main__":
     unittest.main()

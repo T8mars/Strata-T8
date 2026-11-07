@@ -443,6 +443,8 @@ html[data-motion='reduced'] .task-tree-row[data-leaving] { opacity: 0; }
 .provider-empty { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 12px; padding: 32px 24px; border: 1px dashed var(--st-line); border-radius: var(--st-r-lg); }
 .provider-empty p { max-width: 360px; }
 .provider-editor { display: flex; flex-direction: column; gap: 20px; padding: 20px; }
+.provider-editor__toolbar { position: sticky; top: 0; z-index: 2; display: grid; gap: 12px; background: var(--st-surface); padding-block: 10px; border-bottom: 1px solid var(--st-line); }
+.provider-editor__save { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
 .provider-kind { display: flex; gap: 4px; padding: 4px; border-radius: var(--st-r-md); background: var(--st-surface-2); }
 .provider-kind button { border: 0; background: transparent; cursor: pointer; flex: 1; min-height: 36px; padding: 8px; border-radius: var(--st-r-sm); color: var(--st-ink-muted); font: inherit; }
 .provider-kind button[aria-pressed='true'] { background: var(--st-surface); color: var(--st-ink); box-shadow: 0 1px 4px #0001; }

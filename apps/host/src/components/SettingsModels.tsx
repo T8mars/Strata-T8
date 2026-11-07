@@ -41,7 +41,8 @@ export function SettingsModels() {
     }
     useEffect(() => {
         if (draft)
-            editor.current?.querySelector<HTMLElement>('input:not(:disabled),button:not(:disabled)')?.focus();
+            (editor.current?.querySelector<HTMLElement>('input:not(:disabled)') ??
+             editor.current?.querySelector<HTMLElement>('button:not(:disabled)'))?.focus();
     }, [draft?.id, !!draft]);
     async function fetchModels() {
         if (!draft)
@@ -79,7 +80,11 @@ export function SettingsModels() {
         setPending(true);
         setError('');
         try {
-            await saveModelConnection(draft);
+            const id = modelId.trim();
+            const models = id && !draft.models.some(model => model.id === id)
+                ? [...draft.models, { id, name: modelName.trim() || id }]
+                : draft.models;
+            await saveModelConnection({ ...draft, models });
             setDraft(null);
             reset();
             setNotice('Models added. Choose one from the model picker in chat.');
@@ -104,6 +109,10 @@ export function SettingsModels() {
       <Btn size="sm" disabled={pending || fetching} onClick={() => edit(connection)} title={tr("Edit {0}", [connection.name])}>{tr("Edit")}</Btn>
     </div>))}</div> : !draft ? <div className="provider-empty"><Icon name="models" size={26}/><strong>{tr("Add models to your chat picker")}</strong><p className="small muted">{tr("Your local model stays available. Add an API connection to use more models in Strata.")}</p></div> : null)}
     {tr(!draft ? <Btn icon="plus" block disabled={!providers} onClick={add}>{tr("Add model provider")}</Btn> : <div className="st-card provider-editor" ref={editor}>
+      <div className="provider-editor__toolbar">
+        <div className="provider-editor__save"><span className="spacer"/><Btn disabled={pending} onClick={() => { reset(); setDraft(null); }}>{tr("Cancel")}</Btn><Btn variant="primary" disabled={pending || fetching} onClick={() => void apply()}>{tr(pending ? 'Saving…' : 'Save')}</Btn></div>
+        {tr(error ? <ErrorNotice message={error}/> : null)}
+      </div>
       <div className="provider-kind" aria-label={tr("Connection type")}>
         <button type="button" aria-pressed={draft.kind === 'provider'} disabled={!!draft.id || fetching || pending} onClick={() => { const p = providers!.catalog[0]; reset(); setDraft({ kind: 'provider', provider: p.id, name: p.name, baseUrl: p.baseUrl, protocol: p.protocol, apiKey: '', models: [] }); }}>{tr("API provider")}</button>
         <button type="button" aria-pressed={draft.kind === 'custom'} disabled={!!draft.id || fetching || pending} onClick={() => { reset(); setDraft({ kind: 'custom', provider: null, name: '', baseUrl: '', protocol: 'openai-chat', apiKey: '', models: [] }); }}>{tr("Custom model API")}</button>
@@ -132,8 +141,7 @@ export function SettingsModels() {
             }}/></label><label className="input-field"><span>{tr("Model name ")}<span className="muted">{tr("(optional)")}</span></span><input className="st-input" value={modelName} placeholder={tr("Name shown in chat")} onChange={e => setModelName(e.target.value)}/></label><Btn size="sm" icon="plus" disabled={!modelId.trim() || draft.models.some(m => m.id === modelId.trim())} onClick={() => { update({ models: [...draft.models, { id: modelId.trim(), name: modelName.trim() || modelId.trim() }] }); setModelId(''); setModelName(''); }}>{tr("Add model")}</Btn></div>
         </div>
       </fieldset>
-      {tr(error ? <ErrorNotice message={error}/> : null)}
-      <div className="provider-actions">{tr(draft.id ? <Btn variant="ghost" size="sm" disabled={pending || streaming} onClick={() => setRemove(true)}>{tr("Remove connection")}</Btn> : null)}<span className="spacer"/><Btn disabled={pending} onClick={() => { reset(); setDraft(null); }}>{tr("Cancel")}</Btn><Btn variant="primary" disabled={pending || fetching || !draft.models.length || !draft.name.trim() || !draft.baseUrl.trim()} onClick={() => void apply()}>{tr(pending ? 'Saving…' : 'Apply')}</Btn></div>
+      {tr(draft.id ? <div className="provider-actions"><Btn variant="ghost" size="sm" disabled={pending || streaming} onClick={() => setRemove(true)}>{tr("Remove connection")}</Btn></div> : null)}
     </div>)}
     {tr(!draft && notice ? <p role="status" className="small muted">{tr(notice)}</p> : null)}
     {tr(!draft && error ? <ErrorNotice message={error}/> : null)}
