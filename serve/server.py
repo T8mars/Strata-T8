@@ -3311,16 +3311,17 @@ _VISION_ARCH_SIGNS = ("device kernel image is invalid", "no kernel image is avai
                       "unsupported gpu architecture", "invalid device function", "unknown gpu architecture")
 
 
-def vision_start_error(line: str, log=None, code: int | None = None, waited: float | None = None) -> str:
+def vision_start_error(line: str, log=None, code: int | None = None, waited: float | None = None, strays=()) -> str:
     """The message when the image encoder answered something other than READY.  #1445: a card in the Exclusive_Process
     compute mode (or one another process holds) refuses the encoder's CUDA context with "busy or unavailable"; that
     cause is named instead of leaving the user the first line of a traceback.  `log` is the encoder's stderr file, whose
     tail is searched too (the CUDA error is printed there).  An encoder that dies before it prints anything (#3645, #3444,
     #3669, #3697) used to give a blank sentence: now the last lines of its stderr, its exit status (`code`) and, for a
-    kernel-image error, the card/architecture hint come with it.  `waited`: it said nothing for that many seconds."""
+    kernel-image error, the card/architecture hint come with it.  `waited`: it said nothing for that many seconds.  `strays`: lines it printed on
+    its output before it ended that were not an answer (a debugger's, a library's); they are searched for the causes below and named in the message."""
     text = line.strip()
     tail = vision_log_tail(log)
-    both = (text + chr(10) + tail).lower()
+    both = (text + chr(10) + chr(10).join(strays) + chr(10) + tail).lower()
     if "busy or unavailable" in both:
         return ("the vision encoder did not start: the GPU refused a second CUDA context (\"CUDA-capable device(s) "
                 "is/are busy or unavailable\"). This is usually the compute mode Exclusive_Process: only one process "
@@ -3345,6 +3346,8 @@ def vision_start_error(line: str, log=None, code: int | None = None, waited: flo
         words = engine_exit_words(code)
         if words:
             extra.append(words)
+    if strays:
+        extra.append("it also printed on its output: " + " | ".join(x[:120] for x in list(strays)[-3:]))
     shown = [x for x in lines[-3:] if x != text]
     if shown:
         extra.append("last lines of its log: " + " | ".join(x[:200] for x in shown))
@@ -3470,18 +3473,15 @@ class Vision:
                           stderr=log or subprocess.DEVNULL, text=True, encoding="utf-8", errors="replace", bufsize=1,
                           env=env, cwd=self.dir)
         self.starting = True
-        ready, last = False, ""
+        strays = []
         try:
-            for line in start_lines(self.proc, cancel, self.start_timeout_s):
-                last = line
-                if line.startswith('READY'):
-                    ready = True
-                    fields = line.split()
-                    flags = fields[2:]
-                    self.native_video = (len(fields) >= 2 and fields[0] == 'READY' and fields[1] == '2560'
-                                         and 'video=1' in flags and 'encv=1' in flags)
-            if not ready:
-                raise RuntimeError(vision_start_error(last, self.spawn[1], self.proc.poll()))
+            line = self._await_ready(getattr(self, 'start_timeout_s', VISION_READY_S), strays, cancel)
+            if not line.startswith('READY'):
+                raise RuntimeError(vision_start_error(line, log, self.proc.poll(), strays=strays))
+            fields = line.split()
+            flags = fields[2:]
+            self.native_video = (len(fields) >= 2 and fields[1] == '2560'
+                                 and 'video=1' in flags and 'encv=1' in flags)
             if self.video_requested and not self.native_video:
                 raise ValueError('Configured native video requires an ENCV-capable vision helper')
         except Exception:
@@ -3500,6 +3500,65 @@ class Vision:
         self.pump = threading.Thread(target=read, daemon=True, name='strata-vision-reader')
         self.pump.start()
         self.stopped = False
+
+    #: how long a reader that has already ended may still hold its output pipe open (a debugger attached to it, a child it started) before the start is
+    #: judged: the pipe's end does not come, the process's end is what counts.
+    READY_GRACE_S = 2.0
+    #: lines kept from a reader's output before its answer (and written to the log): enough to see what it said, not a flood
+    STRAY_KEEP = 20
+
+    def _await_ready(self, timeout: float | None, strays: list, cancel=None) -> str:
+        """The reader's answer to its start: "READY ..." or "ERR ..." (what strata-vision prints on stdout; everything else it says goes to stderr),
+        or "" when it has ended.  Any other line on stdout is a stray line - a debugger a crashing reader started, a library's banner - and is not an
+        answer: it is kept in `strays` (the last STRAY_KEEP), written to the log, and the wait goes on.  A reader that is only printing is never killed.
+        The wait has ONE deadline of `timeout` s (None: for ever); on it the reader is killed and the read raises RuntimeError, as `_readline` does.  A
+        reader whose process has ended while a debugger or a child still holds its pipe open counts as ended after READY_GRACE_S.  The thread that
+        reads stops at the answer, so the encode answers that follow are never taken by it."""
+        proc = self.proc
+        got: queue.Queue = queue.Queue()
+
+        def read():
+            while True:
+                try:
+                    line = proc.stdout.readline()
+                except (OSError, ValueError):           # killed under the read
+                    line = ""
+                got.put(line)
+                if not line or line.startswith(("READY", "ERR")):
+                    return
+
+        self._ready_pump = threading.Thread(target=read, daemon=True, name="strata-vision-start-reader")
+        self._ready_pump.start()
+        deadline = None if timeout is None or timeout <= 0 else time.monotonic() + timeout
+        ended_at = None
+        said = 0
+        while True:
+            check_cancel(cancel)
+            now = time.monotonic()
+            if deadline is not None and now >= deadline:
+                try:
+                    proc.kill()
+                except OSError:
+                    pass
+                raise EngineStarting(vision_start_error("", self.spawn[1], waited=timeout, strays=strays))
+            try:
+                line = got.get(timeout=0.25 if deadline is None else max(0.01, min(0.25, deadline - now)))
+            except queue.Empty:
+                code = proc.poll() if hasattr(proc, "poll") else None
+                if code is not None:
+                    ended_at = now if ended_at is None else ended_at
+                    if now - ended_at >= self.READY_GRACE_S:
+                        return ""
+                continue
+            if not line or line.startswith(("READY", "ERR")):
+                return line
+            stray = line.strip()
+            if stray:
+                strays.append(stray[:300])
+                del strays[:-self.STRAY_KEEP]
+                said += 1
+                if said <= self.STRAY_KEEP:
+                    print(f"[strata] the image encoder printed on its output, not an answer: {stray[:200]}", flush=True)
 
     def alive(self) -> bool:
         return not self.stopped and self.proc is not None and self.proc.poll() is None
@@ -3782,12 +3841,23 @@ class Vision:
                 if proc.poll() is not None:
                     if self.pump is not None:
                         self.pump.join(timeout=2)
-                    for pipe in (proc.stdin, proc.stdout):
-                        if pipe is not None:
-                            try:
-                                pipe.close()  # Windows can reject a final flush to the dead helper
-                            except (OSError, ValueError):
-                                pass
+                    def close_pipes():
+                        for pipe in (proc.stdin, proc.stdout):
+                            if pipe is not None:
+                                try:
+                                    pipe.close()  # Windows can reject a final flush to the dead helper.
+                                except (OSError, ValueError):
+                                    pass
+                    ready_pump = getattr(self, '_ready_pump', None)
+                    if ready_pump is not None and ready_pump.is_alive():
+                        # An ended reader's child may still hold stdout open. Do not block
+                        # the failed start on the buffered pipe's lock; close after its sole reader ends.
+                        def finish_close():
+                            ready_pump.join()
+                            close_pipes()
+                        threading.Thread(target=finish_close, daemon=True, name='strata-vision-pipe-close').start()
+                    else:
+                        close_pipes()
                     self.proc, self.pump = None, None
                     self.stopped = True
 
