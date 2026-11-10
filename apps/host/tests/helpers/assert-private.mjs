@@ -4,16 +4,19 @@ import { execFileSync } from 'node:child_process';
 import { join } from 'node:path';
 import { currentUserSid } from '../../server/private-file.mjs';
 
-/** The effective protection of a file: mode 0600 on POSIX, the exact DACL (one protected entry for this user) on NTFS. */
+/** The effective protection of a file: mode 0600 on POSIX, the exact DACL (one protected entry for this user) on NTFS.
+ *  The DACL is read through .NET (File.GetAccessControl), not Get-Acl: Get-Acl lives in a module Windows PowerShell has to load, and a
+ *  Windows PowerShell started under PowerShell 7 (GitHub's Windows runners) failed to load it ("the module could not be loaded").
+ *  The entries are compared by SID, not as SDDL text: SDDL writes some accounts as an alias (the built-in Administrator, which GitHub's
+ *  runners run as, is "LA", not its S-1-5-21-...-500). */
 export function assertPrivate(path) {
   if (process.platform !== 'win32') { assert.equal(statSync(path).mode & 0o777, 0o600); return; }
-  const script = `$acl=Get-Acl -LiteralPath '${path.replace(/'/g, "''")}'; @{protected=$acl.AreAccessRulesProtected;rules=@($acl.GetAccessRules($true,$true,[System.Security.Principal.SecurityIdentifier]) | ForEach-Object { @{sid=$_.IdentityReference.Value;rights=[int]$_.FileSystemRights;allow=($_.AccessControlType -eq 'Allow');inherited=$_.IsInherited} })} | ConvertTo-Json -Compress -Depth 4`;
-  const raw = execFileSync(join(process.env.SystemRoot, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe'), ['-NoProfile', '-NonInteractive', '-Command', script],
-    { encoding: 'utf8', timeout: 30000, windowsHide: true,
-      env: { ...process.env, PSModulePath: join(process.env.SystemRoot, 'System32', 'WindowsPowerShell', 'v1.0', 'Modules') } }).trim();
-  // SDDL shortens the built-in Administrator's SID to LA on some Windows versions.
-  // Ask NTFS for SecurityIdentifier rules so aliases cannot change the comparison.
-  assert.deepEqual(JSON.parse(raw), { protected: true, rules: [
-    { sid: currentUserSid(), rights: 2032127, allow: true, inherited: false },
-  ] }, `ACL is not owner-only: ${raw}`);
+  const script = `$a = [System.IO.File]::GetAccessControl('${path.replace(/'/g, "''")}'); 'protected=' + $a.AreAccessRulesProtected; `
+    + `$a.GetAccessRules($true, $true, [System.Security.Principal.SecurityIdentifier]) | ForEach-Object { $_.IdentityReference.Value + '|' + $_.FileSystemRights + '|' + $_.AccessControlType + '|inherited=' + $_.IsInherited }; `
+    + `'sddl=' + $a.GetSecurityDescriptorSddlForm('Access')`;
+  const lines = execFileSync(join(process.env.SystemRoot, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe'), ['-NoProfile', '-NonInteractive', '-Command', script],
+    { encoding: 'utf8', timeout: 30000, windowsHide: true }).split(/\r?\n/).map(line => line.trim()).filter(Boolean);
+  const sddl = lines.find(line => line.startsWith('sddl=')) ?? '';
+  const facts = lines.filter(line => !line.startsWith('sddl='));
+  assert.deepEqual(facts, ['protected=True', `${currentUserSid()}|FullControl|Allow|inherited=False`], `ACL is not owner-only: ${sddl}`);
 }
