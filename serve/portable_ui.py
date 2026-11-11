@@ -19,6 +19,7 @@ import shutil
 import tempfile
 import threading
 import time
+from strata_control.childenv import quiet_crash_env
 from urllib.parse import urlsplit
 import webbrowser
 from serve import api_access
@@ -359,7 +360,7 @@ class ModelSetup:
     def _spawn(self, args, log):
         from serve.winjob import contain
         process = subprocess.Popen(args, cwd=self.root, stdout=log, stderr=subprocess.STDOUT,
-                                   env={**os.environ, 'PYTHONDONTWRITEBYTECODE': '1'},
+                                   env=quiet_crash_env({**os.environ, 'PYTHONDONTWRITEBYTECODE': '1'}),
                                    creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
         contain(process)
         return process
@@ -622,7 +623,7 @@ class ModelSetup:
                 self.log = None
                 return
             self.process = subprocess.Popen(command, cwd=self.root, stdout=self.log, stderr=subprocess.STDOUT,
-                         env=environment,
+                         env=quiet_crash_env(environment),
                          creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
             contain(self.process)
             process = self.process
@@ -723,7 +724,7 @@ class ModelSetup:
                 except (OSError,psutil.Error):
                     pass
                 helper_process = subprocess.Popen(arguments,
-                    cwd=temporary, creationflags=getattr(subprocess,'CREATE_NEW_CONSOLE',0))
+                    cwd=temporary, env=quiet_crash_env(dict(os.environ)), creationflags=getattr(subprocess,'CREATE_NEW_CONSOLE',0))
                 wait_update_helper(helper_process, receipt, nonce, self.root)
                 self.set_job('updating', '更新程序已就绪，正在停止当前服务；下载进度见更新窗口和 logs/update-helper.log。')
                 self.stop_backend()
@@ -796,7 +797,8 @@ finally { $dialog.Dispose() }
 """
     from serve.winjob import contain
     process = subprocess.Popen(['powershell.exe', '-NoProfile', '-STA', '-Command', script], stdout=subprocess.PIPE,
-                               stderr=subprocess.PIPE, creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+                               stderr=subprocess.PIPE, env=quiet_crash_env(dict(os.environ)),
+                               creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
     contain(process)
     try:
         output, error = process.communicate(timeout=300)

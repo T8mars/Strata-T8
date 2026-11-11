@@ -142,6 +142,9 @@ class EntryPointsSetItForEveryChild(unittest.TestCase):
 # listed here (and, when it starts a Strata program - the engine, the picture reader, sd-cli, setup, a worker - it builds its environment with
 # quiet_crash_env or inherits the one an entry point set).
 STRATA_PROGRAMS = {
+    "serve/asr/manager.py": 1,             # T8 owned speech worker (quiet_crash_env)
+    "serve/media_jobs.py": 1,              # T8 disposable media decoder (quiet_crash_env)
+    "serve/portable_ui.py": 4,             # T8 download/server/update and folder dialog (explicit quiet environment)
     "serve/server.py": 7,              # the engine, the picture reader (env from child_env / vision_env), the strata-device probe, before_load commands
     "serve/images.py": 1,              # sd-cli (image_env)
     "serve/lifeline.py": 4,            # the wrapper every child goes through (ps, a watcher); no program of ours of its own

@@ -11,6 +11,7 @@ import subprocess
 import tempfile
 import threading
 import time
+from strata_control.childenv import quiet_crash_env
 
 from tools.portable_io import atomic_json
 from . import config
@@ -138,7 +139,7 @@ class AsrManager:
                 with (directory/'worker.log').open('wb') as log:
                     process = subprocess.Popen([str(python),'-I','-X','utf8',str(self.root/'serve/asr/worker.py'),str(directory/'job.json')],
                         cwd=self.root,stdin=subprocess.DEVNULL,stdout=log,stderr=subprocess.STDOUT,
-                        env={key:value for key,value in os.environ.items() if key not in ('PYTHONPATH','PYTHONHOME')},
+                        env=quiet_crash_env({key:value for key,value in os.environ.items() if key not in ('PYTHONPATH','PYTHONHOME')}),
                         creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0))
                     from serve.winjob import contain
                     contain(process)

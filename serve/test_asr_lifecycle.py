@@ -2,6 +2,7 @@
 import contextlib
 import io
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -39,6 +40,26 @@ class OwnedWorker(unittest.TestCase):
 
     def complete_worker(self):
         self.write_worker("Path(job['result']).write_text(json.dumps({'status':'completed','audio_samples_16k':32000,'text':'hello','segments':[{'start_sample':0,'end_sample':32000,'text':'hello'}]}))\n")
+
+    def test_worker_disables_debugger_without_inheriting_a_flag(self):
+        self.complete_worker()
+        seen = []
+        real = subprocess.Popen
+        def spawn(args, **kwargs):
+            if any(Path(arg).resolve() == self.worker.resolve() for arg in args):
+                seen.append(dict(kwargs['env']))
+            return real(args, **kwargs)
+        with mock.patch.dict(os.environ):
+            os.environ.pop('GGML_NO_BACKTRACE', None)
+            os.environ['STRATA_BACKTRACE'] = '0'
+            with mock.patch('subprocess.Popen', side_effect=spawn):
+                result = self.manager.transcribe(io.BytesIO(b'fixture'))
+        self.assertTrue(result['cues'])
+        self.assertFalse(result.get('cache_hit'))
+        self.assertEqual(len(seen), 1)
+        self.assertEqual(seen[0].get('GGML_NO_BACKTRACE'), '1')
+        self.assertNotIn('PYTHONHOME', seen[0])
+        self.assertNotIn('PYTHONPATH', seen[0])
 
     def test_cancel_terminates_owned_worker_and_leaves_no_completed_cache(self):
         self.write_worker("time.sleep(30)\n")

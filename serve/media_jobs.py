@@ -10,6 +10,7 @@ import sys
 import tempfile
 import threading
 import time
+from strata_control.childenv import quiet_crash_env
 
 _MEDIA_LOCK = threading.Lock()
 _WORKER_SCRIPT = Path(__file__).with_name('media_worker.py')
@@ -132,7 +133,7 @@ def _run(operation, source, options, cancel=None, *, timeout_s=150):
                 with (directory/'worker.log').open('ab' if retries else 'wb') as log:
                     process=subprocess.Popen([sys.executable,'-I','-X','utf8','-X','faulthandler',str(_WORKER_SCRIPT),str(directory/'job.json')],
                         cwd=_WORKER_SCRIPT.resolve().parents[1],stdin=subprocess.DEVNULL,stdout=log,stderr=subprocess.STDOUT,
-                        env={key:value for key,value in os.environ.items() if key not in ('PYTHONPATH','PYTHONHOME')},
+                        env=quiet_crash_env({key:value for key,value in os.environ.items() if key not in ('PYTHONPATH','PYTHONHOME')}),
                         creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0))
                     try:
                         from serve.winjob import contain
