@@ -329,10 +329,24 @@ def _handlers(stall: float):
     return Http, Https
 
 
+class HeadRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """A model size probe stays HEAD after a redirect, including on Python 3.12."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        redirected = super().redirect_request(req, fp, code, msg, headers, newurl)
+        if redirected is not None and req.get_method() == 'HEAD':
+            redirected.method = 'HEAD'
+        return redirected
+
+
 def build_opener(*handlers, stall: float | None = None) -> urllib.request.OpenerDirector:
     """urllib.request.build_opener with the bounded connection classes. `timeout` given to .open() is the connection-phase limit."""
     http_h, https_h = _handlers(STALL_S if stall is None else stall)
-    return urllib.request.build_opener(http_h, https_h, *handlers)
+    has_redirect = any(isinstance(h, urllib.request.HTTPRedirectHandler)
+                       or (isinstance(h, type) and issubclass(h, urllib.request.HTTPRedirectHandler))
+                       for h in handlers)
+    redirects = () if has_redirect else (HeadRedirectHandler,)
+    return urllib.request.build_opener(http_h, https_h, *redirects, *handlers)
 
 
 _OPENER: urllib.request.OpenerDirector | None = None

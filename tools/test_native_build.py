@@ -28,6 +28,8 @@ class NativeBuildTests(unittest.TestCase):
             'tools/portable_io.py': 'bounded Windows file operation fixture\n',
             'third_party/llama.cpp/CMakeLists.txt': 'project(llama)\n',
             'third_party/llama.cpp/src/llama.cpp': 'pinned llama\n',
+            'third_party/strata-ggml/ggml/CMakeLists.txt': 'project(vendored_ggml)\n',
+            'third_party/strata-ggml/ggml/src/ggml.c': 'vendored ggml implementation\n',
         }.items():
             path = self.root/name; path.parent.mkdir(parents=True, exist_ok=True); path.write_text(data)
         third = {'repository': 'ggml-org/llama.cpp', 'commit': 'a'*40, 'archive_sha256': 'b'*64,
@@ -58,6 +60,19 @@ class NativeBuildTests(unittest.TestCase):
         (self.root/'src/program/generate.cpp').write_text('new implementation')
         with self.assertRaisesRegex(ValueError, 'source changed'):
             b.validate_native_build(self.native, self.root)
+
+    def test_vendored_ggml_change_blocks_release(self):
+        (self.root/'third_party/strata-ggml/ggml/src/ggml.c').write_text('changed CUDA/CPU contract')
+        with self.assertRaisesRegex(ValueError, 'source changed'):
+            b.validate_native_build(self.native, self.root)
+
+    def test_split_backend_requires_source_matched_kquant_library(self):
+        backend = self.root/'cmake/backends/cuda.cmake'
+        backend.parent.mkdir(parents=True)
+        backend.write_text('add_library(strata_kq SHARED kernels.cu)\n')
+        (self.root/'CMakeLists.txt').write_text('include(cmake/backends/cuda.cmake)\n')
+        with self.assertRaisesRegex(ValueError, 'source-matched strata_kq.dll'):
+            b.validate_native_build(self.native, self.root, check_source=False)
 
     def test_header_added_blocks_release(self):
         (self.root/'include/new.hpp').write_text('new input')

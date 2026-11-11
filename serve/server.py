@@ -3291,7 +3291,6 @@ def vision_temp_dir():
     raise ValueError('Vision requires an ASCII temporary path without spaces. Set TEMP/TMP to a writable ASCII path and restart.')
 
 
-def vision_log_tail(log=None, limit: int = 16384) -> str:
 def vision_log_size(log=None) -> int:
     """How long the encoder's stderr file is now (0 when there is none): a start reads only what it wrote after this."""
     try:
@@ -3544,7 +3543,13 @@ class Vision:
         try:
             line = self._await_ready(getattr(self, 'start_timeout_s', VISION_READY_S), strays, cancel)
             if not line.startswith('READY'):
-                message = vision_start_error(line, log, self.proc.poll(), strays=strays, since=since)
+                code = self.proc.poll()
+                if code is None:
+                    try:
+                        code = self.proc.wait(timeout=0.5)
+                    except subprocess.TimeoutExpired:
+                        pass
+                message = vision_start_error(line, log, code, strays=strays, since=since)
                 room = reader_room.find((line + chr(10) + chr(10).join(strays) + chr(10) + vision_log_tail(log, since=since)).splitlines())
                 raise (VisionNoRoom(message, room) if room else RuntimeError(message))
             fields = line.split()

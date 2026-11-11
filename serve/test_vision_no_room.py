@@ -10,6 +10,7 @@ import subprocess
 import sys
 import tempfile
 import textwrap
+import threading
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -57,6 +58,7 @@ class NoRoom(unittest.TestCase):
         script = Path(self.tmp.name) / ("reader%d.py" % len(list(Path(self.tmp.name).glob("reader*.py"))))
         script.write_text("import os, sys, time\n" + textwrap.dedent(body), encoding="utf-8")
         v = server.Vision.__new__(server.Vision)
+        v.lock, v.pump, v.video_requested = threading.RLock(), None, False
         v.spawn = ([sys.executable, "-u", str(script)], log, None)
         v.dir = Path(self.tmp.name)
         v.stopped, v.proc = True, None

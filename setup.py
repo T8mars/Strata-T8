@@ -1113,14 +1113,7 @@ def ask(question, choices, default, yes):
         say(f"  please answer one of: {', '.join(choices)}")
 
 
-class _KeepHeadRedirect(urllib.request.HTTPRedirectHandler):
-    def redirect_request(self, req, fp, code, msg, headers, newurl):
-        redirected = super().redirect_request(req, fp, code, msg, headers, newurl)
-        # Python 3.12's default handler turns a HEAD redirect into a full GET.
-        # A size probe must not start transferring a multi-GB model body.
-        if redirected is not None and req.get_method() == 'HEAD':
-            redirected.method = 'HEAD'
-        return redirected
+_KeepHeadRedirect = netpolicy.HeadRedirectHandler
 
 
 def _urlopen(req, timeout=None):

@@ -10,6 +10,7 @@ import subprocess
 import sys
 import tempfile
 import textwrap
+import threading
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -86,6 +87,7 @@ class Fallback(unittest.TestCase):
         log = open(path, "a", encoding="utf-8")
         self.logs.append(log)
         v = server.Vision.__new__(server.Vision)
+        v.lock, v.pump, v.video_requested = threading.RLock(), None, False
         v.spawn = (self.script(gpu_body), log, env)
         v.fallback = (self.script(cpu_body), log, env)
         v.gpu_spawn, v.cpu_spawn = v.spawn, v.fallback

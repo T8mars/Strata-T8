@@ -55,7 +55,7 @@ def selected_source(relative):
 def native_inputs(root):
     root = Path(root).resolve()
     names = {'CMakeLists.txt', 'tools/build_native_portable.py', 'tools/windows_utf8_manifest.py', 'tools/portable_io.py'}
-    for directory in ('src', 'include', 'cmake', 'tools/vision', 'third_party/ggml'):
+    for directory in ('src', 'include', 'cmake', 'tools/vision', 'third_party/ggml', 'third_party/strata-ggml'):
         names.update(p.relative_to(root).as_posix() for p in (root/directory).rglob('*')
                      if p.is_file() and selected_source(p.relative_to(root)))
     entries = []
@@ -161,8 +161,12 @@ def validate_native_build(native, root, engine_directory=None, check_source=True
     libraries = native.get('libraries', {})
     if not isinstance(libraries, dict) or set(libraries) - {'strata_kq.dll'}:
         raise ValueError('Invalid native library build proof')
-    requires_kq = (cmake_file.is_file()
-                   and re.search(r'add_library\(strata_kq\s+SHARED', cmake_file.read_text('utf-8')))
+    kq_cmake = (cmake_file, Path(root)/'cmake/backends/cuda.cmake')
+    requires_kq = any(path.is_file() and re.search(r'add_library\(strata_kq\s+SHARED', path.read_text('utf-8'))
+                      for path in kq_cmake)
+    # Distribution folders omit build sources, but retain the source-input proof.
+    requires_kq = requires_kq or any(item.get('path') == 'cmake/backends/cuda.cmake'
+                                     for item in identity.get('inputs', ()))
     if requires_kq and 'strata_kq.dll' not in libraries:
         raise ValueError('Native build requires a source-matched strata_kq.dll')
     if set(outputs) != {'strata.exe', 'strata-vision.exe'}:
@@ -415,7 +419,9 @@ def main(argv=None):
         '-DCMAKE_CUDA_ARCHITECTURES='+';'.join(CUDA_TARGETS),
         '-DCMAKE_CUDA_FLAGS=-D_WINDOWS -Xcompiler=" /EHsc" --compress-mode=size']
     directories = {'engine': build_root/'engine-portable', 'vision': build_root/'vision-portable'}
-    engine_flags = ['-DSTRATA_ENABLE_CUDA=ON', '-DSTRATA_BUILD_TESTS=OFF', '-DSTRATA_GGML_DIR='+str(root/'third_party/llama.cpp')]
+    # The engine uses upstream's tracked ggml, including its trellis kernels.
+    # Vision still uses the independently pinned mtmd/llama.cpp source.
+    engine_flags = ['-DSTRATA_ENABLE_CUDA=ON', '-DSTRATA_BUILD_TESTS=OFF', '-DSTRATA_GGML_DIR=']
     vision_flags = ['-DSTRATA_VISION_CUDA=ON', '-DSTRATA_VISION_CONTRACT_TESTS=ON', '-DLLAMA_DIR='+str(root/'third_party/llama.cpp')]
     for kind, source, flags, targets in [('engine', root, engine_flags, ['strata', 'strata_kq']),
                 ('vision', root/'tools/vision', vision_flags, ['strata-vision', 'strata-native-vision-test'])]:

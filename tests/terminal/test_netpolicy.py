@@ -17,6 +17,43 @@ from unittest import mock
 from strata_control import netpolicy as N
 
 
+class HeadRedirect(unittest.TestCase):
+    def test_a_redirected_size_probe_never_starts_a_body_download(self):
+        heads, gets = [], []
+
+        class Handler(http.server.BaseHTTPRequestHandler):
+            def log_message(self, *args):
+                pass
+
+            def do_HEAD(self):
+                heads.append(self.path)
+                self.send_response(302 if self.path == '/probe' else 200)
+                if self.path == '/probe':
+                    self.send_header('Location', '/payload')
+                self.send_header('Content-Length', '5')
+                self.end_headers()
+
+            def do_GET(self):
+                gets.append(self.path)
+                self.send_response(200)
+                self.send_header('Content-Length', '5')
+                self.end_headers()
+                self.wfile.write(b'model')
+
+        with http.server.ThreadingHTTPServer(('127.0.0.1', 0), Handler) as srv:
+            thread = threading.Thread(target=srv.serve_forever, daemon=True)
+            thread.start()
+            try:
+                request = urllib.request.Request(f'http://127.0.0.1:{srv.server_port}/probe', method='HEAD')
+                with N.build_opener().open(request, timeout=2) as response:
+                    self.assertEqual(response.headers['Content-Length'], '5')
+                self.assertEqual(heads, ['/probe', '/payload'])
+                self.assertEqual(gets, [])
+            finally:
+                srv.shutdown()
+                thread.join(timeout=3)
+
+
 class BlackHole:
     """Accepts connections and never sends a byte (and never reads one)."""
 
