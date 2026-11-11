@@ -23,6 +23,7 @@ from strata_cli.launch import settings as S
 from strata_cli.launch.runner import Runner
 from strata_control import profiles, split_engine as SE
 from tests.terminal.launch_support import HW_12, Home, catalog
+import serve.server  # noqa: F401  imported before any test patches sys.platform: serve/lifeline.py runs Linux-only libc code when it is imported as Linux
 
 A6000 = {"name": "NVIDIA RTX A6000", "vram_gb": 48.0, "usable": True, "vendor": "nvidia"}
 HW_2XA6000 = {**HW_12, "ram_gb": 125.0, "disk_free_gb": 900.0, "engine_vendor": "nvidia", "gpus": [{**A6000, "index": i} for i in range(2)]}
@@ -61,6 +62,9 @@ class Base(unittest.TestCase):
         split_platform = mock.patch.object(SE, "expected", side_effect=on_linux)
         split_platform.start()
         self.addCleanup(split_platform.stop)
+        intel = mock.patch.object(Runner, "intel_chosen", lambda self: False)
+        intel.start()
+        self.addCleanup(intel.stop)
 
     def profile_for(self, cfg: dict, *, parallel=None, hw=None, four_card=None) -> dict:
         """What Runner.ensure_profile saves as the launch profile's overrides for this written run config."""

@@ -199,16 +199,26 @@ class Entrypoint(unittest.TestCase):
         (data / "models" / "t" / "f.gguf").write_text("old")
         (data / "Strata-data" / "models" / "t").mkdir(parents=True)
         (data / "Strata-data" / "models" / "t" / "f.gguf").write_text("new")
-        p = self.start(MODEL="IQ3_XXS")
-        out, err = p.communicate(timeout=30)
-        # Both copies remain after the conflict. The new legacy-file guard refuses
-        # to fetch another model until the person selects the intended folder.
-        self.assertEqual(p.returncode, 2, out + err)
-        self.assertIn("MODEL_PATH", err)
-        self.assertIn("Nothing was downloaded", err)
-        self.assertNotIn("launch --no-tui", self.log.read_text())
+        # the older copy stays where it is, so the guard for model files left in the older place (#3421) would stop the start
+        # ("Nothing was downloaded."); ALLOW_DOWNLOAD=1 goes on with a warning, which is what this test is about
+        p = self.start(MODEL="IQ3_XXS", ALLOW_DOWNLOAD="1")
+        self.wait_for("--show-key")
+        self.stop(p)
         self.assertEqual((data / "Strata-data" / "models" / "t" / "f.gguf").read_text(), "new")   # never overwritten
         self.assertEqual((data / "models" / "t" / "f.gguf").read_text(), "old")
+
+    def test_older_model_files_that_were_not_moved_stop_the_start_unless_downloading_is_allowed(self):
+        data = self.tmp / "data"
+        (data / "models" / "t").mkdir(parents=True)
+        (data / "models" / "t" / "f.gguf").write_text("old")
+        (data / "Strata-data" / "models" / "t").mkdir(parents=True)
+        (data / "Strata-data" / "models" / "t" / "f.gguf").write_text("new")
+        p = self.start(MODEL="IQ3_XXS")
+        out, err = p.communicate(timeout=30)
+        code = p.returncode
+        self.assertEqual(code, 2, err)
+        self.assertIn("Nothing was downloaded.", out + err)
+        self.assertNotIn("launch --no-tui", self.log.read_text() if self.log.exists() else "")
 
     def test_run_settings_that_name_another_images_engine_folder_are_made_again(self):
         install = self.tmp / "data" / "install"
