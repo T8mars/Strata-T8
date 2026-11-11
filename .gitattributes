@@ -43,6 +43,8 @@ apps/host/**/*.js text eol=lf
 apps/host/**/*.mjs text eol=lf
 apps/host/**/*.json text eol=lf
 apps/host/**/*.css text eol=lf
+# The app and portable web ship the same UI kit bytes.
+*.css text eol=lf
 apps/host/**/*.html text eol=lf
 
 # vendored KaTeX (serve/web/vendor): the files are hashed byte for byte (PROVENANCE.json), never convert their line endings.

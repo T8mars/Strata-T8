@@ -11,6 +11,8 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 const scratch=mkdtempSync(join(tmpdir(),'strata-host-suite-profile-'));
 const env={...process.env,STRATA_SETTINGS_FILE:join(scratch,'app-settings.json'),STRATA_COMPONENTS_DIR:join(scratch,'components'),LOCALAPPDATA:join(scratch,'Local'),APPDATA:join(scratch,'Roaming'),XDG_DATA_HOME:join(scratch,'xdg-data'),XDG_STATE_HOME:join(scratch,'xdg-state'),XDG_CONFIG_HOME:join(scratch,'xdg-config')};
+/* A Windows PowerShell 5.1 child must not load PowerShell 7's incompatible modules. */
+if(process.platform==='win32'&&env.PSModulePath){const ps7=p=>{const l=p.toLowerCase().replace(/\//g,'\\');return l.includes('\\powershell\\')&&!l.includes('\\windowspowershell\\');};env.PSModulePath=env.PSModulePath.split(';').filter(p=>p&&!ps7(p)).join(';');}
 /* A test that never finishes fails after STRATA_TEST_TIMEOUT_MS (default 10 minutes) instead of holding the whole run for ever; extra arguments (a reporter, --test-name-pattern) go to node --test. */
 const timeout=Number(process.env.STRATA_TEST_TIMEOUT_MS)||600000;
 const child=spawn(process.execPath,['--test','--test-concurrency=4',`--test-timeout=${timeout}`,...process.argv.slice(2),...files],{cwd:root,stdio:'inherit',env});

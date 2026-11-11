@@ -207,12 +207,7 @@ class Plan(unittest.TestCase):
             self.assertEqual(p["variant"], NAME)
             self.assertAlmostEqual(p["experts_gb"], 66.0, delta=0.1)
         p = dsv41_fit.plan(FOUR, 251.0, None, 131072, model=NAME)
-        if __import__('os').name == 'nt':
-            self.assertEqual(len(p['cards']), 1)    # Windows uses one AMD card.
-            single = dsv41_fit.plan([R9700], 251.0, None, 131072, model=NAME)
-            self.assertEqual(p['experts_in_vram'], single['experts_in_vram'])
-        else:
-            self.assertEqual(p["experts_in_vram"], 7680)                   # four 32 GB cards hold every one of them
+        self.assertEqual(p["experts_in_vram"], 7680)  # This fixture explicitly models Linux and four 32 GB cards.
         self.assertEqual(p["verdict"], "fits")
 
     def test_the_plan_follows_the_engine_on_r9700_cards(self):

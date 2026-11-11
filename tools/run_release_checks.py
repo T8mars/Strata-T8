@@ -38,6 +38,7 @@ POSIX_CASES = (
 
     'tools.test_setup_dsv41.CardsAndLayout.test_the_hardware_probe_falls_back_to_the_pci_ids',
     'tools.test_setup_dsv41.CardsAndLayout.test_the_pci_ids_name_the_card_when_kfd_and_rocminfo_say_nothing',
+    'tools.test_setup_dsv41.CardsAndLayout.test_the_pci_ids_come_from_lspci_when_sysfs_has_none',
     'serve.test_cache_drop.CacheDrop.test_on',
     'serve.test_server.StartCrashReported.test_sigill_is_reported_not_retried',
     'serve.test_server.StartCrashReported.test_a_silent_exit_is_retried_without_claiming_the_gpu_runtime',
