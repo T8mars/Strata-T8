@@ -138,16 +138,21 @@ class OutputEncoding(unittest.TestCase):
         with self.assertRaises(structured.StructuredOutputError):
             structured.validated_json('{"value":"\\ud800"}', structured._ObjectOnly(), 'stop')
 
+    @unittest.skipUnless(sys.platform == 'win32', 'checks the embedded Windows parser depth; portable error boundary is tested separately')
     def test_excessive_model_json_nesting_is_a_structured_error(self):
-        # pytest may raise the process recursion limit above this payload's
-        # depth. Exercise the real parser at the normal application limit.
-        previous=sys.getrecursionlimit()
-        try:
-            sys.setrecursionlimit(1000)
-            with self.assertRaises(structured.StructuredOutputError):
-                structured.validated_json('{"value":'+'['*4000+'0'+']'*4000+'}', structured._ObjectOnly(), 'stop')
-        finally:
-            sys.setrecursionlimit(previous)
+        with self.assertRaises(structured.StructuredOutputError):
+            structured.validated_json('{"value":'+'['*4000+'0'+']'*4000+'}', structured._ObjectOnly(), 'stop')
+
+    def test_parser_and_encoder_recursion_errors_are_structured_errors(self):
+        # C JSON stack limits vary by CPython version and operating system;
+        # changing the Python recursion limit does not control that C limit.
+        for operation in ('loads', 'dumps'):
+            with self.subTest(operation=operation):
+                decoder=mock.Mock(wraps=json)
+                getattr(decoder, operation).side_effect=RecursionError('JSON stack limit')
+                with mock.patch.object(structured, 'json', decoder):
+                    with self.assertRaisesRegex(structured.StructuredOutputError, 'too deeply nested'):
+                        structured.validated_json('{"value":0}', structured._ObjectOnly(), 'stop')
 
 
 class RefreshTransaction(unittest.TestCase):
