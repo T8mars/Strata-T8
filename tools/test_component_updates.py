@@ -68,6 +68,7 @@ class Components(unittest.TestCase):
         index['compatibility']['python_version']='incompatible'
         incoming=self.base/'assembled';incoming.mkdir()
         with self.assertRaisesRegex(ValueError,'pins'):components.materialize(root,incoming,index,assets,fetch)
+    @unittest.skipUnless(os.name == 'nt', 'executes the Windows PowerShell apply helper')
     def test_update_then_offline_restore_preserves_all_private_data(self):
         root,_,_,index,assets,calls,fetch=self.fixture()
         private={'portable-settings.json':'profile','asr-settings.json':'asr model path',
@@ -90,6 +91,7 @@ class Components(unittest.TestCase):
         self.assertEqual((root/'app.py').read_text(),'old app')
         for name,value in private.items():self.assertEqual((root/name).read_text(),value)
         self.assertFalse(any(name.endswith('.zip') and 'component-app' not in name for name in calls))
+    @unittest.skipUnless(os.name == 'nt', 'executes the Windows PowerShell apply helper')
     def test_tampered_backup_fails_before_replacement(self):
         root,_,_,index,assets,_,fetch=self.fixture()
         release={'tag_name':'v0.1.42-t8.9','assets':list(assets.values())}

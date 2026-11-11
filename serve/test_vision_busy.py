@@ -42,7 +42,9 @@ class Busy(unittest.TestCase):
         v = server.Vision({'exe': 'strata-vision', 'mmproj': 'unused', 'model': 'unused'}, lazy=True)
         self.addCleanup(v.shutdown)
         v.spawn = (["strata-vision"], None, None)
-        v.dir = Path(tempfile.gettempdir())
+        # Vision owns the private directory made by its constructor. Replacing
+        # it with the shared temp root makes shutdown remove other tests' files.
+        self.assertNotEqual(v.dir.resolve(), Path(tempfile.gettempdir()).resolve())
         with mock.patch.object(server, "popen", lambda *a, **k: proc):
             with self.assertRaises(RuntimeError) as cm:
                 v._start()

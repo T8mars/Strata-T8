@@ -131,7 +131,9 @@ class LanAuthentication(unittest.TestCase):
         service.api_key='lan-auth-fixture-key-123'
         http=serve(service,host='0.0.0.0',port=0)
         try:
-            hosts=['127.0.0.1',*api_access.ipv4_addresses()[:1]]
+            # A real HTTP request over loopback still tests authentication on
+            # the non-loopback binding; CI must not probe another network.
+            hosts=['127.0.0.1']
             for host in hosts:
                 for headers,expected in (({},401),({'Authorization':'Bearer wrong'},401),
                         ({'Authorization':'Bearer '+service.api_key},200),({'x-api-key':service.api_key},200)):

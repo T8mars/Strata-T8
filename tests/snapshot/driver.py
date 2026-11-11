@@ -48,6 +48,11 @@ def engine_start(world: World, cfg: dict) -> dict:
         argv = server.engine_args(dict(cfg), cfg["exe"])
         env = server.child_env(dict(cfg))
     env_set = {k: v for k, v in sorted(env.items()) if baseline.get(k) != v}
+    # The Terminal now applies the guard before it starts the server. Keep its
+    # effective value visible even when it is inherited from that parent;
+    # otherwise an identical child environment vanishes from the snapshot.
+    if "GGML_NO_BACKTRACE" in env:
+        env_set["GGML_NO_BACKTRACE"] = env["GGML_NO_BACKTRACE"]
     return {"exe": cfg["exe"], "argv": [str(a) for a in argv], "env_set": env_set,
             "notes": [l for l in notes.getvalue().splitlines() if l.strip()]}
 

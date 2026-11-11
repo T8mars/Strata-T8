@@ -27,7 +27,8 @@ ENGINE_STUB = (b"STRATA ENGINE STUB (config snapshot)\n--mtp-draft-vocab FILE (o
 
 #: Environment variables a developer or CI may have set that would leak into a start; the world starts from a clean list.
 CLEAR = ("STRATA_SETTINGS_FILE", "STRATA_CONNECTION_DIR", "CUDA_VISIBLE_DEVICES", "HIP_VISIBLE_DEVICES", "ROCR_VISIBLE_DEVICES", "STRATA_API_KEY",
-         "STRATA_ENGINE_BACKEND", "STRATA_DFLASH2_TUNED_URL", "STRATA_UPDATE_FEED", "STRATA_NO_ACQUIRE", "STRATA_COMPONENTS_DIR")
+         "STRATA_ENGINE_BACKEND", "STRATA_DFLASH2_TUNED_URL", "STRATA_UPDATE_FEED", "STRATA_NO_ACQUIRE", "STRATA_COMPONENTS_DIR",
+         "GGML_NO_BACKTRACE", "STRATA_BACKTRACE")
 
 
 def context_for(machine: Machine, model_set: ModelSet) -> int:

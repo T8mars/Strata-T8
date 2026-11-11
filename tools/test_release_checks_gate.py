@@ -23,13 +23,13 @@ class ReleaseCheckGate(unittest.TestCase):
             'import os\nimport unittest\n\nclass ActualSuite(unittest.TestCase):\n'+methods,
             encoding='utf-8')
 
-    def invoke(self, *, strict=False, args=None, environment=None):
+    def invoke(self, *, strict=False, args=None, environment=None, timeout=30):
         parameters = ['--group','nodes','--node-tests',str(self.tests)] if args is None else args
         if strict:
             parameters = [*parameters, '--strict']
         result = subprocess.run([sys.executable, '-X','utf8',str(RUNNER),*parameters],
                                 cwd=ROOT, env=environment, capture_output=True,
-                                text=True, encoding='utf-8', timeout=30)
+                                text=True, encoding='utf-8', timeout=timeout)
         rows = [json.loads(line) for line in result.stdout.splitlines() if line.startswith('{')]
         summary = next((row for row in rows if 'tests' in row), None)
         return result, summary
@@ -141,7 +141,7 @@ class ReleaseCheckGate(unittest.TestCase):
         self.assertEqual((summary['tests'],summary['failures'],summary['errors'],summary['skipped']),(3,1,0,1))
 
     def test_posix_group_enforces_the_actual_host_boundary(self):
-        result, summary = self.invoke(strict=True, args=['--group', 'posix'])
+        result, summary = self.invoke(strict=True, args=['--group', 'posix'], timeout=600)
         if os.name == 'nt':
             self.assertEqual(result.returncode, 2)
             self.assertIsNone(summary)

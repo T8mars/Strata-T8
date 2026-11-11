@@ -277,6 +277,7 @@ class NativeBuildTests(unittest.TestCase):
         self.assertEqual(sleep.call_count, 1)
         b.validate_native_build(json.loads((self.engine/'BUILD.json').read_text())['t8_native_build'], self.root, self.engine)
 
+    @unittest.skipUnless(os.name == 'nt', 'selects the Windows .exe reader built by this fixture')
     def test_native_vision_architecture_stamp_prevents_false_cpu_fallback(self):
         from strata_control import pictures
         self.vendor['vision_archs'] = '75;86;89;120'

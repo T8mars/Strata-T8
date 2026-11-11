@@ -380,6 +380,7 @@ class VideoLicenseInventory(TemporaryInstallation):
         super().setUp()
         shutil.copytree(SOURCE/'licenses', self.root/'licenses')
 
+    @unittest.skipUnless(os.name == 'nt', 'checks the Windows wheel DLL inventory and DELVEWHEEL metadata')
     def test_actual_cpu_decoder_inventory_matches_dll_bytes_and_fixed_license_sources(self):
         import av
         base = Path(av.__file__).resolve().parent.parent

@@ -31,8 +31,12 @@ def plain_popen(what, args, **kw):
 class Construction(unittest.TestCase):
     def make(self, **vision):
         cfg = {"exe": "/engine/strata-vision", "mmproj": "/m/mmproj.gguf", "model": "/m/model.gguf", "gpu": True, **vision}
-        with mock.patch.object(server.Vision, "work_dir", return_value=Path(tempfile.gettempdir())):
-            return server.Vision(cfg, lazy=True)
+        directory = tempfile.TemporaryDirectory(prefix='vision-construction-')
+        self.addCleanup(directory.cleanup)
+        with mock.patch.object(server.Vision, "work_dir", return_value=Path(directory.name)):
+            reader = server.Vision(cfg, lazy=True)
+        self.addCleanup(reader.shutdown)
+        return reader
 
     def test_the_nvidia_reader_has_the_cpu_reader_in_every_mode(self):
         for extra in ({}, {"elastic": True}, {"elastic": False}, {"cuda_device": 1}):

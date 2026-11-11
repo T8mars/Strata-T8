@@ -5,6 +5,7 @@ import io
 import json
 from pathlib import Path
 import socket
+import sys
 import tempfile
 import unittest
 from unittest import mock
@@ -138,8 +139,15 @@ class OutputEncoding(unittest.TestCase):
             structured.validated_json('{"value":"\\ud800"}', structured._ObjectOnly(), 'stop')
 
     def test_excessive_model_json_nesting_is_a_structured_error(self):
-        with self.assertRaises(structured.StructuredOutputError):
-            structured.validated_json('{"value":'+'['*4000+'0'+']'*4000+'}', structured._ObjectOnly(), 'stop')
+        # pytest may raise the process recursion limit above this payload's
+        # depth. Exercise the real parser at the normal application limit.
+        previous=sys.getrecursionlimit()
+        try:
+            sys.setrecursionlimit(1000)
+            with self.assertRaises(structured.StructuredOutputError):
+                structured.validated_json('{"value":'+'['*4000+'0'+']'*4000+'}', structured._ObjectOnly(), 'stop')
+        finally:
+            sys.setrecursionlimit(previous)
 
 
 class RefreshTransaction(unittest.TestCase):

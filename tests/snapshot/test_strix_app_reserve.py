@@ -22,6 +22,7 @@ if str(ROOT) not in sys.path:
 
 from tests.snapshot.driver import drive, drive_app, drive_launch  # noqa: E402
 from tests.snapshot.matrix import machine, model_set  # noqa: E402
+from tests.snapshot.normalize import normalize  # noqa: E402
 from tests.snapshot.world import World  # noqa: E402
 
 NODE = os.environ.get("STRATA_SNAPSHOT_NODE") or shutil.which("node")
@@ -73,7 +74,9 @@ class StrixAppReserve(unittest.TestCase):
                 with mock.patch.dict(os.environ, {"STRATA_SNAPSHOT_APP_ARGS": json.dumps(app_args or {})}):
                     rec = drive_app(world, "models")
             self.assertNotIn("failed", rec, json.dumps(rec.get("failed")))
-            return rec["engine"]
+            # Each call owns a distinct scratch world. Compare all arguments
+            # using the same path normalization as the config snapshots.
+            return normalize(rec, world)["engine"]
         finally:
             world.close()
 

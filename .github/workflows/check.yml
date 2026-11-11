@@ -191,4 +191,13 @@ jobs:
         if: ${{ startsWith(matrix.only, 'py-') }}
         run: python tools/bootstrap_portable.py --gguf-only
       - name: tools/check
-        run: python tools/check --only "${{ matrix.only }}"
+        run: python tools/check --only "${{ matrix.only }}" --keep --scratch "${{ runner.temp }}/check" --json "${{ runner.temp }}/check/result.json"
+      - name: Logs
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: check-macos-${{ strategy.job-index }}
+          path: |
+            ${{ runner.temp }}/check/*.log
+            ${{ runner.temp }}/check/result.json
+          retention-days: 7
