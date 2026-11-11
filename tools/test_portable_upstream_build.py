@@ -143,9 +143,10 @@ class UpstreamNativeBuild(unittest.TestCase):
                 error=PermissionError('temporary directory lock');error.winerror=5
                 raise error
             return original(path,destination)
-        with mock.patch.object(Path,'rename',rename), mock.patch('portable_io.time.sleep') as sleep:
+        # Replace this helper's clock, not the shared time.sleep used by server threads.
+        with mock.patch.object(Path,'rename',rename), mock.patch('portable_io.time') as clock:
             self.invoke()
-        self.assertEqual(sleep.call_count,1)
+        clock.sleep.assert_called_once_with(.25)
         self.assertTrue((self.root/'stage/engine/strata.exe').is_file())
 
     def test_failed_install_restores_previous_engine(self):
