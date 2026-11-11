@@ -75,7 +75,7 @@ Windows 10 1903+/11 x64、AVX2 CPU、SSD。NVIDIA RTX 20/30/40/50 系列建议 1
 
 仓库每日检查上游正式版本并生成升级候选；完成合并审查和回归验收后，再手动触发发布。用户整合包仍自动检查 T8 正式版，并支持一键更新。[更新机制](docs/UPDATING-T8.md)
 
-本分支基于上游 [v0.2.12](https://github.com/Niko1221/Strata/releases/tag/v0.2.12)，应用版本 **0.2.12-t8.1**，Control 与引擎 **0.1.58**，兼容独立节点 **1.3.3 / 协议 1**。同步低显存启动、工具调用、请求计时和引擎稳定性修复，保留 T8 的 EXE、模型切换、局域网 API、完整时长视频分段、进度恢复、语音转录和音画联合分析。现有主模型与视觉权重可沿用；实际可下载版本以 [Release](https://github.com/T8mars/Strata-T8/releases/latest) 为准。[迁移与验证范围](docs/VALIDATION-UPSTREAM-0212-T8.md) · [更新机制](docs/UPDATING-T8.md)
+本分支基于上游 [v0.2.13](https://github.com/Niko1221/Strata/releases/tag/v0.2.13)，应用版本 **0.2.13-t8.1**，Control 与引擎 **0.1.59**，兼容独立节点 **1.3.3 / 协议 1**。同步引擎、启动、下载与 GPU 选择修复，保留 T8 的 EXE、模型切换、局域网 API、完整时长视频分段、进度恢复、语音转录和音画联合分析。现有主模型与视觉权重可沿用；实际可下载版本以 [Release](https://github.com/T8mars/Strata-T8/releases/latest) 为准。[更新机制](docs/UPDATING-T8.md)
 
 上游在适用 NVIDIA 配置中默认启用专家尾部跳过和实测 PCIe 分配，回答可能略有变化。需要恢复此前行为，可在运行配置的 `env` 对象设置 `"STRATA_ROUTE_TAIL_SKIP":"0"` 和 `"STRATA_PCIE_FRAC_DEFAULT":"old"`，然后重启；已有显式 `--pcie-frac` 参数继续优先。上游性能数字取决于硬件与模型，不代表本机速度。
 
