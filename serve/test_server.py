@@ -11,6 +11,7 @@ import os
 import queue
 import shutil
 import socket
+import subprocess
 import sys
 import tempfile
 import threading
@@ -6233,6 +6234,8 @@ class LazyVision(unittest.TestCase):
                     P.killed = True
 
                 def wait(self, timeout=None):
+                    if not P.killed:
+                        raise subprocess.TimeoutExpired("fake image encoder", timeout)
                     P.returncode = 0
                     return 0
             started.append(P)

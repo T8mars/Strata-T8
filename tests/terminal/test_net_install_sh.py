@@ -78,7 +78,9 @@ class DocumentedLines(unittest.TestCase):
            "irm https://github.com/Niko1221/Strata/releases/latest/download/install.ps1 | iex")
 
     def files(self):
-        for p in ROOT.rglob("*"):
+        listed = subprocess.check_output(["git", "-C", str(ROOT), "ls-files", "-z", "-co", "--exclude-standard"], text=True, encoding="utf-8")
+        for name in filter(None, listed.split("\0")):
+            p = ROOT / name
             rel = p.relative_to(ROOT).as_posix()
             if p.suffix.lower() not in (".md", ".ps1", ".sh", ".txt", ".json", ".ts", ".tsx", ".mjs", ".py", ".html") or not p.is_file():
                 continue
@@ -99,7 +101,7 @@ class DocumentedLines(unittest.TestCase):
         self.assertEqual(left, [])
 
     def test_the_readme_lines(self):
-        text = (ROOT / "README.md").read_text(encoding="utf-8")
+        text = (ROOT / "README-UPSTREAM.md").read_text(encoding="utf-8")
         self.assertIn("curl -fsSL --connect-timeout 15 --max-time 120 https://github.com/Niko1221/Strata/releases/latest/download/install.sh "
                       "-o install.sh && sh install.sh", text)
         self.assertIn("irm -TimeoutSec 120 https://github.com/Niko1221/Strata/releases/latest/download/install.ps1 | iex", text)

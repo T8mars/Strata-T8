@@ -617,7 +617,7 @@ def template_report(md: dict) -> dict:
     r.update(toolformat.thinking_tags(src))
     local = ROOT / "serve" / "chat_template.jinja"
     if local.is_file():
-        r["same_as_serve_chat_template"] = hashlib.sha256(local.read_bytes()).hexdigest() == h
+        r["same_as_serve_chat_template"] = hashlib.sha256(local.read_text(encoding="utf-8").encode()).hexdigest() == h
     return r
 
 

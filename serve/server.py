@@ -3355,7 +3355,7 @@ def vision_start_error(line: str, log=None, code: int | None = None, waited: flo
     if text:
         msg = "the vision encoder did not start: " + text
     elif waited is not None:
-        msg = f"the vision encoder did not start: it said nothing for {waited:g} s (it never reported READY)"
+        msg = f"the vision encoder did not start: it did not report READY within {waited:g} s"
     else:
         msg = "the vision encoder did not start: it ended without saying anything"
     extra = []
@@ -3542,7 +3542,8 @@ class Vision:
         strays = []
         try:
             line = self._await_ready(getattr(self, 'start_timeout_s', VISION_READY_S), strays, cancel)
-            if not line.startswith('READY'):
+            fields = line.split()
+            if not fields or fields[0] != 'READY':
                 code = self.proc.poll()
                 if code is None:
                     try:
@@ -3552,7 +3553,6 @@ class Vision:
                 message = vision_start_error(line, log, code, strays=strays, since=since)
                 room = reader_room.find((line + chr(10) + chr(10).join(strays) + chr(10) + vision_log_tail(log, since=since)).splitlines())
                 raise (VisionNoRoom(message, room) if room else RuntimeError(message))
-            fields = line.split()
             flags = fields[2:]
             self.native_video = (len(fields) >= 2 and fields[1] == '2560'
                                  and 'video=1' in flags and 'encv=1' in flags)

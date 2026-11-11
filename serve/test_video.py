@@ -507,11 +507,21 @@ class VideoEncoderProcesses(unittest.TestCase):
         obj = self.make()
         (obj.dir/'mode').write_text('hang')
         cancel = threading.Event()
-        timer = threading.Timer(.2, cancel.set)
-        timer.start()
-        self.addCleanup(timer.cancel)
+        sent, stop = threading.Event(), threading.Event()
+        def cancel_after_send():
+            deadline = time.monotonic() + 5
+            while not stop.wait(.01) and time.monotonic() < deadline:
+                if (obj.dir/'calls.jsonl').is_file():
+                    sent.set()
+                    cancel.set()
+                    return
+        watcher = threading.Thread(target=cancel_after_send, daemon=True)
+        watcher.start()
+        self.addCleanup(watcher.join, 1)
+        self.addCleanup(stop.set)
         with self.assertRaises(RequestCancelled):
             obj.encode_pair(png('red'), png('blue'), cancel=cancel)
+        self.assertTrue(sent.is_set(), 'cancellation must happen after the child receives ENCV')
         self.assertIsNone(obj.proc)
         self.assertFalse(list(obj.dir.glob('*.png')))
         self.assertFalse(list(obj.dir.glob('*.sve')))

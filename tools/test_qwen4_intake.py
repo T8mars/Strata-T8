@@ -588,7 +588,7 @@ class TablesMatchTheSources(unittest.TestCase):
 
 def serve_template_hash() -> str:
     import hashlib
-    return hashlib.sha256((ROOT / "serve" / "chat_template.jinja").read_bytes()).hexdigest()
+    return hashlib.sha256((ROOT / "serve" / "chat_template.jinja").read_text(encoding="utf-8").encode()).hexdigest()
 
 
 if __name__ == "__main__":

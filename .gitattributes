@@ -17,6 +17,8 @@ licenses/video/** -text
 # Shared speech contracts carry hashes and must match on Windows and Linux.
 serve/asr/contract.py text eol=lf
 serve/asr/media.py text eol=lf
+# The local chat template is compared with GGUF template hashes on every host.
+serve/chat_template.jinja text eol=lf
 
 # The fork's landing page is maintained separately; sync_upstream configures this driver.
 README.md merge=t8-keep
