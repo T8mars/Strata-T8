@@ -56,7 +56,7 @@ class StartError(unittest.TestCase):
         f = log_with("loading weights\nstill loading the projector\n")
         self.addCleanup(lambda: (f.close(), Path(f.name).unlink()))
         m = server.vision_start_error("", f, waited=300)
-        self.assertIn("said nothing for 300 s", m)
+        self.assertIn("did not report READY within 300 s", m)
         self.assertIn("still loading the projector", m)
 
     def test_the_reader_that_ends_before_READY_raises_with_its_exit_code(self):

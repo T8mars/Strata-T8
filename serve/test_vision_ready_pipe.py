@@ -142,7 +142,7 @@ class ReadyPipe(unittest.TestCase):
         with mock.patch.object(server, "VISION_READY_S", 1.5):
             error, _, took = self.start(v)
         self.assertIsNotNone(error)
-        self.assertIn("said nothing for", str(error))
+        self.assertIn("did not report READY within 1.5 s", str(error))
         self.assertIn("[New LWP 5]", str(error))
         self.assertGreaterEqual(took, 1.4)
         self.assertLess(took, 8)
