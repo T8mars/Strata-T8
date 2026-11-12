@@ -146,6 +146,10 @@ jobs:
         run: python tools/bootstrap_portable.py --gguf-only
       # tools/check finds Visual Studio's compiler itself (vcvars64.bat); bash is Git for Windows' (the tester-README tests need it)
       - name: tools/check
+        env:
+          # The runner's `py -3` may choose another installed Python. Match the
+          # interpreter whose dependencies were installed above and in T8 CI.
+          STRATA_PYTHON: ${{ env.pythonLocation }}/python.exe
         run: python tools/check --only "${{ matrix.only }}" --keep --scratch "$env:RUNNER_TEMP\check" --json "$env:RUNNER_TEMP\check\result.json"
       - name: Logs
         if: ${{ failure() }}
