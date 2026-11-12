@@ -150,7 +150,12 @@ jobs:
           # The runner's `py -3` may choose another installed Python. Match the
           # interpreter whose dependencies were installed above and in T8 CI.
           STRATA_PYTHON: ${{ env.pythonLocation }}/python.exe
-        run: python tools/check --only "${{ matrix.only }}" --keep --scratch "$env:RUNNER_TEMP\check" --json "$env:RUNNER_TEMP\check\result.json"
+        # Python normalizes Windows environment keys to uppercase. Node then
+        # prefers PSMODULEPATH over a child's PSModulePath override. Keep the
+        # inherited path compatible with the Windows PowerShell ACL helpers.
+        run: |
+          $env:PSModulePath = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\Modules'
+          python tools/check --only "${{ matrix.only }}" --keep --scratch "$env:RUNNER_TEMP\check" --json "$env:RUNNER_TEMP\check\result.json"
       - name: Logs
         if: ${{ failure() }}
         uses: actions/upload-artifact@v4
