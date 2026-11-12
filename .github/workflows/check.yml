@@ -150,6 +150,10 @@ jobs:
           # The runner's `py -3` may choose another installed Python. Match the
           # interpreter whose dependencies were installed above and in T8 CI.
           STRATA_PYTHON: ${{ env.pythonLocation }}/python.exe
+          # Match the headless modern terminal used by T8's terminal suites.
+          # Classic-console behavior has its own explicitly isolated tests.
+          WT_SESSION: strata-tests
+          TERM: xterm-256color
         # Python normalizes Windows environment keys to uppercase. Node then
         # prefers PSMODULEPATH over a child's PSModulePath override. Keep the
         # inherited path compatible with the Windows PowerShell ACL helpers.
