@@ -136,7 +136,7 @@ jobs:
       - uses: actions/setup-node@v4
         if: ${{ startsWith(matrix.only, 'host') }}
         with:
-          node-version: '24'
+          node-version: '24.12.0'
           cache: npm
           cache-dependency-path: apps/host/package-lock.json
       - name: Python packages
